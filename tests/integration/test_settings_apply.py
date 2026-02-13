@@ -1,14 +1,14 @@
-from pathlib import Path
-
 from meshcore_console.meshcore.client import MeshcoreClient
 from meshcore_console.meshcore.config import runtime_config_from_settings
+from meshcore_console.meshcore.db import open_db
 from meshcore_console.meshcore.settings import MeshcoreSettings
 from meshcore_console.meshcore.settings_store import SettingsStore
 from meshcore_console.mock import MockPyMCCoreSession
 
 
-def test_client_updates_and_persists_settings(tmp_path: Path) -> None:
-    store = SettingsStore(path=tmp_path / "settings.json")
+def test_client_updates_and_persists_settings(tmp_path) -> None:
+    conn = open_db(str(tmp_path / "test.db"))
+    store = SettingsStore(conn)
     base_settings = MeshcoreSettings()
     client = MeshcoreClient(
         session=MockPyMCCoreSession(runtime_config_from_settings(base_settings)),
@@ -33,3 +33,4 @@ def test_client_updates_and_persists_settings(tmp_path: Path) -> None:
 
     reloaded = store.load()
     assert reloaded.node_name == "applied-node"
+    conn.close()

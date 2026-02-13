@@ -36,34 +36,9 @@ def state_dir() -> Path:
     return xdg_state_home() / APP_NAME
 
 
-def settings_path() -> Path:
-    """Return the path to settings.json"""
-    return config_dir() / "settings.json"
-
-
-def channels_path() -> Path:
-    """Return the path to channels.json"""
-    return data_dir() / "channels.json"
-
-
-def packets_path() -> Path:
-    """Return the path to packets.json"""
-    return state_dir() / "packets.json"
-
-
-def messages_path() -> Path:
-    """Return the path to messages.json"""
-    return state_dir() / "messages.json"
-
-
-def peers_path() -> Path:
-    """Return the path to peers.json"""
-    return state_dir() / "peers.json"
-
-
-def ui_channels_path() -> Path:
-    """Return the path to ui_channels.json (UI state, separate from encryption secrets)"""
-    return state_dir() / "ui_channels.json"
+def db_path() -> Path:
+    """Return the path to the SQLite database."""
+    return state_dir() / "meshcore.db"
 
 
 def identity_key_path() -> Path:

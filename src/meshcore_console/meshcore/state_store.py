@@ -1,266 +1,223 @@
-"""Persistent state storage for messages, peers, and channels."""
+"""Persistent state storage for messages, peers, and channels (SQLite)."""
 
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict
+import sqlite3
 from datetime import datetime
-from pathlib import Path
-from typing import Any
 
 from meshcore_console.core.models import Channel, Message, Peer
-
-from .paths import messages_path, peers_path, ui_channels_path
 
 logger = logging.getLogger(__name__)
 
 MAX_MESSAGES = 500
 
 
-def _message_to_dict(msg: Message) -> dict[str, Any]:
-    """Convert Message to JSON-serializable dict."""
-    return {
-        "message_id": msg.message_id,
-        "sender_id": msg.sender_id,
-        "body": msg.body,
-        "channel_id": msg.channel_id,
-        "created_at": msg.created_at.isoformat(),
-        "is_outgoing": msg.is_outgoing,
-        "path_len": msg.path_len,
-        "snr": msg.snr,
-        "rssi": msg.rssi,
-    }
+class MessageStore:
+    """Persistent message storage backed by SQLite."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def append(self, message: Message) -> None:
+        self._conn.execute(
+            "INSERT OR IGNORE INTO messages "
+            "(message_id, sender_id, body, channel_id, created_at, is_outgoing, path_len, snr, rssi) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                message.message_id,
+                message.sender_id,
+                message.body,
+                message.channel_id,
+                message.created_at.isoformat(),
+                int(message.is_outgoing),
+                message.path_len,
+                message.snr,
+                message.rssi,
+            ),
+        )
+        # Prune oldest messages beyond limit
+        count = self._conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        if count > MAX_MESSAGES:
+            self._conn.execute(
+                "DELETE FROM messages WHERE message_id IN "
+                "(SELECT message_id FROM messages ORDER BY created_at ASC LIMIT ?)",
+                (count - MAX_MESSAGES,),
+            )
+        self._conn.commit()
+
+    def flush_if_dirty(self) -> None:
+        pass
+
+    def get_all(self) -> list[Message]:
+        rows = self._conn.execute(
+            "SELECT message_id, sender_id, body, channel_id, created_at, "
+            "is_outgoing, path_len, snr, rssi FROM messages ORDER BY created_at"
+        ).fetchall()
+        return [_row_to_message(r) for r in rows]
+
+    def get_for_channel(self, channel_id: str, limit: int = 50) -> list[Message]:
+        rows = self._conn.execute(
+            "SELECT message_id, sender_id, body, channel_id, created_at, "
+            "is_outgoing, path_len, snr, rssi FROM messages "
+            "WHERE channel_id = ? ORDER BY created_at",
+            (channel_id,),
+        ).fetchall()
+        return (
+            [_row_to_message(r) for r in rows[-limit:]]
+            if limit > 0
+            else [_row_to_message(r) for r in rows]
+        )
+
+    def __len__(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
 
 
-def _dict_to_message(d: dict[str, Any]) -> Message:
-    """Convert dict back to Message."""
-    created_at = d.get("created_at")
+class PeerStore:
+    """Persistent peer storage backed by SQLite."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def add_or_update(self, peer: Peer) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO peers "
+            "(peer_id, display_name, signal_quality, public_key, last_advert_time, "
+            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                peer.peer_id,
+                peer.display_name,
+                peer.signal_quality,
+                peer.public_key,
+                peer.last_advert_time.isoformat() if peer.last_advert_time else None,
+                json.dumps(peer.last_path) if peer.last_path else None,
+                int(peer.is_repeater),
+                peer.rssi,
+                peer.snr,
+                peer.latitude,
+                peer.longitude,
+                peer.location_updated.isoformat() if peer.location_updated else None,
+            ),
+        )
+        self._conn.commit()
+
+    def flush_if_dirty(self) -> None:
+        pass
+
+    def get(self, name: str) -> Peer | None:
+        row = self._conn.execute(
+            "SELECT peer_id, display_name, signal_quality, public_key, last_advert_time, "
+            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated "
+            "FROM peers WHERE display_name = ?",
+            (name,),
+        ).fetchone()
+        return _row_to_peer(row) if row else None
+
+    def get_all(self) -> dict[str, Peer]:
+        rows = self._conn.execute(
+            "SELECT peer_id, display_name, signal_quality, public_key, last_advert_time, "
+            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated "
+            "FROM peers"
+        ).fetchall()
+        result: dict[str, Peer] = {}
+        for row in rows:
+            peer = _row_to_peer(row)
+            result[peer.display_name or peer.peer_id] = peer
+        return result
+
+    def __len__(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM peers").fetchone()[0]
+
+
+class UIChannelStore:
+    """Persistent UI channel state backed by SQLite."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def add_or_update(self, channel: Channel) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO channels (channel_id, display_name, unread_count) VALUES (?, ?, ?)",
+            (channel.channel_id, channel.display_name, channel.unread_count),
+        )
+        self._conn.commit()
+
+    def flush_if_dirty(self) -> None:
+        pass
+
+    def get(self, channel_id: str) -> Channel | None:
+        row = self._conn.execute(
+            "SELECT channel_id, display_name, unread_count FROM channels WHERE channel_id = ?",
+            (channel_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Channel(channel_id=row[0], display_name=row[1], unread_count=row[2])
+
+    def get_all(self) -> dict[str, Channel]:
+        rows = self._conn.execute(
+            "SELECT channel_id, display_name, unread_count FROM channels"
+        ).fetchall()
+        return {
+            row[0]: Channel(channel_id=row[0], display_name=row[1], unread_count=row[2])
+            for row in rows
+        }
+
+    def increment_unread(self, channel_id: str) -> None:
+        self._conn.execute(
+            "UPDATE channels SET unread_count = unread_count + 1 WHERE channel_id = ?",
+            (channel_id,),
+        )
+        self._conn.commit()
+
+    def __len__(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) FROM channels").fetchone()[0]
+
+
+def _row_to_message(row: tuple) -> Message:
+    created_at = row[4]
     if isinstance(created_at, str):
         created_at = datetime.fromisoformat(created_at)
     else:
         created_at = datetime.now()
     return Message(
-        message_id=d.get("message_id", ""),
-        sender_id=d.get("sender_id", ""),
-        body=d.get("body", ""),
-        channel_id=d.get("channel_id", "public"),
+        message_id=row[0],
+        sender_id=row[1],
+        body=row[2],
+        channel_id=row[3],
         created_at=created_at,
-        is_outgoing=d.get("is_outgoing", False),
-        path_len=d.get("path_len", 0),
-        snr=d.get("snr"),
-        rssi=d.get("rssi"),
+        is_outgoing=bool(row[5]),
+        path_len=row[6] or 0,
+        snr=row[7],
+        rssi=row[8],
     )
 
 
-class MessageStore:
-    """Persistent message storage."""
-
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path if path is not None else messages_path()
-        self._messages: list[Message] = []
-        self._dirty = False
-        logger.debug("MessageStore initialized with path: %s", self._path)
-        self._load()
-
-    def _load(self) -> None:
-        if not self._path.exists():
-            logger.debug("MessageStore: no existing file at %s", self._path)
-            return
-        try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-            messages = data.get("messages", [])
-            if isinstance(messages, list):
-                self._messages = [_dict_to_message(m) for m in messages[-MAX_MESSAGES:]]
-            logger.debug("MessageStore: loaded %d messages", len(self._messages))
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("MessageStore load error: %s", e)
-
-    def _save(self) -> None:
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            data = {"messages": [_message_to_dict(m) for m in self._messages]}
-            self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except OSError as e:
-            logger.warning("MessageStore save error: %s", e)
-            raise
-
-    def append(self, message: Message) -> None:
-        """Add a message, maintaining max size."""
-        self._messages.append(message)
-        if len(self._messages) > MAX_MESSAGES:
-            self._messages = self._messages[-MAX_MESSAGES:]
-        self._dirty = True
-
-    def flush_if_dirty(self) -> None:
-        """Write to disk only if data has changed since last save."""
-        if self._dirty:
-            self._save()
-            self._dirty = False
-
-    def get_all(self) -> list[Message]:
-        """Return all messages."""
-        return list(self._messages)
-
-    def get_for_channel(self, channel_id: str, limit: int = 50) -> list[Message]:
-        """Return messages for a specific channel."""
-        filtered = [m for m in self._messages if m.channel_id == channel_id]
-        return filtered[-limit:] if limit > 0 else filtered
-
-    def __len__(self) -> int:
-        return len(self._messages)
-
-
-class PeerStore:
-    """Persistent peer storage."""
-
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path if path is not None else peers_path()
-        self._peers: dict[str, Peer] = {}
-        self._dirty = False
-        logger.debug("PeerStore initialized with path: %s", self._path)
-        self._load()
-
-    def _load(self) -> None:
-        if not self._path.exists():
-            logger.debug("PeerStore: no existing file at %s", self._path)
-            return
-        try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-            peers = data.get("peers", [])
-            if isinstance(peers, list):
-                for p in peers:
-                    last_advert = p.get("last_advert_time")
-                    if isinstance(last_advert, str):
-                        last_advert = datetime.fromisoformat(last_advert)
-                    location_updated = p.get("location_updated")
-                    if isinstance(location_updated, str):
-                        location_updated = datetime.fromisoformat(location_updated)
-                    peer = Peer(
-                        peer_id=p.get("peer_id", ""),
-                        display_name=p.get("display_name", ""),
-                        signal_quality=p.get("signal_quality"),
-                        public_key=p.get("public_key"),
-                        last_advert_time=last_advert,
-                        last_path=p.get("last_path", []),
-                        is_repeater=p.get("is_repeater", False),
-                        rssi=p.get("rssi"),
-                        snr=p.get("snr"),
-                        latitude=p.get("latitude"),
-                        longitude=p.get("longitude"),
-                        location_updated=location_updated,
-                    )
-                    if peer.peer_id:
-                        self._peers[peer.display_name or peer.peer_id] = peer
-            logger.debug("PeerStore: loaded %d peers", len(self._peers))
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("PeerStore load error: %s", e)
-
-    def _save(self) -> None:
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            peers_data = []
-            for p in self._peers.values():
-                d = asdict(p)
-                # Convert datetime to ISO string for JSON
-                if d.get("last_advert_time") is not None:
-                    d["last_advert_time"] = d["last_advert_time"].isoformat()
-                if d.get("location_updated") is not None:
-                    d["location_updated"] = d["location_updated"].isoformat()
-                peers_data.append(d)
-            data = {"peers": peers_data}
-            self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except OSError as e:
-            logger.warning("PeerStore save error: %s", e)
-            raise
-
-    def add_or_update(self, peer: Peer) -> None:
-        """Add or update a peer."""
-        key = peer.display_name or peer.peer_id
-        self._peers[key] = peer
-        self._dirty = True
-
-    def flush_if_dirty(self) -> None:
-        """Write to disk only if data has changed since last save."""
-        if self._dirty:
-            self._save()
-            self._dirty = False
-
-    def get(self, name: str) -> Peer | None:
-        """Get peer by name."""
-        return self._peers.get(name)
-
-    def get_all(self) -> dict[str, Peer]:
-        """Return all peers."""
-        return dict(self._peers)
-
-    def __len__(self) -> int:
-        return len(self._peers)
-
-
-class UIChannelStore:
-    """Persistent UI channel state (unread counts, etc.)."""
-
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path if path is not None else ui_channels_path()
-        self._channels: dict[str, Channel] = {}
-        self._dirty = False
-        logger.debug("UIChannelStore initialized with path: %s", self._path)
-        self._load()
-
-    def _load(self) -> None:
-        if not self._path.exists():
-            logger.debug("UIChannelStore: no existing file at %s", self._path)
-            return
-        try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-            channels = data.get("channels", [])
-            if isinstance(channels, list):
-                for c in channels:
-                    channel = Channel(
-                        channel_id=c.get("channel_id", ""),
-                        display_name=c.get("display_name", ""),
-                        unread_count=c.get("unread_count", 0),
-                    )
-                    if channel.channel_id:
-                        self._channels[channel.channel_id] = channel
-            logger.debug("UIChannelStore: loaded %d channels", len(self._channels))
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("UIChannelStore load error: %s", e)
-
-    def _save(self) -> None:
-        try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            data = {"channels": [asdict(c) for c in self._channels.values()]}
-            self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except OSError as e:
-            logger.warning("UIChannelStore save error: %s", e)
-            raise
-
-    def add_or_update(self, channel: Channel) -> None:
-        """Add or update a channel."""
-        self._channels[channel.channel_id] = channel
-        self._dirty = True
-
-    def flush_if_dirty(self) -> None:
-        """Write to disk only if data has changed since last save."""
-        if self._dirty:
-            self._save()
-            self._dirty = False
-
-    def get(self, channel_id: str) -> Channel | None:
-        """Get channel by ID."""
-        return self._channels.get(channel_id)
-
-    def get_all(self) -> dict[str, Channel]:
-        """Return all channels."""
-        return dict(self._channels)
-
-    def increment_unread(self, channel_id: str) -> None:
-        """Increment unread count for a channel."""
-        if channel_id in self._channels:
-            self._channels[channel_id].unread_count += 1
-            self._dirty = True
-
-    def __len__(self) -> int:
-        return len(self._channels)
+def _row_to_peer(row: tuple) -> Peer:
+    last_advert = row[4]
+    if isinstance(last_advert, str):
+        last_advert = datetime.fromisoformat(last_advert)
+    last_path = row[5]
+    if isinstance(last_path, str):
+        last_path = json.loads(last_path)
+    else:
+        last_path = []
+    location_updated = row[11]
+    if isinstance(location_updated, str):
+        location_updated = datetime.fromisoformat(location_updated)
+    return Peer(
+        peer_id=row[0],
+        display_name=row[1],
+        signal_quality=row[2],
+        public_key=row[3],
+        last_advert_time=last_advert,
+        last_path=last_path,
+        is_repeater=bool(row[6]),
+        rssi=row[7],
+        snr=row[8],
+        latitude=row[9],
+        longitude=row[10],
+        location_updated=location_updated,
+    )

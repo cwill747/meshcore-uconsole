@@ -1,33 +1,42 @@
 from __future__ import annotations
 
-import json
-from dataclasses import asdict
-from pathlib import Path
+import sqlite3
+from dataclasses import asdict, fields
 
-from .paths import settings_path
 from .settings import MeshcoreSettings
 
 
 class SettingsStore:
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path if path is not None else settings_path()
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
 
     def load(self) -> MeshcoreSettings:
-        if not self._path.exists():
+        rows = self._conn.execute("SELECT key, value FROM settings").fetchall()
+        if not rows:
             return MeshcoreSettings()
-        try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-        except Exception:
-            return MeshcoreSettings()
-
+        stored = {key: value for key, value in rows}
         defaults = asdict(MeshcoreSettings())
-        for key, value in data.items():
-            if key in defaults:
-                defaults[key] = value
+        for field in fields(MeshcoreSettings):
+            if field.name in stored:
+                raw = stored[field.name]
+                defaults[field.name] = _cast(raw, field.type)
         return MeshcoreSettings(**defaults)
 
     def save(self, settings: MeshcoreSettings) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps(asdict(settings), indent=2, sort_keys=True), encoding="utf-8"
+        data = asdict(settings)
+        self._conn.executemany(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            [(k, str(v)) for k, v in data.items()],
         )
+        self._conn.commit()
+
+
+def _cast(raw: str, type_hint: str) -> object:
+    """Cast a string value back to the expected Python type."""
+    if type_hint == "bool":
+        return raw in ("True", "1", "true")
+    if type_hint == "int":
+        return int(raw)
+    if type_hint == "float":
+        return float(raw)
+    return raw

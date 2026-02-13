@@ -24,6 +24,7 @@ from meshcore_console.core.types import (
 from .channel_db import ChannelDatabase
 from .config import RuntimeRadioConfig, load_hardware_config_from_env
 from .contact_book import ContactBook
+from .db import open_db
 from .event_bridge import attach_dispatcher_callbacks, attach_event_service_subscriber
 from .operations import send_advert, send_group_text, send_text
 from .runtime import create_mesh_node, create_radio, import_pymc_core
@@ -42,7 +43,8 @@ class PyMCCoreSession:
         self._event_subscriber: EventSubscriberProtocol | None = None
         self._node_task: asyncio.Task[None] | None = None
         self._event_queue: queue.Queue[MeshEventDict] = queue.Queue()
-        self._channel_db = ChannelDatabase()
+        self._db = open_db()
+        self._channel_db = ChannelDatabase(self._db)
         self._contact_book = ContactBook()
 
     def _log(self, message: str) -> None:
