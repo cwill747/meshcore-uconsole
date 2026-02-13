@@ -393,6 +393,7 @@ class MainWindow(Adw.ApplicationWindow):
             if event.get("type") == "settings_updated":
                 self._refresh_connection_state()
                 break
+        self._service.flush_stores()
         return True
 
     def _wire_keyboard_shortcuts(self) -> None:

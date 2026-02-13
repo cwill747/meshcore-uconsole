@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -49,7 +50,7 @@ class AnalyzerView(Gtk.Box):
         self._event_store = event_store
         self._geom_debug = os.environ.get("MESHCORE_UI_GEOM_DEBUG", "0") == "1"
         self._cursor = 0
-        self._packets: list[PacketRecord] = []
+        self._packets: deque[PacketRecord] = deque(maxlen=400)
         self._selected_index: int | None = None
         self._paused = False
         self._active_filter = AnalyzerFilter.ALL
@@ -140,7 +141,7 @@ class AnalyzerView(Gtk.Box):
         self._details.set_size_request(220, -1)
         self._details_revealer.set_child(self._details)
 
-        GLib.timeout_add(750, self._poll_events)
+        GLib.timeout_add(1500, self._poll_events)
         # Load stored packets from persistent storage
         self._load_stored_packets()
         self._refresh_all()
@@ -149,11 +150,11 @@ class AnalyzerView(Gtk.Box):
         """Load packets from persistent storage on startup."""
         try:
             stored = self._service.list_stored_packets(limit=400)
-            # stored is chronological [oldest...newest], insert(0) reverses to newest-first
+            # stored is chronological [oldest...newest], appendleft reverses to newest-first
             for packet_event in stored:
                 record = self._event_to_record(packet_event)
                 if record is not None:
-                    self._packets.insert(0, record)
+                    self._packets.appendleft(record)
             if stored:
                 logger.debug("AnalyzerView: loaded %d packets from storage", len(self._packets))
         except (OSError, ValueError) as e:
@@ -178,21 +179,24 @@ class AnalyzerView(Gtk.Box):
         if self._paused:
             return True
         self._cursor, events = self._event_store.since(self._cursor, limit=200)
-        if self._geom_debug and events:
+        if not events:
+            return True
+        if self._geom_debug:
             print(
                 f"[ui-geom] analyzer pre-refresh packets={len(self._packets)} new_events={len(events)}"
             )
             self._debug_width_report("pre")
+        new_records: list[PacketRecord] = []
         for event in events:
             record = self._event_to_record(event)
             if record is not None:
-                self._packets.insert(0, record)
-        if events:
-            self._packets = self._packets[:400]
-            self._refresh_all()
-            if self._geom_debug:
-                print(f"[ui-geom] analyzer post-refresh packets={len(self._packets)}")
-                self._debug_width_report("post")
+                self._packets.appendleft(record)
+                new_records.append(record)
+        if new_records:
+            self._append_new_rows(new_records)
+        if self._geom_debug:
+            print(f"[ui-geom] analyzer post-refresh packets={len(self._packets)}")
+            self._debug_width_report("post")
         return True
 
     @staticmethod
@@ -413,18 +417,108 @@ class AnalyzerView(Gtk.Box):
 
     def _filtered_packets(self) -> list[PacketRecord]:
         if self._active_filter == AnalyzerFilter.ALL:
-            return self._packets
+            return list(self._packets)
         filter_val = self._active_filter.value
         # PATH filter also matches TRACE (both are network diagnostics)
         if filter_val == "PATH":
             return [p for p in self._packets if "PATH" in p.packet_type or "TRACE" in p.packet_type]
         return [p for p in self._packets if filter_val in p.packet_type]
 
+    def _matches_filter(self, record: PacketRecord) -> bool:
+        """Check if a record matches the current active filter."""
+        if self._active_filter == AnalyzerFilter.ALL:
+            return True
+        filter_val = self._active_filter.value
+        if filter_val == "PATH":
+            return "PATH" in record.packet_type or "TRACE" in record.packet_type
+        return filter_val in record.packet_type
+
     def _refresh_all(self) -> None:
         self._refresh_stream()
         self._refresh_details()
 
+    def _append_new_rows(self, new_records: list[PacketRecord]) -> None:
+        """Incrementally prepend new rows to the stream ListBox."""
+        # Filter new records that match the current filter
+        matching = [r for r in new_records if self._matches_filter(r)]
+        if not matching:
+            return
+
+        # Shift selected index to account for new rows at the top
+        if self._selected_index is not None:
+            self._selected_index += len(matching)
+
+        # Prepend new rows (newest first - matching is already in newest-first order)
+        for record in reversed(matching):
+            row = self._build_stream_row(record, 0)
+            self._stream.insert(row, 0)
+
+        # Trim overflow rows from the bottom
+        max_rows = 180
+        idx = max_rows
+        while True:
+            overflow = self._stream.get_row_at_index(idx)
+            if overflow is None:
+                break
+            self._stream.remove(overflow)
+            idx = max_rows  # re-check same index after removal
+
+    def _build_stream_row(self, packet: PacketRecord, idx: int) -> Gtk.ListBoxRow:
+        """Create a single ListBoxRow for a packet record."""
+        row = Gtk.ListBoxRow.new()
+        setattr(row, "packet_index", idx)
+        row.add_css_class(f"row-{self._type_class(packet.packet_type)}")
+
+        line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        line.add_css_class("analyzer-stream-row")
+        line.set_margin_top(4)
+        line.set_margin_bottom(4)
+        line.set_margin_start(4)
+        line.set_margin_end(4)
+
+        time_label = Gtk.Label(label=packet.timestamp[:11])
+        time_label.add_css_class("panel-muted")
+        time_label.set_xalign(0)
+        time_label.set_size_request(self.COL_TIME, -1)
+        time_label.set_single_line_mode(True)
+        line.append(time_label)
+
+        type_text = packet.packet_type[:10]
+        type_label = Gtk.Label(label=type_text)
+        type_label.add_css_class("packet-type")
+        type_label.add_css_class(self._type_class(packet.packet_type))
+        type_label.set_size_request(self.COL_TYPE, -1)
+        type_label.set_xalign(0)
+        type_label.set_single_line_mode(True)
+        line.append(type_label)
+
+        node_text = packet.node[:18]
+        node_label = Gtk.Label(label=node_text)
+        node_label.set_xalign(0)
+        node_label.set_size_request(self.COL_NODE, -1)
+        node_label.set_single_line_mode(True)
+        line.append(node_label)
+
+        content_text = packet.content[:80]
+        content_label = Gtk.Label(label=content_text)
+        content_label.add_css_class("panel-muted")
+        content_label.set_xalign(0)
+        content_label.set_hexpand(True)
+        content_label.set_single_line_mode(True)
+        line.append(content_label)
+
+        sig_label = Gtk.Label(label=f"{packet.rssi} / {packet.snr:.2f}")
+        sig_label.add_css_class("analyzer-rssi")
+        sig_label.set_xalign(0)
+        sig_label.set_size_request(self.COL_SIGNAL, -1)
+        sig_label.set_single_line_mode(True)
+        line.append(sig_label)
+
+        row.set_child(line)
+        return row
+
     def _refresh_stream(self) -> None:
+        """Full rebuild of stream rows. Used for filter changes and initial load."""
         packets = self._filtered_packets()
         while True:
             row = self._stream.get_row_at_index(0)
@@ -441,61 +535,7 @@ class AnalyzerView(Gtk.Box):
                 self._stream.append(self._day_separator_row(packet.date))
             prev_date = packet.date
 
-            row = Gtk.ListBoxRow.new()
-            setattr(row, "packet_index", idx)
-            # Add type-based class for row colorization
-            row.add_css_class(f"row-{self._type_class(packet.packet_type)}")
-
-            line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            line.add_css_class("analyzer-stream-row")
-            line.set_margin_top(4)
-            line.set_margin_bottom(4)
-            line.set_margin_start(4)
-            line.set_margin_end(4)
-
-            time_label = Gtk.Label(label=packet.timestamp[:11])
-            time_label.add_css_class("panel-muted")
-            time_label.set_xalign(0)
-            time_label.set_size_request(self.COL_TIME, -1)
-            time_label.set_single_line_mode(True)
-            line.append(time_label)
-
-            type_text = packet.packet_type[:10]
-            type_label = Gtk.Label(label=type_text)
-            type_label.add_css_class("packet-type")
-            type_label.add_css_class(self._type_class(packet.packet_type))
-            type_label.set_size_request(self.COL_TYPE, -1)
-            type_label.set_xalign(0)
-            type_label.set_single_line_mode(True)
-            line.append(type_label)
-
-            # Truncate text to fit column - GTK4 measures natural width
-            # BEFORE applying ellipsis, causing window resize with long text
-            node_text = packet.node[:18]
-            node_label = Gtk.Label(label=node_text)
-            node_label.set_xalign(0)
-            node_label.set_size_request(self.COL_NODE, -1)
-            node_label.set_single_line_mode(True)
-            line.append(node_label)
-
-            # Content expands to fill available space
-            content_text = packet.content[:80]
-            content_label = Gtk.Label(label=content_text)
-            content_label.add_css_class("panel-muted")
-            content_label.set_xalign(0)
-            content_label.set_hexpand(True)
-            content_label.set_single_line_mode(True)
-            line.append(content_label)
-
-            # Format: "-112 / -9.00" = 13 chars max
-            sig_label = Gtk.Label(label=f"{packet.rssi} / {packet.snr:.2f}")
-            sig_label.add_css_class("analyzer-rssi")
-            sig_label.set_xalign(0)
-            sig_label.set_size_request(self.COL_SIGNAL, -1)
-            sig_label.set_single_line_mode(True)
-            line.append(sig_label)
-
-            row.set_child(line)
+            row = self._build_stream_row(packet, idx)
             self._stream.append(row)
 
         if self._selected_index is None:
@@ -553,7 +593,7 @@ class AnalyzerView(Gtk.Box):
             self._selected_index = None
             self._details_revealer.set_reveal_child(False)
             return
-        self._selected_index = int(getattr(row, "packet_index", 0))
+        self._selected_index = row.get_index()
         self._refresh_details()
         self._details_revealer.set_reveal_child(True)
 

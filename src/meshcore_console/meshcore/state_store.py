@@ -59,6 +59,7 @@ class MessageStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path if path is not None else messages_path()
         self._messages: list[Message] = []
+        self._dirty = False
         logger.debug("MessageStore initialized with path: %s", self._path)
         self._load()
 
@@ -89,7 +90,13 @@ class MessageStore:
         self._messages.append(message)
         if len(self._messages) > MAX_MESSAGES:
             self._messages = self._messages[-MAX_MESSAGES:]
-        self._save()
+        self._dirty = True
+
+    def flush_if_dirty(self) -> None:
+        """Write to disk only if data has changed since last save."""
+        if self._dirty:
+            self._save()
+            self._dirty = False
 
     def get_all(self) -> list[Message]:
         """Return all messages."""
@@ -110,6 +117,7 @@ class PeerStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path if path is not None else peers_path()
         self._peers: dict[str, Peer] = {}
+        self._dirty = False
         logger.debug("PeerStore initialized with path: %s", self._path)
         self._load()
 
@@ -170,7 +178,13 @@ class PeerStore:
         """Add or update a peer."""
         key = peer.display_name or peer.peer_id
         self._peers[key] = peer
-        self._save()
+        self._dirty = True
+
+    def flush_if_dirty(self) -> None:
+        """Write to disk only if data has changed since last save."""
+        if self._dirty:
+            self._save()
+            self._dirty = False
 
     def get(self, name: str) -> Peer | None:
         """Get peer by name."""
@@ -190,6 +204,7 @@ class UIChannelStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path if path is not None else ui_channels_path()
         self._channels: dict[str, Channel] = {}
+        self._dirty = False
         logger.debug("UIChannelStore initialized with path: %s", self._path)
         self._load()
 
@@ -225,7 +240,13 @@ class UIChannelStore:
     def add_or_update(self, channel: Channel) -> None:
         """Add or update a channel."""
         self._channels[channel.channel_id] = channel
-        self._save()
+        self._dirty = True
+
+    def flush_if_dirty(self) -> None:
+        """Write to disk only if data has changed since last save."""
+        if self._dirty:
+            self._save()
+            self._dirty = False
 
     def get(self, channel_id: str) -> Channel | None:
         """Get channel by ID."""
@@ -239,7 +260,7 @@ class UIChannelStore:
         """Increment unread count for a channel."""
         if channel_id in self._channels:
             self._channels[channel_id].unread_count += 1
-            self._save()
+            self._dirty = True
 
     def __len__(self) -> int:
         return len(self._channels)
