@@ -478,6 +478,16 @@ combobox:focus {
   background: alpha(@mc_surface_alt, 0.95);
 }
 
+.map-control-active {
+  background: alpha(@mc_accent, 0.25);
+  border-color: @mc_accent;
+  color: @mc_accent;
+}
+
+.map-control-active:hover {
+  background: alpha(@mc_accent, 0.35);
+}
+
 .map-details-panel {
   margin: 8px;
   border-left: 1px solid @mc_border;

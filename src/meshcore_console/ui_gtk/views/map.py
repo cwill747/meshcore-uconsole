@@ -47,6 +47,8 @@ class MapView(Gtk.Box):
         self._mbtiles: MBTilesReader | None = None
         self._last_peer_count = 0
         self._shown_gps_errors: set[str] = set()  # Track shown errors to avoid repeats
+        self._following = False  # Whether map follows device location
+        self._programmatic_move = False  # Suppress follow-disable during go_to
 
         if not SHUMATE_AVAILABLE:
             self._build_fallback_ui()
@@ -115,6 +117,10 @@ class MapView(Gtk.Box):
             # Centered on US
             self._viewport.set_zoom_level(4)
             self._viewport.set_location(39.8283, -98.5795)
+
+        # Detect user panning to disable follow mode
+        self._viewport.connect("notify::latitude", self._on_viewport_moved)
+        self._viewport.connect("notify::longitude", self._on_viewport_moved)
 
         # Create marker layer
         self._marker_layer = Shumate.MarkerLayer.new(self._viewport)
@@ -199,11 +205,11 @@ class MapView(Gtk.Box):
         center_box.set_margin_start(12)
         center_box.set_margin_bottom(12)
 
-        center_btn = Gtk.Button.new_from_icon_name("find-location-symbolic")
-        center_btn.add_css_class("map-control-button")
-        center_btn.set_tooltip_text("Center on device")
-        center_btn.connect("clicked", self._on_center_device)
-        center_box.append(center_btn)
+        self._center_btn = Gtk.Button.new_from_icon_name("find-location-symbolic")
+        self._center_btn.add_css_class("map-control-button")
+        self._center_btn.set_tooltip_text("Center on device")
+        self._center_btn.connect("clicked", self._on_center_device)
+        center_box.append(self._center_btn)
 
         # In mock mode, add a "simulate movement" button
         if self._service.is_mock_mode():
@@ -228,27 +234,47 @@ class MapView(Gtk.Box):
 
     def _on_zoom_in(self, _button: Gtk.Button) -> None:
         """Zoom in on the map."""
+        self._programmatic_move = True
         current = self._viewport.get_zoom_level()
         self._viewport.set_zoom_level(min(current + 1, 19))
+        self._programmatic_move = False
 
     def _on_zoom_out(self, _button: Gtk.Button) -> None:
         """Zoom out on the map."""
+        self._programmatic_move = True
         current = self._viewport.get_zoom_level()
         self._viewport.set_zoom_level(max(current - 1, 0))
+        self._programmatic_move = False
 
     def _on_center_device(self, _button: Gtk.Button) -> None:
-        """Center the map on the device location."""
+        """Center the map on the device location and enable follow mode."""
         location = self._service.get_device_location()
         if location:
             lat, lon = location
-            self._viewport.set_location(lat, lon)
+            self._set_following(True)
+            self._programmatic_move = True
             self._viewport.set_zoom_level(12)
+            self._viewport.set_location(lat, lon)
+            self._programmatic_move = False
         else:
             # No fix yet - show feedback
             if self._service.has_gps_fix():
                 self._show_toast("GPS location unavailable")
             else:
                 self._show_toast("GPS acquiring satellites...")
+
+    def _on_viewport_moved(self, viewport: object, pspec: object) -> None:
+        """Disable follow mode when user pans the map."""
+        if not self._programmatic_move and self._following:
+            self._set_following(False)
+
+    def _set_following(self, active: bool) -> None:
+        """Toggle follow mode and update button visual."""
+        self._following = active
+        if active:
+            self._center_btn.add_css_class("map-control-active")
+        else:
+            self._center_btn.remove_css_class("map-control-active")
 
     def _on_simulate_movement(self, _button: Gtk.Button) -> None:
         """Manually trigger GPS position cycle in mock mode."""
@@ -419,6 +445,8 @@ class MapView(Gtk.Box):
             if self._device_marker is not None:
                 self._marker_layer.remove_marker(self._device_marker)
                 self._device_marker = None
+            if self._following:
+                self._set_following(False)
             return
 
         lat, lon = location
@@ -428,6 +456,12 @@ class MapView(Gtk.Box):
             self._marker_layer.add_marker(self._device_marker)
         else:
             self._device_marker.set_location(lat, lon)
+
+        # Keep map centered on device when following
+        if self._following:
+            self._programmatic_move = True
+            self._viewport.set_location(lat, lon)
+            self._programmatic_move = False
 
     def _create_device_marker(self, lat: float, lon: float) -> Shumate.Marker:
         """Create a marker for the device location."""
