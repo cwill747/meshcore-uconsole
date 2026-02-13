@@ -1,7 +1,7 @@
 Source: meshcore-uconsole
 Section: utils
 Priority: optional
-Maintainer: Meshcore Console Team <devnull@example.com>
+Maintainer: meshcore-uconsole Team <cameron@thewills.net>
 Build-Depends: debhelper-compat (= 13),
                dh-virtualenv (>= 1.2),
                virtualenv,
