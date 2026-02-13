@@ -64,3 +64,8 @@ def peers_path() -> Path:
 def ui_channels_path() -> Path:
     """Return the path to ui_channels.json (UI state, separate from encryption secrets)"""
     return state_dir() / "ui_channels.json"
+
+
+def identity_key_path() -> Path:
+    """Return the path to the persisted identity seed (identity.key)"""
+    return data_dir() / "identity.key"

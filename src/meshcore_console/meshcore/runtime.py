@@ -13,6 +13,7 @@ from meshcore_console.core.types import (
 )
 
 from .config import HardwareRadioConfig
+from .paths import identity_key_path
 
 
 def import_pymc_core() -> tuple[
@@ -80,7 +81,16 @@ def create_mesh_node(
     channel_db: object | None = None,
     contacts: object | None = None,
 ) -> tuple[LocalIdentityProtocol, MeshNodeProtocol]:
-    identity = local_identity_type()
+    key_path = identity_key_path()
+    if key_path.exists():
+        seed = key_path.read_bytes()
+    else:
+        # Generate a new identity and persist the seed for future sessions
+        tmp = local_identity_type()
+        seed = tmp.get_signing_key_bytes()
+        key_path.parent.mkdir(parents=True, exist_ok=True)
+        key_path.write_bytes(seed)
+    identity = local_identity_type(seed)
     config_payload = {"node": {"name": node_name}}
     if node_config:
         config_payload["node"].update(node_config)
