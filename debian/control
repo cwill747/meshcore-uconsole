@@ -27,7 +27,7 @@ Depends: ${misc:Depends},
          libadwaita-1-0,
          libshumate-1.0-1,
          python3-serial,
-         libgpiod2
+         libgpiod3
 Description: Meshcore GTK console for Raspberry Pi
  GTK4/Libadwaita console application for managing MeshCore
  radio hardware. Designed for the uConsole form factor with
