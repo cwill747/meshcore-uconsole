@@ -10,6 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
+  "pymc-core>=0.1.0",
   "pymc-core[hardware]>=0.1.0; platform_system == 'Linux'",
   "pynmea2>=1.18.0",
   "segno>=1.6.0",  # QR code generation
