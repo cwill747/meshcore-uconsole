@@ -187,13 +187,15 @@ class MeshcoreClient(MeshcoreService):
             self.connect()
 
         channel_id = peer_id
+        is_group = channel_id == "public" or channel_id.startswith("#")
         if channel_id not in self._channels:
-            channel = Channel(channel_id=channel_id, display_name=f"#{channel_id}")
+            display = f"#{channel_id}" if is_group else channel_id
+            channel = Channel(channel_id=channel_id, display_name=display)
             self._channels[channel_id] = channel
             self._channel_store.add_or_update(channel)
 
         # Use group text for public/group channels, direct text for peers
-        if channel_id == "public" or channel_id.startswith("#"):
+        if is_group:
             # Use "Public" (capitalized) for the public channel to match channel_db
             channel_name = channel_id.lstrip("#")
             if channel_name.lower() == "public":
@@ -429,7 +431,13 @@ class MeshcoreClient(MeshcoreService):
         if not message_text:
             return
 
-        raw_channel = data.get("channel_name") or "public"
+        # Direct messages (TXT_MSG) have no channel_name — route to a per-contact channel
+        payload_type_name = data.get("payload_type_name", "")
+        is_direct = payload_type_name == PayloadType.TXT_MSG
+        if is_direct:
+            raw_channel = sender_name
+        else:
+            raw_channel = data.get("channel_name") or "public"
         channel_name = raw_channel.lower()
 
         # Avoid duplicate messages using content-based deduplication
@@ -461,9 +469,10 @@ class MeshcoreClient(MeshcoreService):
 
         # Ensure channel exists
         if channel_name not in self._channels:
+            display = sender_name if is_direct else f"#{channel_name}"
             channel = Channel(
                 channel_id=channel_name,
-                display_name=f"#{channel_name}",
+                display_name=display,
                 unread_count=1,
             )
             self._channels[channel_name] = channel
