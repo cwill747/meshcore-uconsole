@@ -103,20 +103,12 @@ SessionStatusDict = dict[str, Any]
 class SX1262RadioProtocol(Protocol):
     """Protocol for pyMC_core SX1262Radio."""
 
-    def begin(self) -> None:
-        """Initialize the radio hardware."""
+    def begin(self) -> bool:
+        """Initialize the radio hardware. Returns True on success."""
         ...
 
-    def stop(self) -> None:
-        """Stop the radio."""
-        ...
-
-    def set_mesh_mode(self, enabled: bool) -> None:
-        """Enable or disable mesh mode."""
-        ...
-
-    def enable_encryption(self, enabled: bool) -> None:
-        """Enable or disable encryption."""
+    def cleanup(self) -> None:
+        """Clean up radio resources."""
         ...
 
 

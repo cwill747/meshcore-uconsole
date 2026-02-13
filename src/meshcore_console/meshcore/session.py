@@ -71,13 +71,12 @@ class PyMCCoreSession:
             SX1262Radio,
             hardware_config,
             self._log,
-            mesh_mode=self.config.mesh_mode,
-            encryption_enabled=self.config.encryption_enabled,
         )
 
         self._log("calling radio.begin()")
-        self._radio.begin()
-        self._log("radio.begin() returned")
+        if not self._radio.begin():
+            raise RuntimeError("radio.begin() returned False – hardware init failed")
+        self._log("radio.begin() returned successfully")
 
         self._event_service = EventService()
         self._log("creating MeshNode")
@@ -90,8 +89,6 @@ class PyMCCoreSession:
             node_config={"share_public_key": self.config.share_public_key},
             channel_db=self._channel_db,
         )
-
-        self._node.set_event_service(self._event_service)
 
         self._event_subscriber = attach_event_service_subscriber(
             event_service=self._event_service,
@@ -221,8 +218,9 @@ class PyMCCoreSession:
         """Return this node's public key as a hex string, or None if unavailable."""
         if self._identity is None:
             return None
-        # pyMC_core LocalIdentity exposes public_key as bytes
-        pk = getattr(self._identity, "public_key", None)
+        # pyMC_core LocalIdentity exposes get_shared_public_key()
+        get_pk = getattr(self._identity, "get_shared_public_key", None)
+        pk = get_pk() if callable(get_pk) else None
         if pk is None:
             return None
         if isinstance(pk, bytes):

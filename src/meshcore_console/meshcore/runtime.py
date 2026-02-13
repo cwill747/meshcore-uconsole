@@ -36,9 +36,6 @@ def create_radio(
     sx1262_radio_type: type[SX1262RadioProtocol],
     config: HardwareRadioConfig,
     logger: LoggerCallback,
-    *,
-    mesh_mode: bool = True,
-    encryption_enabled: bool = True,
 ) -> SX1262RadioProtocol:
     radio_kwargs: dict[str, Any] = {
         "bus_id": config.bus_id,
@@ -69,10 +66,6 @@ def create_radio(
         logger("SX1262Radio does not support use_dio3_tcxo; skipping")
 
     radio = sx1262_radio_type(**radio_kwargs)
-    logger("setting radio mesh mode")
-    radio.set_mesh_mode(bool(mesh_mode))
-    logger("enabling radio encryption")
-    radio.enable_encryption(bool(encryption_enabled))
     return radio
 
 

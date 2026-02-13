@@ -208,9 +208,9 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
     sender_id = _extract_sender_id(packet)
 
     # For ADVERT packets, try to parse the payload for name/location
-    # Check both name and numeric type (ADVERT is typically type 3 in pymc_core)
+    # Check both name and numeric type (ADVERT is type 4 in pymc_core)
     advert_info: dict[str, Any] = {}
-    is_advert = payload_type_name == "ADVERT" or payload_type == 3
+    is_advert = payload_type_name == "ADVERT" or payload_type == 4
     if is_advert and payload_bytes_val:
         advert_info = _parse_advert_payload(payload_bytes_val)
         # Use advert name as sender if we found one and don't have a sender_name
@@ -242,8 +242,8 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         "route_type_name": route_type_name,
         "payload_len": getattr(packet, "payload_len", None),
         "header": getattr(packet, "header", None),
-        "snr": getattr(packet, "_snr", None),
-        "rssi": getattr(packet, "_rssi", None),
+        "snr": getattr(packet, "snr", None),
+        "rssi": getattr(packet, "rssi", None),
         "payload_text": payload_text,
         "payload_hex": payload_hex,
         "sender_name": sender_name,

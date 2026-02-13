@@ -492,7 +492,7 @@ wheels = [
 
 [[package]]
 name = "meshcore-uconsole"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "pymc-core", extra = ["hardware"], marker = "sys_platform == 'linux'" },

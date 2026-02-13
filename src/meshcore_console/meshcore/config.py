@@ -10,8 +10,6 @@ from .settings import MeshcoreSettings
 class RuntimeRadioConfig:
     node_name: str
     share_public_key: bool = True
-    mesh_mode: bool = True
-    encryption_enabled: bool = True
     hardware: "HardwareRadioConfig | None" = None
 
 
@@ -49,8 +47,6 @@ def load_runtime_config(node_name: str) -> RuntimeRadioConfig:
     return RuntimeRadioConfig(
         node_name=node_name,
         share_public_key=_env_bool("MESHCORE_SHARE_PUBLIC_KEY", True),
-        mesh_mode=_env_bool("MESHCORE_MESH_MODE", True),
-        encryption_enabled=_env_bool("MESHCORE_ENABLE_ENCRYPTION", True),
         hardware=load_hardware_config_from_env(),
     )
 
@@ -116,9 +112,6 @@ def runtime_config_from_settings(settings: MeshcoreSettings) -> RuntimeRadioConf
     )
     return RuntimeRadioConfig(
         node_name=settings.node_name,
-        # These are always enabled (not user-configurable)
         share_public_key=True,
-        mesh_mode=True,
-        encryption_enabled=True,
         hardware=hardware,
     )

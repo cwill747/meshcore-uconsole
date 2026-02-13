@@ -10,6 +10,8 @@ GTK4/Libadwaita mesh radio console application targeting Raspberry Pi (uConsole 
 
 **Stack:** Python 3.11+, GTK4, Libadwaita, PyGObject, pyMC_core (radio driver).
 
+**pyMC_core API reference:** https://rightup.github.io/pyMC_core/api/core/
+
 ## Repository Layout
 
 ```text
