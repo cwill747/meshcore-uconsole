@@ -258,6 +258,12 @@ class SettingsView(Gtk.Box):
         self._switches[key] = switch
         return switch
 
+    def refresh_public_key(self) -> None:
+        """Re-read the public key from the service and update the display."""
+        public_key = self._service.get_self_public_key()
+        if self._public_key_label:
+            self._public_key_label.set_text(_abbreviate_key(public_key))
+
     def _on_show_qr(self, _button: Gtk.Button) -> None:
         """Show QR code dialog."""
         node_name = self._entries["node_name"].get_text().strip()

@@ -3,8 +3,12 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from typing import TYPE_CHECKING, cast
 
 import gi
+
+if TYPE_CHECKING:
+    from meshcore_console.ui_gtk.views.settings import SettingsView
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +361,11 @@ class MainWindow(Adw.ApplicationWindow):
         self._connect_button.set_label("Disconnect" if status.connected else "Connect")
         self._advert_btn.set_sensitive(status.connected)
         self._subtitle.set_text(self._subtitle_text(status.node_id))
+        # Refresh the settings public key (only available after connect)
+        settings_widget = self._stack.get_child_by_name("settings")
+        if settings_widget is not None:
+            settings_view = cast("SettingsView", settings_widget)
+            settings_view.refresh_public_key()
 
     def _pump_events(self) -> bool:
         events = self._event_store.pump(limit=100)
