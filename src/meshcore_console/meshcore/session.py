@@ -74,21 +74,32 @@ class PyMCCoreSession:
         pyMC_core's GPIOPinManager creates OS threads for edge detection and
         IRQ handling.  These threads hold GPIO line file descriptors; the
         kernel only releases the lines once the threads (and their fds) are
-        gone.  Polling for their exit is more reliable than a fixed sleep.
+        gone.
+
+        Even after threads exit, the kernel GPIO line release is asynchronous
+        (the fd close propagates through the gpiochip driver), so we add a
+        post-exit settle delay.
         """
         if not self._hw_thread_ids:
+            self._log("no hardware threads tracked; using fallback GPIO settle delay")
+            await asyncio.sleep(1.0)
             return
+        self._log(f"waiting for {len(self._hw_thread_ids)} hardware thread(s) to exit")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             alive = {t.ident for t in threading.enumerate() if t.is_alive()}
             remaining = self._hw_thread_ids & alive
             if not remaining:
-                self._log("hardware threads exited, GPIO released")
-                self._hw_thread_ids = frozenset()
-                return
+                elapsed = timeout - (deadline - time.monotonic())
+                self._log(f"hardware threads exited after {elapsed:.1f}s")
+                break
             await asyncio.sleep(0.1)
-        self._log(f"timeout waiting for {len(remaining)} hardware thread(s) to exit")
+        else:
+            self._log(f"timeout waiting for {len(remaining)} hardware thread(s) to exit")
         self._hw_thread_ids = frozenset()
+        # Kernel GPIO line release is asynchronous — the gpiochip driver
+        # needs time after userspace fds close to mark lines as free.
+        await asyncio.sleep(0.5)
 
     async def start(self) -> None:
         if self._node is not None and self._node_task is not None and not self._node_task.done():

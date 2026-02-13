@@ -112,6 +112,12 @@ class MeshcoreClient(MeshcoreService):
             self._connected = False
         try:
             self._run_async(self._session.start(), timeout=8.0)
+        except SystemExit as exc:
+            # pyMC_core calls sys.exit() on fatal GPIO errors.  Convert to
+            # RuntimeError so the UI can show the failure instead of crashing.
+            self._session = self._new_session()
+            self._connected = False
+            raise RuntimeError(f"Radio hardware init failed (exit code {exc.code})") from exc
         except Exception:
             # Recover from partial startup by creating a clean session for next attempt.
             self._session = self._new_session()
