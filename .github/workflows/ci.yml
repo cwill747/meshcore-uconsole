@@ -23,7 +23,7 @@ jobs:
 
       - name: Check commit messages
         run: |
-          uv tool run cz check --rev-range origin/${{ github.base_ref }}..HEAD
+          uv tool run --from commitizen cz check --rev-range origin/${{ github.base_ref }}..HEAD
 
   check:
     name: Lint & Test
