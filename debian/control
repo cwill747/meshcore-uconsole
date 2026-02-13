@@ -1,0 +1,34 @@
+Source: meshcore-uconsole
+Section: utils
+Priority: optional
+Maintainer: Meshcore Console Team <devnull@example.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-virtualenv (>= 1.2),
+               virtualenv,
+               python3,
+               python3-dev,
+               python3-venv,
+               python3-pip,
+               python3-setuptools,
+               libgpiod-dev
+Standards-Version: 4.5.1
+
+Package: meshcore-uconsole
+Architecture: arm64
+Pre-Depends: dpkg (>= 1.16.1)
+Depends: ${misc:Depends},
+         ${shlibs:Depends},
+         python3,
+         python3-gi,
+         gir1.2-gtk-4.0,
+         gir1.2-adw-1,
+         gir1.2-shumate-1.0,
+         libgtk-4-1,
+         libadwaita-1-0,
+         libshumate-1.0-1,
+         python3-serial,
+         libgpiod2
+Description: Meshcore GTK console for Raspberry Pi
+ GTK4/Libadwaita console application for managing MeshCore
+ radio hardware. Designed for the uConsole form factor with
+ mesh radio communication capabilities.

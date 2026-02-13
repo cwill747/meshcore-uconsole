@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "meshcore-uconsole"
+version = "0.1.0"
+description = "GTK-based meshcore console for Raspberry Pi"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+  "pymc-core[hardware]>=0.1.0; platform_system == 'Linux'",
+  "pynmea2>=1.18.0",
+  "segno>=1.6.0",  # QR code generation
+]
+
+[project.optional-dependencies]
+gtk = [
+  "PyGObject>=3.48",
+]
+dev = [
+  "mypy>=1.7",
+  "pre-commit>=3.7",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.21",
+  "pytest-cov>=4.1",
+  "ruff>=0.9",
+]
+
+[project.scripts]
+meshcore-console = "meshcore_console.main:main"
+meshcore-radio = "meshcore_console.radio_cli:main"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/meshcore_console"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/meshcore_console",
+  "tests",
+  "scripts",
+  "packaging",
+  "README.md",
+  "pyproject.toml",
+  "flake.nix",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E402: Module level import not at top of file (required for gi.require_version)
+ignore = ["E402"]
+
+[tool.ruff.format]
+# Use black-compatible defaults
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+no_implicit_optional = true
+check_untyped_defs = true
+# PyGObject stubs are incomplete, ignore missing imports for gi
+[[tool.mypy.overrides]]
+module = ["gi.*", "pynmea2", "serial", "RPi.*", "pymc_core.*", "spidev"]
+ignore_missing_imports = true

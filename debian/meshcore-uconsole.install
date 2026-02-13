@@ -1,0 +1,2 @@
+packaging/deb/meshcore-console.desktop usr/share/applications
+packaging/deb/icons/meshcore-console.png usr/share/icons/hicolor/256x256/apps

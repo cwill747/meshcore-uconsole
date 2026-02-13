@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+result
+.DS_Store
+.claude/settings.local.json
+
+# Debian packaging build artifacts
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/*.debhelper
+debian/*.substvars
+debian/meshcore-uconsole/
+debian/meshcore-uconsole-dbgsym/

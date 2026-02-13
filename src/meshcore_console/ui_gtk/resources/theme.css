@@ -1,0 +1,6 @@
+.status-card {
+  border-radius: 14px;
+  padding: 14px;
+  background: alpha(@mc_surface_alt, 0.9);
+  border: 1px solid alpha(@mc_border, 0.95);
+}

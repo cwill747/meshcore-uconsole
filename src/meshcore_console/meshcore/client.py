@@ -1,0 +1,509 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from meshcore_console.core.enums import EventType, PayloadType
+from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer
+from meshcore_console.core.radio import rssi_to_signal_percent
+from meshcore_console.core.services import MeshcoreService
+from meshcore_console.core.types import MeshEventDict, SendResultDict
+from meshcore_console.meshcore.config import runtime_config_from_settings
+from meshcore_console.meshcore.packet_store import PacketStore
+from meshcore_console.meshcore.session import PyMCCoreSession
+from meshcore_console.meshcore.settings import MeshcoreSettings, apply_preset
+from meshcore_console.meshcore.settings_store import SettingsStore
+from meshcore_console.meshcore.state_store import MessageStore, PeerStore, UIChannelStore
+from meshcore_console.platform.gps import GpsProvider, create_gps_provider
+
+logger = logging.getLogger(__name__)
+
+
+class MeshcoreClient(MeshcoreService):
+    """pyMC_core-backed adapter for the UI layer."""
+
+    def __init__(
+        self,
+        node_name: str = "uconsole-node",
+        session: PyMCCoreSession | None = None,
+        *,
+        require_pymc: bool = True,
+        settings_store: SettingsStore | None = None,
+        packet_store: PacketStore | None = None,
+        message_store: MessageStore | None = None,
+        peer_store: PeerStore | None = None,
+        channel_store: UIChannelStore | None = None,
+        gps_provider: GpsProvider | None = None,
+    ) -> None:
+        self._connected = False
+        self._event_buffer: list[MeshEventDict] = []
+        self._event_history: list[MeshEventDict] = []
+        self._settings_store = settings_store or SettingsStore()
+        self._packet_store = packet_store or PacketStore()
+        self._message_store = message_store or MessageStore()
+        self._peer_store = peer_store or PeerStore()
+        self._channel_store = channel_store or UIChannelStore()
+        self._gps_provider = gps_provider or create_gps_provider()
+        # Load persisted state
+        self._messages: list[Message] = self._message_store.get_all()
+        self._channels: dict[str, Channel] = self._channel_store.get_all()
+        self._peers: dict[str, Peer] = self._peer_store.get_all()
+        self._settings = self._settings_store.load()
+        if node_name != "uconsole-node":
+            self._settings.node_name = node_name
+        self._session = session if session is not None else self._new_session()
+        self._config = runtime_config_from_settings(self._settings)
+
+        if require_pymc:
+            try:
+                import pymc_core  # noqa: F401
+
+                self._pymc_available = True
+            except ImportError:
+                self._pymc_available = False
+        else:
+            self._pymc_available = True
+
+    def connect(self) -> None:
+        if not self._pymc_available:
+            raise RuntimeError("pyMC_core is not installed. Run in mock mode or install pyMC_core.")
+        runtime_connected = bool(self._session.status().get("connected"))
+        if self._connected and runtime_connected:
+            return
+        if self._connected and not runtime_connected:
+            self._connected = False
+        try:
+            asyncio.run(asyncio.wait_for(self._session.start(), timeout=8.0))
+        except Exception:
+            # Recover from partial startup by creating a clean session for next attempt.
+            self._session = self._new_session()
+            self._connected = False
+            raise
+        self._connected = True
+        self._gps_provider.start()
+        self._append_event(
+            {"type": EventType.SESSION_CONNECTED, "data": {"node_name": self._settings.node_name}}
+        )
+
+    def disconnect(self) -> None:
+        runtime_connected = bool(self._session.status().get("connected"))
+        if self._connected or runtime_connected:
+            try:
+                asyncio.run(asyncio.wait_for(self._session.stop(), timeout=6.0))
+            except TimeoutError:
+                pass
+            finally:
+                # Always rotate to a fresh session after disconnect to avoid stale IRQ state.
+                self._session = self._new_session()
+        self._connected = False
+        self._gps_provider.stop()
+        self._append_event(
+            {
+                "type": EventType.SESSION_DISCONNECTED,
+                "data": {"node_name": self._settings.node_name},
+            }
+        )
+
+    def get_status(self) -> DeviceStatus:
+        runtime = self._session.status()
+        return DeviceStatus(
+            node_id=runtime["node_name"],
+            connected=self._connected,
+            rssi=None,
+            battery_percent=None,
+            last_seen=datetime.now(UTC),
+        )
+
+    def list_peers(self) -> list[Peer]:
+        return sorted(self._peers.values(), key=lambda p: p.display_name)
+
+    def list_messages(self, limit: int = 50) -> list[Message]:
+        return self._messages[-limit:]
+
+    def list_channels(self) -> list[Channel]:
+        if not self._channels:
+            channel = Channel(channel_id="public", display_name="#public", unread_count=0)
+            self._channels["public"] = channel
+            self._channel_store.add_or_update(channel)
+        return sorted(self._channels.values(), key=lambda c: c.display_name.lower())
+
+    def ensure_channel(self, channel_id: str, display_name: str | None = None) -> Channel:
+        """Ensure a channel exists, creating it if necessary."""
+        if channel_id in self._channels:
+            return self._channels[channel_id]
+        channel = Channel(
+            channel_id=channel_id,
+            display_name=display_name or f"#{channel_id}",
+            unread_count=0,
+        )
+        self._channels[channel_id] = channel
+        self._channel_store.add_or_update(channel)
+        return channel
+
+    def list_messages_for_channel(self, channel_id: str, limit: int = 50) -> list[Message]:
+        filtered = [m for m in self._messages if m.channel_id == channel_id]
+        return filtered[-limit:]
+
+    def send_message(self, peer_id: str, body: str) -> Message:
+        if not self._connected:
+            self.connect()
+
+        channel_id = peer_id
+        if channel_id not in self._channels:
+            channel = Channel(channel_id=channel_id, display_name=f"#{channel_id}")
+            self._channels[channel_id] = channel
+            self._channel_store.add_or_update(channel)
+
+        # Use group text for public/group channels, direct text for peers
+        if channel_id == "public" or channel_id.startswith("#"):
+            # Use "Public" (capitalized) for the public channel to match channel_db
+            channel_name = channel_id.lstrip("#")
+            if channel_name.lower() == "public":
+                channel_name = "Public"
+            asyncio.run(self._session.send_group_text(channel_name=channel_name, message=body))
+        else:
+            asyncio.run(self._session.send_text(peer_name=peer_id, message=body))
+        message = Message(
+            message_id=str(uuid4()),
+            sender_id=self._settings.node_name,
+            body=body,
+            channel_id=channel_id,
+            created_at=datetime.now(UTC),
+            is_outgoing=True,
+        )
+        self._messages.append(message)
+        self._message_store.append(message)
+        self._append_event(
+            {
+                "type": EventType.MESSAGE_SENT,
+                "data": {
+                    "peer_id": peer_id,
+                    "channel_id": channel_id,
+                    "body": body,
+                    "at": message.created_at.isoformat(),
+                },
+            }
+        )
+        return message
+
+    def send_advert(self, name: str | None = None, *, route_type: str = "flood") -> SendResultDict:
+        if not self._connected:
+            self.connect()
+        result = asyncio.run(self._session.send_advert(name=name, route_type=route_type))
+        self._append_event(
+            {
+                "type": EventType.ADVERT_SENT,
+                "data": {
+                    "name": name or self._settings.node_name,
+                    "route_type": route_type,
+                    "success": bool(result.get("success")),
+                    "tx_metadata": result.get("tx_metadata"),
+                },
+            }
+        )
+        return result
+
+    def poll_events(self, limit: int = 50) -> list[MeshEventDict]:
+        events: list[MeshEventDict] = []
+        try:
+            drained = self._session.drain_events(max_items=limit)
+            if isinstance(drained, list):
+                events.extend(drained)
+        except (RuntimeError, OSError) as exc:
+            logger.debug("drain_events error: %s", exc)
+
+        if self._event_buffer:
+            events.extend(self._event_buffer)
+            self._event_buffer.clear()
+
+        for event in events:
+            self._append_history(event)
+            self._process_event_for_peers(event)
+            # Persist packet events to state storage
+            if event.get("type") in (EventType.PACKET, EventType.RAW_PACKET):
+                try:
+                    self._packet_store.append(event)
+                except OSError as exc:
+                    # Log but don't let storage failures break event processing
+                    logger.warning("packet_store error: %s: %s", type(exc).__name__, exc)
+
+        if len(events) > limit:
+            return events[-limit:]
+        return events
+
+    def _process_event_for_peers(self, event: MeshEventDict) -> None:
+        """Extract peer info from events and update the peers list."""
+        event_type = event.get("type", "")
+        data = event.get("data")
+        if not isinstance(data, dict):
+            return
+
+        payload_type_name = data.get("payload_type_name", "")
+
+        # Check for ADVERT packets to add new peers
+        if payload_type_name == PayloadType.ADVERT or event_type in (
+            EventType.CONTACT_RECEIVED,
+            EventType.ADVERT_RECEIVED,
+            EventType.MESH_CONTACT_NEW,
+        ):
+            self._process_advert_event(data)
+
+        # Check for incoming messages (GRP_TXT, TXT_MSG, or EventService events)
+        if payload_type_name in (PayloadType.GRP_TXT, PayloadType.TXT_MSG) or event_type in (
+            EventType.MESH_CHANNEL_MESSAGE_NEW,
+            EventType.MESH_MESSAGE_NEW,
+        ):
+            self._process_message_event(data)
+
+    def _process_advert_event(self, data: MeshEventDict) -> None:
+        """Process an advert event and update or create peer."""
+        peer_name = (
+            data.get("sender_name")
+            or data.get("advert_name")
+            or data.get("peer_name")
+            or data.get("name")
+        )
+        if not peer_name:
+            return
+
+        peer_id = data.get("sender_id") or data.get("peer_id")
+        public_key = data.get("sender_pubkey")
+        path_hops = data.get("path_hops", [])
+        rssi_raw = data.get("rssi")
+        snr_raw = data.get("snr")
+
+        # Convert to typed values
+        rssi: int | None = int(rssi_raw) if rssi_raw is not None else None
+        snr: float | None = float(snr_raw) if snr_raw is not None else None
+
+        # Extract GPS coordinates from ADVERT
+        advert_lat_raw = data.get("advert_lat")
+        advert_lon_raw = data.get("advert_lon")
+        advert_lat: float | None = float(advert_lat_raw) if advert_lat_raw is not None else None
+        advert_lon: float | None = float(advert_lon_raw) if advert_lon_raw is not None else None
+        has_location = (
+            advert_lat is not None
+            and advert_lon is not None
+            and (advert_lat != 0.0 or advert_lon != 0.0)
+        )
+
+        signal = rssi_to_signal_percent(rssi) if rssi is not None else None
+        name_lower = peer_name.lower()
+        is_repeater = any(
+            kw in name_lower for kw in ("relay", "repeater", "node", "gateway", "base")
+        )
+
+        if peer_name in self._peers:
+            self._update_existing_peer(
+                peer_name,
+                signal,
+                path_hops,
+                rssi,
+                snr,
+                public_key,
+                has_location,
+                advert_lat,
+                advert_lon,
+            )
+        else:
+            self._create_new_peer(
+                peer_name,
+                peer_id,
+                signal,
+                public_key,
+                path_hops,
+                is_repeater,
+                rssi,
+                snr,
+                has_location,
+                advert_lat,
+                advert_lon,
+            )
+
+    def _update_existing_peer(
+        self,
+        peer_name: str,
+        signal: int | None,
+        path_hops: list[str],
+        rssi: int | None,
+        snr: float | None,
+        public_key: str | None,
+        has_location: bool,
+        advert_lat: float | None,
+        advert_lon: float | None,
+    ) -> None:
+        """Update an existing peer with new advert data."""
+        existing = self._peers[peer_name]
+        existing.signal_quality = signal if signal is not None else existing.signal_quality
+        existing.last_advert_time = datetime.now(UTC)
+        existing.last_path = path_hops if path_hops else existing.last_path
+        existing.rssi = rssi if rssi is not None else existing.rssi
+        existing.snr = snr if snr is not None else existing.snr
+        if public_key:
+            existing.public_key = public_key
+        if has_location and advert_lat is not None and advert_lon is not None:
+            existing.latitude = advert_lat
+            existing.longitude = advert_lon
+            existing.location_updated = datetime.now(UTC)
+        self._peer_store.add_or_update(existing)
+
+    def _create_new_peer(
+        self,
+        peer_name: str,
+        peer_id: str | None,
+        signal: int | None,
+        public_key: str | None,
+        path_hops: list[str],
+        is_repeater: bool,
+        rssi: int | None,
+        snr: float | None,
+        has_location: bool,
+        advert_lat: float | None,
+        advert_lon: float | None,
+    ) -> None:
+        """Create a new peer from advert data."""
+        peer = Peer(
+            peer_id=peer_id or peer_name,
+            display_name=peer_name,
+            signal_quality=signal,
+            public_key=public_key,
+            last_advert_time=datetime.now(UTC),
+            last_path=path_hops,
+            is_repeater=is_repeater,
+            rssi=rssi,
+            snr=snr,
+            latitude=advert_lat if has_location else None,
+            longitude=advert_lon if has_location else None,
+            location_updated=datetime.now(UTC) if has_location else None,
+        )
+        self._peers[peer_name] = peer
+        self._peer_store.add_or_update(peer)
+
+    def _process_message_event(self, data: MeshEventDict) -> None:
+        """Process an incoming message event."""
+        sender_name = data.get("sender_name") or data.get("peer_name") or "Unknown"
+        message_text = (
+            data.get("payload_text") or data.get("message_text") or data.get("text") or ""
+        )
+        if not message_text:
+            return
+
+        raw_channel = data.get("channel_name") or "public"
+        channel_name = raw_channel.lower()
+
+        # Avoid duplicate messages using content-based deduplication
+        msg_id = data.get("message_id") or str(uuid4())
+        content_key = f"{sender_name}:{channel_name}:{message_text[:50]}"
+        existing_ids = {m.message_id for m in self._messages[-100:]}
+        existing_content = {
+            f"{m.sender_id}:{m.channel_id}:{m.body[:50]}" for m in self._messages[-100:]
+        }
+        if msg_id in existing_ids or content_key in existing_content:
+            return
+
+        snr = data.get("snr")
+        rssi = data.get("rssi")
+        path_len = data.get("path_len") or 0
+        message = Message(
+            message_id=msg_id,
+            sender_id=sender_name,
+            body=message_text,
+            channel_id=channel_name,
+            created_at=datetime.now(UTC),
+            is_outgoing=False,
+            path_len=int(path_len) if path_len else 0,
+            snr=float(snr) if snr is not None else None,
+            rssi=int(rssi) if rssi is not None else None,
+        )
+        self._messages.append(message)
+        self._message_store.append(message)
+
+        # Ensure channel exists
+        if channel_name not in self._channels:
+            channel = Channel(
+                channel_id=channel_name,
+                display_name=f"#{channel_name}",
+                unread_count=1,
+            )
+            self._channels[channel_name] = channel
+            self._channel_store.add_or_update(channel)
+        else:
+            self._channels[channel_name].unread_count += 1
+            self._channel_store.add_or_update(self._channels[channel_name])
+
+    def list_recent_events(self, limit: int = 50) -> list[MeshEventDict]:
+        if limit <= 0:
+            return []
+        return self._event_history[-limit:]
+
+    def list_stored_packets(self, limit: int = 100) -> list[MeshEventDict]:
+        """Return packets from persistent storage."""
+        return self._packet_store.get_recent(limit)
+
+    def get_stored_packet_count(self) -> int:
+        """Return the number of packets in persistent storage."""
+        return len(self._packet_store)
+
+    def get_settings(self) -> MeshcoreSettings:
+        return self._settings.clone()
+
+    def update_settings(self, settings: MeshcoreSettings) -> None:
+        connected = self._connected
+        if connected:
+            self.disconnect()
+
+        updated = settings.clone()
+        if updated.radio_preset != "custom":
+            updated = apply_preset(updated, updated.radio_preset)
+
+        self._settings = updated
+        self._settings_store.save(updated)
+        self._session = self._new_session()
+        self._config = runtime_config_from_settings(self._settings)
+        self._append_event(
+            {"type": EventType.SETTINGS_UPDATED, "data": {"node_name": updated.node_name}}
+        )
+
+        if connected:
+            self.connect()
+
+    def get_device_location(self) -> tuple[float, float] | None:
+        return self._gps_provider.get_location()
+
+    def is_mock_mode(self) -> bool:
+        return False
+
+    def cycle_mock_gps(self) -> bool:
+        """Cycle to next mock GPS position. Returns True if successful."""
+        return False
+
+    def poll_gps(self) -> bool:
+        """Poll GPS for new data. Call periodically from UI."""
+        return self._gps_provider.poll()
+
+    def get_gps_error(self) -> str | None:
+        """Get the last GPS error message, if any."""
+        return self._gps_provider.get_last_error()
+
+    def has_gps_fix(self) -> bool:
+        """Return True if GPS has acquired a satellite fix."""
+        return self._gps_provider.has_fix()
+
+    def get_self_public_key(self) -> str | None:
+        """Return this node's public key as a hex string, or None if unavailable."""
+        return self._session.get_public_key()
+
+    def _append_event(self, event: MeshEventDict) -> None:
+        self._event_buffer.append(event)
+        self._append_history(event)
+
+    def _append_history(self, event: MeshEventDict) -> None:
+        self._event_history.append(event)
+        if len(self._event_history) > 500:
+            self._event_history = self._event_history[-500:]
+
+    def _new_session(self) -> PyMCCoreSession:
+        runtime = runtime_config_from_settings(self._settings)
+        return PyMCCoreSession(runtime)

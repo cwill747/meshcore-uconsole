@@ -1,0 +1,2 @@
+/opt/venvs/meshcore-uconsole/bin/meshcore-console /usr/bin/meshcore-console
+/opt/venvs/meshcore-uconsole/bin/meshcore-radio /usr/bin/meshcore-radio
