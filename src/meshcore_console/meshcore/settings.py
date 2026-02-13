@@ -11,6 +11,7 @@ class MeshcoreSettings:
     longitude: float = 0.0
     share_position: bool = False  # Share GPS position in adverts
     allow_telemetry: bool = True  # Allow telemetry requests from other nodes
+    autoconnect: bool = False  # Automatically connect to radio on app startup
 
     # Radio
     radio_preset: str = "meshcore-us"

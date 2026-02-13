@@ -150,6 +150,8 @@ class MainWindow(Adw.ApplicationWindow):
         GLib.idle_add(self._wire_surface_debug)
         if self._geom_debug:
             GLib.timeout_add(600, self._debug_geometry_tick)
+        if self._service.get_settings().autoconnect:
+            GLib.idle_add(self._autoconnect)
 
     def _on_nav_button_toggled(self, button: Gtk.ToggleButton, page_name: str) -> None:
         if button.get_active():
@@ -318,6 +320,23 @@ class MainWindow(Adw.ApplicationWindow):
             f"[ui-geom] surface={surface.get_width()}x{surface.get_height()} "
             f"scale={surface.get_scale_factor()} scale_f={surface.get_scale()}"
         )
+
+    def _autoconnect(self) -> bool:
+        """Attempt to connect to the radio automatically on startup."""
+        logger.info("Autoconnect enabled, connecting...")
+        self._connect_button.set_sensitive(False)
+        self._connect_button.set_label("Connecting...")
+
+        def do_connect() -> None:
+            error: str | None = None
+            try:
+                self._service.connect()
+            except Exception as exc:  # noqa: BLE001
+                error = str(exc)
+            GLib.idle_add(self._finish_connect_toggle, False, error)
+
+        threading.Thread(target=do_connect, daemon=True).start()
+        return False  # Don't repeat idle callback
 
     def _on_connect_toggle(self, _button: Gtk.Button) -> None:
         # Use button label to determine action (avoids state sync issues)
