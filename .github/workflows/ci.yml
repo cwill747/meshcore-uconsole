@@ -20,7 +20,7 @@ jobs:
         run: |
           nix develop --command sh -c '
             uv venv --python "$(which python)" --system-site-packages
-            uv sync --frozen
+            uv sync --frozen --extra dev
           '
 
       - name: Lint (pre-commit)
