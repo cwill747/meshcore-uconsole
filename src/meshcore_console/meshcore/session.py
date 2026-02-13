@@ -90,6 +90,8 @@ class PyMCCoreSession:
             channel_db=self._channel_db,
         )
 
+        self._node.set_event_service(self._event_service)
+
         self._event_subscriber = attach_event_service_subscriber(
             event_service=self._event_service,
             event_subscriber_base=EventSubscriber,
