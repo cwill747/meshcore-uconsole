@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "meshcore-uconsole"
-version = "0.2.0"
+version = "0.2.1"
 description = "GTK-based meshcore console for Raspberry Pi"
 readme = "README.md"
 license = "MIT"
