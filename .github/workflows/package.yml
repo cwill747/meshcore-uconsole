@@ -4,7 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+    branches: [main]
   workflow_dispatch:
+  pull_request:
+    branches: [main]
 
 jobs:
   build-deb:
