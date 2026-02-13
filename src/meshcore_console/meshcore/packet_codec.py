@@ -4,6 +4,12 @@ from typing import Any
 
 from meshcore_console.core.types import PacketDataDict
 
+try:
+    from pymc_core.protocol.utils import PAYLOAD_TYPES, ROUTE_TYPES
+except ImportError:
+    PAYLOAD_TYPES = {}
+    ROUTE_TYPES = {}
+
 
 def _extract_sender_name(packet: Any) -> str | None:
     """Try to extract sender/peer name from packet via various attributes."""
@@ -162,15 +168,8 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
     except Exception:
         route_type = None
 
-    try:
-        from pymc_core.protocol.utils import PAYLOAD_TYPES, ROUTE_TYPES
-
-        payload_type_name = (
-            PAYLOAD_TYPES.get(payload_type, None) if payload_type is not None else None
-        )
-        route_type_name = ROUTE_TYPES.get(route_type, None) if route_type is not None else None
-    except Exception:
-        route_type_name = None
+    payload_type_name = PAYLOAD_TYPES.get(payload_type, None) if payload_type is not None else None
+    route_type_name = ROUTE_TYPES.get(route_type, None) if route_type is not None else None
 
     payload_text = None
     payload_hex = None
@@ -261,5 +260,5 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         "path_len": path_len,
         "path_hops": path_hops,
         "packet_hash": packet_hash,
-        "raw": repr(packet),
+        "raw": None,
     }

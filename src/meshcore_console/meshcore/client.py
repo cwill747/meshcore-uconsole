@@ -499,6 +499,13 @@ class MeshcoreClient(MeshcoreService):
         """Return packets from persistent storage."""
         return self._packet_store.get_recent(limit)
 
+    def flush_stores(self) -> None:
+        """Flush any dirty stores to disk."""
+        self._packet_store.flush_if_dirty()
+        self._message_store.flush_if_dirty()
+        self._peer_store.flush_if_dirty()
+        self._channel_store.flush_if_dirty()
+
     def get_stored_packet_count(self) -> int:
         """Return the number of packets in persistent storage."""
         return len(self._packet_store)

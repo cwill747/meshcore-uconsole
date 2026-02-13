@@ -63,6 +63,10 @@ class MeshcoreService(Protocol):
         """
         ...
 
+    def flush_stores(self) -> None:
+        """Flush any dirty stores to disk."""
+        ...
+
     def get_gps_error(self) -> str | None:
         """Get the last GPS error message, if any."""
         ...

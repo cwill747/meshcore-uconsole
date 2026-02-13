@@ -160,6 +160,9 @@ class MockMeshcoreClient(MeshcoreService):
     def list_stored_packets(self, limit: int = 100) -> list[dict]:
         return []
 
+    def flush_stores(self) -> None:
+        """No-op for mock client (no persistent stores)."""
+
     def get_stored_packet_count(self) -> int:
         return 0
 

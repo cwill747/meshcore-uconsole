@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
-import sys
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from meshcore_console.core.types import MeshEventDict
 
@@ -18,24 +20,22 @@ class PacketStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path if path is not None else packets_path()
         self._packets: list[MeshEventDict] = []
-        print(f"[PacketStore] initialized with path: {self._path}", file=sys.stderr)
+        self._dirty = False
+        logger.debug("PacketStore initialized with path: %s", self._path)
         self._load()
 
     def _load(self) -> None:
         if not self._path.exists():
-            print(f"[PacketStore] no existing file at {self._path}", file=sys.stderr)
+            logger.debug("PacketStore: no existing file at %s", self._path)
             return
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             packets = data.get("packets", [])
             if isinstance(packets, list):
                 self._packets = packets[-MAX_PACKETS:]
-            print(
-                f"[PacketStore] loaded {len(self._packets)} packets from {self._path}",
-                file=sys.stderr,
-            )
+            logger.debug("PacketStore: loaded %d packets from %s", len(self._packets), self._path)
         except Exception as e:
-            print(f"[PacketStore] load error: {e}", file=sys.stderr)
+            logger.warning("PacketStore load error: %s", e)
 
     def _save(self) -> None:
         try:
@@ -43,7 +43,7 @@ class PacketStore:
             data = {"packets": self._packets}
             self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception as e:
-            print(f"[PacketStore] save error: {e}", file=sys.stderr)
+            logger.warning("PacketStore save error: %s", e)
             raise
 
     def append(self, packet_data: MeshEventDict) -> None:
@@ -54,7 +54,7 @@ class PacketStore:
         self._packets.append(packet_data)
         if len(self._packets) > MAX_PACKETS:
             self._packets = self._packets[-MAX_PACKETS:]
-        self._save()
+        self._dirty = True
 
     def get_all(self) -> list[MeshEventDict]:
         """Return all stored packets."""
@@ -66,9 +66,16 @@ class PacketStore:
             return []
         return self._packets[-limit:]
 
+    def flush_if_dirty(self) -> None:
+        """Write to disk only if data has changed since last save."""
+        if self._dirty:
+            self._save()
+            self._dirty = False
+
     def clear(self) -> None:
         """Clear all stored packets."""
         self._packets = []
+        self._dirty = False
         self._save()
 
     def __len__(self) -> int:

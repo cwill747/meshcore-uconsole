@@ -115,7 +115,23 @@ class MessagesView(Gtk.Box):
             self._reload_channels()
         else:
             messages = self._service.list_messages_for_channel(self._selected_channel_id, limit=100)
-            if len(messages) != self._last_message_count:
+            new_count = len(messages)
+            if new_count > self._last_message_count:
+                # Append only the new messages instead of full rebuild
+                new_messages = messages[self._last_message_count :]
+                # Remove the "no messages" placeholder if it was showing
+                if self._last_message_count == 0:
+                    while True:
+                        child = self._message_box.get_first_child()
+                        if child is None:
+                            break
+                        self._message_box.remove(child)
+                for message in new_messages:
+                    bubble = self._create_message_bubble(message)
+                    self._message_box.append(bubble)
+                self._last_message_count = new_count
+            elif new_count < self._last_message_count:
+                # Message count decreased (e.g. clear) - full rebuild
                 self._reload_messages()
         self._refresh_compose_state()
         return True
