@@ -100,7 +100,10 @@ def open_db(path: str | None = None) -> sqlite3.Connection:
     """Open (and migrate if needed) the application database."""
     db = db_path() if path is None else __import__("pathlib").Path(path)
     db.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db))
+    # check_same_thread=False is required because pyMC_core reads the
+    # channel_secrets table from the meshcore-aio thread while the connection
+    # is created on the main thread.  WAL mode makes concurrent access safe.
+    conn = sqlite3.connect(str(db), check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     _migrate(conn)
