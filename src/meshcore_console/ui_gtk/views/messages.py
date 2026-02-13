@@ -18,6 +18,7 @@ class MessagesView(Gtk.Box):
         self._service = service
         self._selected_channel_id = "public"
         self._last_message_count = 0
+        self._last_channel_count = 0
         self._selected_message: Message | None = None
 
         # Main content area (channels + chat)
@@ -108,10 +109,14 @@ class MessagesView(Gtk.Box):
         GLib.timeout_add(2000, self._poll_messages)
 
     def _poll_messages(self) -> bool:
-        """Check for new messages and refresh if changed."""
-        messages = self._service.list_messages_for_channel(self._selected_channel_id, limit=100)
-        if len(messages) != self._last_message_count:
-            self._reload_messages()
+        """Check for new messages/channels and refresh if changed."""
+        channels = self._service.list_channels()
+        if len(channels) != self._last_channel_count:
+            self._reload_channels()
+        else:
+            messages = self._service.list_messages_for_channel(self._selected_channel_id, limit=100)
+            if len(messages) != self._last_message_count:
+                self._reload_messages()
         self._refresh_compose_state()
         return True
 
@@ -133,6 +138,7 @@ class MessagesView(Gtk.Box):
             self._channel_list.remove(row)
 
         channels = self._service.list_channels()
+        self._last_channel_count = len(channels)
         if not channels:
             channels = [Channel(channel_id="public", display_name="#public")]
 
