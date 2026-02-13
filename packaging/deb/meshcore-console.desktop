@@ -5,4 +5,4 @@ Exec=meshcore-console
 Icon=meshcore-console
 Terminal=false
 Type=Application
-Categories=Utility;Network;
+Categories=Utility;
