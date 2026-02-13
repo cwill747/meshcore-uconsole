@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -56,6 +57,9 @@ class MeshcoreClient(MeshcoreService):
         self._session = session if session is not None else self._new_session()
         self._config = runtime_config_from_settings(self._settings)
 
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
+
         if require_pymc:
             try:
                 import pymc_core  # noqa: F401
@@ -66,6 +70,36 @@ class MeshcoreClient(MeshcoreService):
         else:
             self._pymc_available = True
 
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        """Start a persistent event loop in a background thread if needed."""
+        if self._loop is not None and self._loop.is_running():
+            return self._loop
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=loop.run_forever, daemon=True, name="meshcore-aio")
+        thread.start()
+        self._loop = loop
+        self._loop_thread = thread
+        return loop
+
+    def _run_async(self, coro: object, *, timeout: float | None = None) -> object:
+        """Submit a coroutine to the persistent loop and block for its result."""
+        loop = self._ensure_loop()
+        if timeout is not None:
+            coro = asyncio.wait_for(coro, timeout=timeout)  # type: ignore[arg-type]
+        future = asyncio.run_coroutine_threadsafe(coro, loop)  # type: ignore[arg-type]
+        return future.result()
+
+    def _shutdown_loop(self) -> None:
+        """Stop the persistent event loop and join the thread."""
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop_thread is not None:
+            self._loop_thread.join(timeout=3.0)
+        if self._loop is not None:
+            self._loop.close()
+        self._loop = None
+        self._loop_thread = None
+
     def connect(self) -> None:
         if not self._pymc_available:
             raise RuntimeError("pyMC_core is not installed. Run in mock mode or install pyMC_core.")
@@ -75,7 +109,7 @@ class MeshcoreClient(MeshcoreService):
         if self._connected and not runtime_connected:
             self._connected = False
         try:
-            asyncio.run(asyncio.wait_for(self._session.start(), timeout=8.0))
+            self._run_async(self._session.start(), timeout=8.0)
         except Exception:
             # Recover from partial startup by creating a clean session for next attempt.
             self._session = self._new_session()
@@ -91,12 +125,13 @@ class MeshcoreClient(MeshcoreService):
         runtime_connected = bool(self._session.status().get("connected"))
         if self._connected or runtime_connected:
             try:
-                asyncio.run(asyncio.wait_for(self._session.stop(), timeout=6.0))
-            except TimeoutError:
+                self._run_async(self._session.stop(), timeout=6.0)
+            except (TimeoutError, RuntimeError):
                 pass
             finally:
                 # Always rotate to a fresh session after disconnect to avoid stale IRQ state.
                 self._session = self._new_session()
+                self._shutdown_loop()
         self._connected = False
         self._gps_provider.stop()
         self._append_event(
@@ -162,9 +197,9 @@ class MeshcoreClient(MeshcoreService):
             channel_name = channel_id.lstrip("#")
             if channel_name.lower() == "public":
                 channel_name = "Public"
-            asyncio.run(self._session.send_group_text(channel_name=channel_name, message=body))
+            self._run_async(self._session.send_group_text(channel_name=channel_name, message=body))
         else:
-            asyncio.run(self._session.send_text(peer_name=peer_id, message=body))
+            self._run_async(self._session.send_text(peer_name=peer_id, message=body))
         message = Message(
             message_id=str(uuid4()),
             sender_id=self._settings.node_name,
@@ -191,7 +226,7 @@ class MeshcoreClient(MeshcoreService):
     def send_advert(self, name: str | None = None, *, route_type: str = "flood") -> SendResultDict:
         if not self._connected:
             self.connect()
-        result = asyncio.run(self._session.send_advert(name=name, route_type=route_type))
+        result = self._run_async(self._session.send_advert(name=name, route_type=route_type))
         self._append_event(
             {
                 "type": EventType.ADVERT_SENT,
