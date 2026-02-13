@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections import deque
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -264,6 +265,9 @@ class MeshcoreClient(MeshcoreService):
             events.extend(self._event_buffer)
             self._event_buffer.clear()
 
+        # Enrich packet events with sender names before processing/persisting
+        self._enrich_sender_names(events)
+
         for event in events:
             self._append_history(event)
             self._process_event_for_peers(event)
@@ -278,6 +282,87 @@ class MeshcoreClient(MeshcoreService):
         if len(events) > limit:
             return events[-limit:]
         return events
+
+    def _build_peer_lookup(self) -> dict[str, str]:
+        """Build a reverse lookup from peer_id/pubkey to display_name."""
+        lookup: dict[str, str] = {}
+        for peer in self._peers.values():
+            if peer.peer_id:
+                lookup[peer.peer_id] = peer.display_name
+            if peer.public_key:
+                lookup[peer.public_key] = peer.display_name
+                # Also index by truncated key (sender_id is often first 16 hex chars)
+                if len(peer.public_key) > 16:
+                    lookup[peer.public_key[:16]] = peer.display_name
+        return lookup
+
+    def _enrich_sender_names(self, events: list[MeshEventDict]) -> None:
+        """Enrich packet events with sender names from peer registry and handler events.
+
+        pymc_core's raw packet callback fires before handler processing, so
+        'packet' events typically lack sender info. Handler events
+        (mesh.channel.message.new, mesh.message.new) follow in the same
+        drain batch with sender data. We correlate them to propagate sender
+        names back to packet events.
+        """
+        peer_lookup = self._build_peer_lookup()
+
+        # Queues of unenriched packet data dicts awaiting handler event correlation
+        unenriched_grp: deque[dict] = deque()
+        unenriched_txt: deque[dict] = deque()
+
+        for event in events:
+            event_type = event.get("type", "")
+            data = event.get("data")
+            if not isinstance(data, dict):
+                continue
+
+            if event_type in (EventType.PACKET, EventType.RAW_PACKET):
+                if not data.get("sender_name"):
+                    # Try peer registry lookup first
+                    resolved = self._resolve_sender_from_peers(data, peer_lookup)
+                    if resolved:
+                        data["sender_name"] = resolved
+                    else:
+                        # Queue for handler event correlation
+                        payload_type = data.get("payload_type_name", "")
+                        if payload_type == PayloadType.GRP_TXT:
+                            unenriched_grp.append(data)
+                        elif payload_type == PayloadType.TXT_MSG:
+                            unenriched_txt.append(data)
+
+            elif event_type == EventType.MESH_CHANNEL_MESSAGE_NEW:
+                sender = data.get("sender_name") or data.get("peer_name")
+                if sender and unenriched_grp:
+                    target = unenriched_grp.popleft()
+                    target["sender_name"] = str(sender)
+
+            elif event_type == EventType.MESH_MESSAGE_NEW:
+                sender = data.get("sender_name") or data.get("peer_name")
+                if sender and unenriched_txt:
+                    target = unenriched_txt.popleft()
+                    target["sender_name"] = str(sender)
+
+    def _enrich_stored_sender_names(self, events: list[MeshEventDict]) -> None:
+        """Enrich stored packet events with sender names from the peer registry."""
+        peer_lookup = self._build_peer_lookup()
+        for event in events:
+            data = event.get("data")
+            if isinstance(data, dict) and not data.get("sender_name"):
+                resolved = self._resolve_sender_from_peers(data, peer_lookup)
+                if resolved:
+                    data["sender_name"] = resolved
+
+    @staticmethod
+    def _resolve_sender_from_peers(data: dict, peer_lookup: dict[str, str]) -> str | None:
+        """Try to resolve sender_name from peer lookup using sender_id or sender_pubkey."""
+        sender_id = data.get("sender_id")
+        if sender_id and sender_id in peer_lookup:
+            return peer_lookup[sender_id]
+        sender_pubkey = data.get("sender_pubkey")
+        if sender_pubkey and sender_pubkey in peer_lookup:
+            return peer_lookup[sender_pubkey]
+        return None
 
     def _process_event_for_peers(self, event: MeshEventDict) -> None:
         """Extract peer info from events and update the peers list."""
@@ -505,7 +590,9 @@ class MeshcoreClient(MeshcoreService):
 
     def list_stored_packets(self, limit: int = 100) -> list[MeshEventDict]:
         """Return packets from persistent storage."""
-        return self._packet_store.get_recent(limit)
+        packets = self._packet_store.get_recent(limit)
+        self._enrich_stored_sender_names(packets)
+        return packets
 
     def flush_stores(self) -> None:
         """Flush any dirty stores to disk."""
