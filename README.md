@@ -1,6 +1,22 @@
 # meshcore-uconsole
 
-GTK/PyGObject meshcore console scaffold targeting Raspberry Pi.
+A gtk-based native desktop application for interacting with
+[MeshCore](https://meshcore.co.uk/) on the [ClockworkPi
+UConsole](https://www.clockworkpi.com/uconsole) using the [HackerGadgets
+AIO](https://hackergadgets.com/products/uconsole-aio-v2) board, which includes a
+LORA chip.
+
+Inpsired by [YAMPA](https://github.com/guax/YAMPA), and built on top of the
+great [pyMC-core](https://github.com/rightup/pyMC_core) library to interact with
+the board.
+
+You can run a Mock version of the application on anything that supports Nix, and
+then you can run the real application on the uConsole either by cloning the repo
+and following the below instructions, or grabbing a .deb out of Releases.
+
+![Analyzer view](docs/analyzer.png)
+
+![Map view](docs/map.png)
 
 ## Prerequisites
 
@@ -30,13 +46,6 @@ uv run pytest
 ```
 
 **Note:** `run-dev.sh` always enables mock mode (`MESHCORE_MOCK=1`) since macOS has no radio hardware.
-
-If you already created `.venv` without system site packages, recreate it:
-```bash
-rm -rf .venv
-nix develop --command sh -lc 'uv venv --python "$(which python)" --system-site-packages'
-nix develop --command uv sync
-```
 
 ## Raspberry Pi Setup (no Nix)
 
@@ -96,16 +105,3 @@ Hardware overrides can be supplied via env vars when running `meshcore-radio`.
 Notable radio bring-up flags:
 - `MESHCORE_USE_DIO2_RF=1` (default in this repo)
 - `MESHCORE_USE_DIO3_TCXO=1` (default in this repo)
-
-## Notes
-
-- UI development on macOS uses mock mode by default (`MESHCORE_MOCK=1`).
-  Mocking is implemented at the session/runtime layer (`MockPyMCCoreSession`) so UI and
-  `MeshcoreClient` still exercise production adapter paths.
-- UI settings are persisted to `~/.config/meshcore-uconsole/settings.json`.
-- Packaging is intended to run on Raspberry Pi first (`./scripts/package-pi.sh`).
-- Debian packaging now installs a stable launcher at `/usr/bin/meshcore-console`
-  and desktop entry startup uses that launcher.
-- System GTK/GObject libraries are expected from the OS package manager on Pi.
-- `PyGObject` is intentionally not a default pip dependency in this repo; it is expected to come from Nix/OS packages.
-- `pymc-core[all]` is installed on Linux targets via `uv sync` and backs `meshcore-radio`.
