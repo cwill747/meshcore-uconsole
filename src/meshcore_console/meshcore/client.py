@@ -293,7 +293,7 @@ class MeshcoreClient(MeshcoreService):
             EventType.MESH_CHANNEL_MESSAGE_NEW,
             EventType.MESH_MESSAGE_NEW,
         ):
-            self._process_message_event(data)
+            self._process_message_event(data, event_type=event_type)
 
     def _process_advert_event(self, data: MeshEventDict) -> None:
         """Process an advert event and update or create peer."""
@@ -422,7 +422,7 @@ class MeshcoreClient(MeshcoreService):
         if public_key:
             self._sync_contact_to_book(peer_name, public_key)
 
-    def _process_message_event(self, data: MeshEventDict) -> None:
+    def _process_message_event(self, data: MeshEventDict, event_type: str = "") -> None:
         """Process an incoming message event."""
         sender_name = data.get("sender_name") or data.get("peer_name") or "Unknown"
         message_text = (
@@ -431,13 +431,18 @@ class MeshcoreClient(MeshcoreService):
         if not message_text:
             return
 
-        # Direct messages (TXT_MSG) have no channel_name — route to a per-contact channel
+        # Direct messages (TXT_MSG) have no channel_name — route to a per-contact channel.
+        # Detect via: payload_type_name, EventService event type, or absence of channel_name.
         payload_type_name = data.get("payload_type_name", "")
-        is_direct = payload_type_name == PayloadType.TXT_MSG
+        is_direct = (
+            payload_type_name == PayloadType.TXT_MSG
+            or event_type == EventType.MESH_MESSAGE_NEW
+            or not data.get("channel_name")
+        )
         if is_direct:
             raw_channel = sender_name
         else:
-            raw_channel = data.get("channel_name") or "public"
+            raw_channel = data["channel_name"]
         channel_name = raw_channel.lower()
 
         # Avoid duplicate messages using content-based deduplication
