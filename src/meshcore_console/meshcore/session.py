@@ -19,6 +19,7 @@ from meshcore_console.core.types import (
 
 from .channel_db import ChannelDatabase
 from .config import RuntimeRadioConfig, load_hardware_config_from_env
+from .contact_book import ContactBook
 from .event_bridge import attach_dispatcher_callbacks, attach_event_service_subscriber
 from .operations import send_advert, send_group_text, send_text
 from .runtime import create_mesh_node, create_radio, import_pymc_core
@@ -38,6 +39,7 @@ class PyMCCoreSession:
         self._node_task: asyncio.Task[None] | None = None
         self._event_queue: queue.Queue[MeshEventDict] = queue.Queue()
         self._channel_db = ChannelDatabase()
+        self._contact_book = ContactBook()
 
     def _log(self, message: str) -> None:
         if self._logger is not None:
@@ -88,6 +90,7 @@ class PyMCCoreSession:
             node_name=self.config.node_name,
             node_config={"share_public_key": self.config.share_public_key},
             channel_db=self._channel_db,
+            contacts=self._contact_book,
         )
 
         self._node.set_event_service(self._event_service)
@@ -215,6 +218,10 @@ class PyMCCoreSession:
             "board": "hackergadgets-aio",
             "pymc_core_version": "1.0.7",
         }
+
+    @property
+    def contact_book(self) -> ContactBook:
+        return self._contact_book
 
     def get_public_key(self) -> str | None:
         """Return this node's public key as a hex string, or None if unavailable."""
