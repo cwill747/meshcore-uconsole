@@ -119,7 +119,9 @@ class QrCodeDialog(Gtk.Dialog):
             content.append(error_label)
 
         # Instructions
-        instructions = Gtk.Label(label="Scan QR code to add this contact.\nMenu \u2192 Add Contact \u2192 Scan QR Code")
+        instructions = Gtk.Label(
+            label="Scan QR code to add this contact.\nMenu \u2192 Add Contact \u2192 Scan QR Code"
+        )
         instructions.add_css_class("panel-muted")
         instructions.set_halign(Gtk.Align.CENTER)
         instructions.set_justify(Gtk.Justification.CENTER)

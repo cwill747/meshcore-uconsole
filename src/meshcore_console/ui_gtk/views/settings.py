@@ -323,8 +323,16 @@ class SettingsView(Gtk.Box):
         self._set_entry_int("preamble_length", settings.preamble_length)
 
         # Hardware
-        for key in ("bus_id", "cs_id", "cs_pin", "reset_pin", "busy_pin",
-                    "irq_pin", "txen_pin", "rxen_pin"):
+        for key in (
+            "bus_id",
+            "cs_id",
+            "cs_pin",
+            "reset_pin",
+            "busy_pin",
+            "irq_pin",
+            "txen_pin",
+            "rxen_pin",
+        ):
             self._set_entry_int(key, getattr(settings, key))
         self._set_switch("is_waveshare", settings.is_waveshare)
         self._set_switch("use_dio2_rf", settings.use_dio2_rf)
@@ -350,9 +358,20 @@ class SettingsView(Gtk.Box):
         if bw is not None:
             out.bandwidth = int(bw * 1_000)
 
-        for key in ("spreading_factor", "coding_rate", "tx_power", "preamble_length",
-                    "bus_id", "cs_id", "cs_pin", "reset_pin", "busy_pin",
-                    "irq_pin", "txen_pin", "rxen_pin"):
+        for key in (
+            "spreading_factor",
+            "coding_rate",
+            "tx_power",
+            "preamble_length",
+            "bus_id",
+            "cs_id",
+            "cs_pin",
+            "reset_pin",
+            "busy_pin",
+            "irq_pin",
+            "txen_pin",
+            "rxen_pin",
+        ):
             val = self._parse_int(key, allow_partial)
             if val is not None:
                 setattr(out, key, val)
