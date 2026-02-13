@@ -141,6 +141,9 @@ class MockPyMCCoreSession:
         snr = random.uniform(-5.0, 12.0)
         path_hops = [] if is_repeater else ["relay-001"]
 
+        # ADV_TYPE_REPEATER = 2 per pyMC_core; client nodes are 0.
+        advert_type = 2 if is_repeater else 0
+
         event = {
             "type": "packet",
             "received_at": datetime.now(UTC).isoformat(),
@@ -153,6 +156,7 @@ class MockPyMCCoreSession:
                 "advert_name": name,
                 "sender_id": peer_id,
                 "peer_id": peer_id,
+                "advert_type": advert_type,
                 "advert_lat": lat + lat_jitter,
                 "advert_lon": lon + lon_jitter,
                 "rssi": rssi,

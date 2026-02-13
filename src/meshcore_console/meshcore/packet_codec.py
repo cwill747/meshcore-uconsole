@@ -111,6 +111,10 @@ def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
         flags = appdata[0]
         offset = 1
 
+        # Extract node type from lower nibble
+        advert_type = flags & 0x0F
+        result["advert_type"] = advert_type
+
         # Parse location if present
         if flags & ADVERT_FLAG_HAS_LOCATION:
             if len(appdata) >= offset + 8:
@@ -251,6 +255,7 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         "sender_pubkey": advert_info.get("sender_pubkey"),
         "channel_name": channel_name,
         "advert_name": advert_info.get("advert_name"),
+        "advert_type": advert_info.get("advert_type"),
         "advert_lat": advert_info.get("advert_lat"),
         "advert_lon": advert_info.get("advert_lon"),
         "path_len": path_len,

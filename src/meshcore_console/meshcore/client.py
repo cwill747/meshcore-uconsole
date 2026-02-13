@@ -328,10 +328,11 @@ class MeshcoreClient(MeshcoreService):
         )
 
         signal = rssi_to_signal_percent(rssi) if rssi is not None else None
-        name_lower = peer_name.lower()
-        is_repeater = any(
-            kw in name_lower for kw in ("relay", "repeater", "node", "gateway", "base")
-        )
+
+        # Determine repeater status from advert_type (lower nibble of ADVERT flags byte).
+        # ADV_TYPE_REPEATER = 2 per pyMC_core.
+        advert_type = data.get("advert_type")
+        is_repeater = int(advert_type) == 2 if advert_type is not None else False
 
         if peer_name in self._peers:
             self._update_existing_peer(
@@ -344,6 +345,7 @@ class MeshcoreClient(MeshcoreService):
                 has_location,
                 advert_lat,
                 advert_lon,
+                is_repeater,
             )
         else:
             self._create_new_peer(
@@ -371,6 +373,7 @@ class MeshcoreClient(MeshcoreService):
         has_location: bool,
         advert_lat: float | None,
         advert_lon: float | None,
+        is_repeater: bool = False,
     ) -> None:
         """Update an existing peer with new advert data."""
         existing = self._peers[peer_name]
@@ -379,6 +382,7 @@ class MeshcoreClient(MeshcoreService):
         existing.last_path = path_hops if path_hops else existing.last_path
         existing.rssi = rssi if rssi is not None else existing.rssi
         existing.snr = snr if snr is not None else existing.snr
+        existing.is_repeater = is_repeater
         if public_key:
             existing.public_key = public_key
             self._sync_contact_to_book(peer_name, public_key)
