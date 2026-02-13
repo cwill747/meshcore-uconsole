@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from meshcore_console.core.enums import PayloadType
 from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.config import runtime_config_from_settings
@@ -145,6 +146,7 @@ class MockMeshcoreClient(MeshcoreService):
 
         for event in events:
             self._append_history(event)
+            self._process_event_for_messages(event)
 
         if len(events) > limit:
             return events[-limit:]
@@ -194,6 +196,54 @@ class MockMeshcoreClient(MeshcoreService):
     def get_self_public_key(self) -> str | None:
         """Return a mock public key for testing."""
         return "6b547fd13630e0f7a6b167df23b9876543210abcdef0123456789abcdef0a619"
+
+    def _process_event_for_messages(self, event: dict) -> None:
+        """Convert incoming packet events into messages and channels."""
+        data = event.get("data")
+        if not isinstance(data, dict):
+            return
+        payload_type_name = data.get("payload_type_name", "")
+        if payload_type_name not in (PayloadType.GRP_TXT, PayloadType.TXT_MSG):
+            return
+        sender_name = data.get("sender_name") or data.get("peer_name") or "Unknown"
+        message_text = data.get("payload_text") or data.get("message_text") or ""
+        if not message_text:
+            return
+
+        is_direct = payload_type_name == PayloadType.TXT_MSG
+        if is_direct:
+            channel_name = sender_name.lower()
+        else:
+            channel_name = (data.get("channel_name") or "public").lower()
+
+        # Deduplicate
+        content_key = f"{sender_name}:{channel_name}:{message_text[:50]}"
+        existing = {f"{m.sender_id}:{m.channel_id}:{m.body[:50]}" for m in self._messages[-100:]}
+        if content_key in existing:
+            return
+
+        message = Message(
+            message_id=str(uuid4()),
+            sender_id=sender_name,
+            body=message_text,
+            channel_id=channel_name,
+            created_at=datetime.now(UTC),
+            is_outgoing=False,
+            path_len=int(data.get("path_len") or 0),
+            snr=float(data["snr"]) if data.get("snr") is not None else None,
+            rssi=int(data["rssi"]) if data.get("rssi") is not None else None,
+        )
+        self._messages.append(message)
+
+        if channel_name not in self._channels:
+            display = sender_name if is_direct else f"#{channel_name}"
+            self._channels[channel_name] = Channel(
+                channel_id=channel_name,
+                display_name=display,
+                unread_count=1,
+            )
+        else:
+            self._channels[channel_name].unread_count += 1
 
     def _append_event(self, event: dict) -> None:
         self._event_buffer.append(event)
