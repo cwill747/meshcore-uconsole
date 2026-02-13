@@ -1,3 +1,9 @@
+meshcore-uconsole (0.2.0-1) unstable; urgency=low
+
+  * Release v0.2.0
+
+ -- meshcore-uconsole Team <cameron@thewills.net>  Fri, 13 Feb 2026 10:04:40 -0500
+
 meshcore-uconsole (0.1.0-1) unstable; urgency=low
 
   * Initial release
