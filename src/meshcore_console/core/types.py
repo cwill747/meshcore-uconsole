@@ -124,10 +124,6 @@ class LocalIdentityProtocol(Protocol):
 class DispatcherProtocol(Protocol):
     """Protocol for pyMC_core dispatcher."""
 
-    def set_packet_received_callback(self, cb: Callable[..., Awaitable[None]]) -> None:
-        """Set callback for received packets."""
-        ...
-
     def set_raw_packet_callback(self, cb: Callable[..., Awaitable[None]]) -> None:
         """Set callback for raw packets."""
         ...
