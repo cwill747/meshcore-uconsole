@@ -7,6 +7,21 @@ on:
     branches: [main]
 
 jobs:
+  commits:
+    name: Validate Commits
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Check commit messages
+        run: |
+          uv tool run commitizen check --rev-range origin/${{ github.base_ref }}..HEAD
+
   check:
     name: Lint & Test
     runs-on: ubuntu-latest

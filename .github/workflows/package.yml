@@ -54,8 +54,21 @@ jobs:
           name: meshcore-uconsole-deb
           path: build/*.deb
 
+      - name: Extract changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          # Extract section between this version and the next version header
+          NOTES=$(awk "/^## ${VERSION}/,/^## v[0-9]/" CHANGELOG.md | sed '$d')
+          # Handle case where this is the only/last version
+          if [ -z "$NOTES" ]; then
+            NOTES=$(awk "/^## ${VERSION}/,0" CHANGELOG.md)
+          fi
+          echo "$NOTES" > release-notes.md
+
       - name: Upload to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: build/*.deb
+          body_path: release-notes.md

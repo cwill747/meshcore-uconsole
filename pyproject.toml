@@ -20,6 +20,7 @@ gtk = [
   "PyGObject>=3.48",
 ]
 dev = [
+  "commitizen>=4.1",
   "mypy>=1.7",
   "pre-commit>=3.7",
   "pytest>=8.3",
@@ -75,3 +76,11 @@ check_untyped_defs = true
 [[tool.mypy.overrides]]
 module = ["gi.*", "pynmea2", "serial", "RPi.*", "pymc_core.*", "spidev"]
 ignore_missing_imports = true
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "pep621"
+tag_format = "v$version"
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+post_bump_hooks = ["scripts/update-debian-changelog.sh"]
