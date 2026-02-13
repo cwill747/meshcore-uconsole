@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Called by commitizen post_bump_hooks to update debian/changelog
+# Called by commitizen pre_bump_hooks to update debian/changelog
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-VERSION=$(grep -E '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+VERSION="${CZ_PRE_NEW_VERSION}"
 DATE=$(date -R)
 MAINTAINER=$(grep -E '^Maintainer:' debian/control | sed 's/Maintainer: //')
 

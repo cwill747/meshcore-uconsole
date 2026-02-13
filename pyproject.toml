@@ -83,4 +83,4 @@ version_provider = "pep621"
 tag_format = "v$version"
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
-post_bump_hooks = ["scripts/update-debian-changelog.sh"]
+pre_bump_hooks = ["scripts/update-debian-changelog.sh"]
