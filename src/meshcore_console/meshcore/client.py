@@ -116,6 +116,7 @@ class MeshcoreClient(MeshcoreService):
             self._connected = False
             raise
         self._connected = True
+        self._seed_contact_book()
         self._gps_provider.start()
         self._append_event(
             {"type": EventType.SESSION_CONNECTED, "data": {"node_name": self._settings.node_name}}
@@ -378,6 +379,7 @@ class MeshcoreClient(MeshcoreService):
         existing.snr = snr if snr is not None else existing.snr
         if public_key:
             existing.public_key = public_key
+            self._sync_contact_to_book(peer_name, public_key)
         if has_location and advert_lat is not None and advert_lon is not None:
             existing.latitude = advert_lat
             existing.longitude = advert_lon
@@ -415,6 +417,8 @@ class MeshcoreClient(MeshcoreService):
         )
         self._peers[peer_name] = peer
         self._peer_store.add_or_update(peer)
+        if public_key:
+            self._sync_contact_to_book(peer_name, public_key)
 
     def _process_message_event(self, data: MeshEventDict) -> None:
         """Process an incoming message event."""
@@ -529,6 +533,20 @@ class MeshcoreClient(MeshcoreService):
     def get_self_public_key(self) -> str | None:
         """Return this node's public key as a hex string, or None if unavailable."""
         return self._session.get_public_key()
+
+    def _seed_contact_book(self) -> None:
+        """Populate the session's contact book with known peers that have public keys."""
+        book = self._session.contact_book
+        for peer in self._peers.values():
+            if peer.public_key:
+                book.add_contact({"name": peer.display_name, "public_key": peer.public_key})
+
+    def _sync_contact_to_book(self, name: str, public_key: str) -> None:
+        """Add or update a single contact in the session's contact book."""
+        if self._connected:
+            self._session.contact_book.add_contact(
+                {"name": name, "public_key": public_key}
+            )
 
     def _append_event(self, event: MeshEventDict) -> None:
         self._event_buffer.append(event)

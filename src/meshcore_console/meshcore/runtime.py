@@ -78,6 +78,7 @@ def create_mesh_node(
     node_name: str,
     node_config: dict[str, Any] | None = None,
     channel_db: object | None = None,
+    contacts: object | None = None,
 ) -> tuple[LocalIdentityProtocol, MeshNodeProtocol]:
     identity = local_identity_type()
     config_payload = {"node": {"name": node_name}}
@@ -90,5 +91,6 @@ def create_mesh_node(
         config=config_payload,
         event_service=event_service,
         channel_db=channel_db,
+        contacts=contacts,
     )
     return identity, node
