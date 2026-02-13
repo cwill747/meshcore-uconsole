@@ -84,6 +84,10 @@ class UConsoleGps:
         self._last_error: str | None = None
         self._poll_count = 0
         self._has_fix = False
+        self._last_fix_quality = 0
+        self._last_num_sats = 0
+        self._sats_in_view = 0
+        self._last_status_log_count = 0
 
     def start(self) -> None:
         if self._running:
@@ -230,22 +234,17 @@ class UConsoleGps:
                 logger.debug("GPS: receiving NMEA: %s", sentence_type)
 
             if sentence.startswith("$GNGGA") or sentence.startswith("$GPGGA"):
-                # Log GGA details for debugging (first few times)
-                if self._poll_count < 10:
-                    parts = sentence.split(",")
-                    fix_quality = parts[6] if len(parts) > 6 else "?"
-                    num_sats = parts[7] if len(parts) > 7 else "?"
-                    lat_field = parts[2] if len(parts) > 2 else ""
-                    logger.debug(
-                        "GPS: GGA fix=%s sats=%s lat_field='%s'",
-                        fix_quality,
-                        num_sats,
-                        lat_field,
-                    )
+                self._log_gga_status(sentence)
                 self._parse_gga(sentence)
             elif sentence.startswith("$GNRMC") or sentence.startswith("$GPRMC"):
-                # RMC also contains position - parse it as backup
+                self._log_rmc_status(sentence)
                 self._parse_rmc(sentence)
+            elif (
+                sentence.startswith("$GPGSV")
+                or sentence.startswith("$GLGSV")
+                or sentence.startswith("$GNGSV")
+            ):
+                self._log_gsv_status(sentence)
 
             # Check for no-fix condition after getting data
             if self._poll_count == 30 and not self._has_fix:  # ~60 seconds
@@ -255,6 +254,76 @@ class UConsoleGps:
             self._report_error(f"GPS read error: {e}")
 
         return True
+
+    def _should_log_status(self) -> bool:
+        """Return True if we should emit a periodic status log.
+
+        Logs on polls 1-5 (initial startup), then every ~15 polls (~30s at 2s interval).
+        """
+        if self._poll_count <= 5:
+            return True
+        if self._poll_count - self._last_status_log_count >= 15:
+            return True
+        return False
+
+    def _mark_status_logged(self) -> None:
+        self._last_status_log_count = self._poll_count
+
+    def _log_gga_status(self, sentence: str) -> None:
+        """Log GGA fix quality and satellite count periodically."""
+        parts = sentence.split(",")
+        fix_quality = int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0
+        num_sats = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else 0
+        lat_field = parts[2] if len(parts) > 2 else ""
+        hdop = parts[8] if len(parts) > 8 and parts[8] else "-"
+        alt = f"{parts[9]}{parts[10]}" if len(parts) > 10 and parts[9] else "-"
+
+        changed = fix_quality != self._last_fix_quality or num_sats != self._last_num_sats
+        self._last_fix_quality = fix_quality
+        self._last_num_sats = num_sats
+
+        if changed or self._should_log_status():
+            fix_desc = {0: "no fix", 1: "GPS", 2: "DGPS", 6: "dead reckoning"}.get(
+                fix_quality, f"unknown({fix_quality})"
+            )
+            logger.debug(
+                "GPS: fix=%s sats=%d hdop=%s alt=%s lat='%s'",
+                fix_desc,
+                num_sats,
+                hdop,
+                alt,
+                lat_field,
+            )
+            self._mark_status_logged()
+
+    def _log_rmc_status(self, sentence: str) -> None:
+        """Log RMC validity status periodically."""
+        parts = sentence.split(",")
+        if len(parts) < 3:
+            return
+        status = parts[2]  # A=active, V=void
+        if self._should_log_status():
+            status_desc = "active" if status == "A" else "void (no fix)"
+            logger.debug("GPS: RMC status=%s", status_desc)
+
+    def _log_gsv_status(self, sentence: str) -> None:
+        """Log satellites in view from GSV sentences."""
+        parts = sentence.split(",")
+        # GSV format: $GPGSV,total_msgs,msg_num,sats_in_view,...
+        if len(parts) < 4:
+            return
+        # Only log from the first message in the sequence
+        msg_num = parts[2]
+        if msg_num != "1":
+            return
+        try:
+            sats_in_view = int(parts[3])
+        except ValueError:
+            return
+        constellation = sentence[:6]  # e.g. $GPGSV, $GLGSV
+        if sats_in_view != self._sats_in_view or self._should_log_status():
+            self._sats_in_view = sats_in_view
+            logger.debug("GPS: %s satellites in view: %d", constellation, sats_in_view)
 
     def _parse_gga(self, sentence: str) -> None:
         """Parse a GGA NMEA sentence for position."""
