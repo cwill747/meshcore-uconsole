@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 from pathlib import Path
 from typing import Sequence
 
@@ -23,7 +24,7 @@ _configure_logging()
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, Gio, Gtk
+from gi.repository import Adw, Gdk, GLib, Gio, Gtk
 
 from meshcore_console.ui_gtk.windows.main_window import MainWindow
 
@@ -74,4 +75,7 @@ class MeshcoreApplication(Adw.Application):
 
 def run(argv: Sequence[str] | None = None) -> int:
     app = MeshcoreApplication()
+    # Ensure Ctrl-C works even when the radio is in a bad state.
+    # GTK's main loop doesn't forward SIGINT by default on all platforms.
+    GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGINT, lambda: app.quit() or True)
     return app.run(argv)

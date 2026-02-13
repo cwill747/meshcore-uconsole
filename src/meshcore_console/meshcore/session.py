@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import inspect
+import logging
 import queue
 from typing import Any, AsyncIterator
+
+logger = logging.getLogger(__name__)
 
 from meshcore_console.core.types import (
     EventServiceProtocol,
@@ -56,8 +60,8 @@ class PyMCCoreSession:
             result = fn()
             if inspect.isawaitable(result):
                 await result
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("cleanup %s.%s() failed: %s", type(target).__name__, name, exc)
 
     async def start(self) -> None:
         if self._node is not None and self._node_task is not None and not self._node_task.done():
@@ -157,6 +161,12 @@ class PyMCCoreSession:
         self._event_service = None
         self._event_subscriber = None
         self._node_task = None
+
+        # Force GC so the radio's GPIO file descriptors are closed immediately,
+        # then give the kernel time to release the GPIO lines before a reconnect.
+        gc.collect()
+        await asyncio.sleep(0.5)
+
         while not self._event_queue.empty():
             try:
                 self._event_queue.get_nowait()
