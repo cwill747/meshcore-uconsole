@@ -10,13 +10,13 @@ jobs:
   build-deb:
     name: Build Debian Package (arm64)
     runs-on: ubuntu-24.04-arm
+    container:
+      image: debian:trixie
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
             build-essential \
             debhelper \
             dh-virtualenv \
@@ -28,7 +28,14 @@ jobs:
             python3-setuptools \
             libgpiod-dev \
             dpkg-dev \
-            fakeroot
+            fakeroot \
+            git \
+            ca-certificates
+
+      - uses: actions/checkout@v4
+
+      - name: Show Python version
+        run: python3 --version
 
       - name: Build package
         run: dpkg-buildpackage -us -uc -b
