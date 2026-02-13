@@ -12,6 +12,7 @@ from meshcore_console.core.radio import rssi_to_signal_percent
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.types import MeshEventDict, SendResultDict
 from meshcore_console.meshcore.config import runtime_config_from_settings
+from meshcore_console.meshcore.db import open_db
 from meshcore_console.meshcore.packet_store import PacketStore
 from meshcore_console.meshcore.session import PyMCCoreSession
 from meshcore_console.meshcore.settings import MeshcoreSettings, apply_preset
@@ -41,11 +42,12 @@ class MeshcoreClient(MeshcoreService):
         self._connected = False
         self._event_buffer: list[MeshEventDict] = []
         self._event_history: list[MeshEventDict] = []
-        self._settings_store = settings_store or SettingsStore()
-        self._packet_store = packet_store or PacketStore()
-        self._message_store = message_store or MessageStore()
-        self._peer_store = peer_store or PeerStore()
-        self._channel_store = channel_store or UIChannelStore()
+        self._db = open_db()
+        self._settings_store = settings_store or SettingsStore(self._db)
+        self._packet_store = packet_store or PacketStore(self._db)
+        self._message_store = message_store or MessageStore(self._db)
+        self._peer_store = peer_store or PeerStore(self._db)
+        self._channel_store = channel_store or UIChannelStore(self._db)
         self._gps_provider = gps_provider or create_gps_provider()
         # Load persisted state
         self._messages: list[Message] = self._message_store.get_all()
