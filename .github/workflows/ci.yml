@@ -126,7 +126,17 @@ jobs:
           if [ -z "$NOTES" ]; then
             NOTES=$(awk "/^## ${VERSION}/,0" CHANGELOG.md)
           fi
-          echo "$NOTES" > release-notes.md
+          cat > release-notes.md << 'EOF'
+          ## Installation
+
+          ```bash
+          sudo apt install ./meshcore-uconsole_*.deb
+          ```
+
+          Using `apt install` instead of `dpkg -i` ensures dependencies are installed automatically.
+
+          EOF
+          echo "$NOTES" >> release-notes.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2

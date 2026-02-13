@@ -14,6 +14,16 @@ You can run a Mock version of the application on anything that supports Nix, and
 then you can run the real application on the uConsole either by cloning the repo
 and following the below instructions, or grabbing a .deb out of Releases.
 
+## Installing from .deb
+
+Download the latest `.deb` from [Releases](https://github.com/cameronwp/meshcore-uconsole/releases) and install with:
+
+```bash
+sudo apt install ./meshcore-uconsole_*.deb
+```
+
+Using `apt install` instead of `dpkg -i` ensures dependencies are installed automatically.
+
 ![Analyzer view](docs/analyzer.png)
 
 ![Map view](docs/map.png)
