@@ -250,6 +250,24 @@ combobox:focus {
   font-size: 14px;
 }
 
+.analyzer-day-separator {
+  background: transparent;
+  min-height: 20px;
+  padding: 0;
+}
+
+.analyzer-day-separator separator {
+  background-color: @mc_border;
+  min-height: 1px;
+}
+
+.day-separator-label {
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 11px;
+  color: @mc_text_muted;
+  letter-spacing: 1px;
+}
+
 .analyzer-nodes row {
   margin: 0;
 }
