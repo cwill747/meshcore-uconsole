@@ -70,8 +70,15 @@ def attach_dispatcher_callbacks(
             }
         )
 
-    dispatcher.set_packet_received_callback(on_packet)
-    logger("registered dispatcher packet callback")
+    # NOTE: set_packet_received_callback does not exist in pyMC_core.
+    # Use set_raw_packet_callback (the real API) and emit both event types
+    # so downstream consumers (e.g. AnalyzerView) receive "packet" events.
 
-    dispatcher.set_raw_packet_callback(on_raw_packet)
+    async def _on_raw_packet_combined(
+        packet: Any, raw_data: bytes, analysis: dict[str, Any] | None = None
+    ) -> None:
+        await on_packet(packet)
+        await on_raw_packet(packet, raw_data, analysis)
+
+    dispatcher.set_raw_packet_callback(_on_raw_packet_combined)
     logger("registered dispatcher raw packet callback")
