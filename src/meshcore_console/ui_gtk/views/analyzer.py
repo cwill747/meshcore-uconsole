@@ -22,6 +22,7 @@ from meshcore_console.ui_gtk.state import UiEventStore
 @dataclass(slots=True)
 class PacketRecord:
     timestamp: str
+    date: str  # YYYY-MM-DD for day-change detection
     packet_type: str
     node: str
     content: str
@@ -311,10 +312,11 @@ class AnalyzerView(Gtk.Box):
         packet_hash = str(data.get("packet_hash") or "")
 
         # Use stored timestamp if available, otherwise current time
-        timestamp = self._parse_event_timestamp(event)
+        timestamp, date = self._parse_event_timestamp(event)
 
         return PacketRecord(
             timestamp=timestamp,
+            date=date,
             packet_type=packet_type,
             node=node,
             content=content,
@@ -387,20 +389,27 @@ class AnalyzerView(Gtk.Box):
 
         return ""
 
-    def _parse_event_timestamp(self, event: dict[str, object]) -> str:
-        """Extract timestamp from event, falling back to current time."""
+    def _parse_event_timestamp(self, event: dict[str, object]) -> tuple[str, str]:
+        """Extract timestamp and date from event, falling back to current time.
+
+        Returns (time_str, date_str) where time_str is "HH:MM:SS.mm" and
+        date_str is "YYYY-MM-DD".
+        """
         received_at = event.get("received_at")
         if received_at and isinstance(received_at, str):
             try:
                 # Parse ISO format timestamp
                 dt = datetime.fromisoformat(received_at.replace("Z", "+00:00"))
-                # Convert to local time and format as HH:MM:SS.mm
+                # Convert to local time
                 local_dt = dt.astimezone()
-                return local_dt.strftime("%H:%M:%S.%f")[:11]
+                time_str = local_dt.strftime("%H:%M:%S.%f")[:11]
+                date_str = local_dt.strftime("%Y-%m-%d")
+                return time_str, date_str
             except (ValueError, OSError):
                 pass
         # Fallback to current time
-        return GLib.DateTime.new_now_local().format("%H:%M:%S.%f")[:11]
+        now = GLib.DateTime.new_now_local()
+        return now.format("%H:%M:%S.%f")[:11], now.format("%Y-%m-%d")
 
     def _filtered_packets(self) -> list[PacketRecord]:
         if self._active_filter == AnalyzerFilter.ALL:
@@ -423,7 +432,15 @@ class AnalyzerView(Gtk.Box):
                 break
             self._stream.remove(row)
 
+        prev_date: str | None = None
         for idx, packet in enumerate(packets[:180]):
+            # Insert day-change separator when date differs from previous packet.
+            # Packets are newest-first, so a change means we're crossing into
+            # an older day as we go down the list.
+            if prev_date is not None and packet.date != prev_date:
+                self._stream.append(self._day_separator_row(packet.date))
+            prev_date = packet.date
+
             row = Gtk.ListBoxRow.new()
             setattr(row, "packet_index", idx)
             # Add type-based class for row colorization
@@ -492,6 +509,44 @@ class AnalyzerView(Gtk.Box):
         selected = self._stream.get_row_at_index(self._selected_index)
         if selected is not None:
             self._stream.select_row(selected)
+
+    @staticmethod
+    def _day_separator_row(date_str: str) -> Gtk.ListBoxRow:
+        """Create a non-selectable separator row showing a date."""
+        try:
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            display = dt.strftime("%b %d, %Y")  # e.g. "Feb 12, 2026"
+        except ValueError:
+            display = date_str
+
+        row = Gtk.ListBoxRow.new()
+        row.set_selectable(False)
+        row.set_activatable(False)
+        row.add_css_class("analyzer-day-separator")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(4)
+        box.set_margin_end(4)
+        box.set_halign(Gtk.Align.FILL)
+
+        left_rule = Gtk.Separator.new(Gtk.Orientation.HORIZONTAL)
+        left_rule.set_hexpand(True)
+        left_rule.set_valign(Gtk.Align.CENTER)
+        box.append(left_rule)
+
+        label = Gtk.Label(label=display)
+        label.add_css_class("day-separator-label")
+        box.append(label)
+
+        right_rule = Gtk.Separator.new(Gtk.Orientation.HORIZONTAL)
+        right_rule.set_hexpand(True)
+        right_rule.set_valign(Gtk.Align.CENTER)
+        box.append(right_rule)
+
+        row.set_child(box)
+        return row
 
     def _on_packet_selected(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
