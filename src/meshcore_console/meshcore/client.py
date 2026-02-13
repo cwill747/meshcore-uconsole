@@ -544,9 +544,7 @@ class MeshcoreClient(MeshcoreService):
     def _sync_contact_to_book(self, name: str, public_key: str) -> None:
         """Add or update a single contact in the session's contact book."""
         if self._connected:
-            self._session.contact_book.add_contact(
-                {"name": name, "public_key": public_key}
-            )
+            self._session.contact_book.add_contact({"name": name, "public_key": public_key})
 
     def _append_event(self, event: MeshEventDict) -> None:
         self._event_buffer.append(event)
