@@ -134,12 +134,13 @@ class UConsoleGps:
                 logger.debug("GPS: serial close error: %s", e)
             self._serial = None
 
-        # Disable GPS module
+        # Disable GPS module and release the pin
         if self._gpio_enabled:
             try:
                 import RPi.GPIO as GPIO  # type: ignore[import-not-found]
 
                 GPIO.output(self.GPIO_ENABLE_PIN, GPIO.LOW)
+                GPIO.cleanup(self.GPIO_ENABLE_PIN)
                 self._gpio_enabled = False
             except (RuntimeError, OSError) as e:
                 logger.debug("GPS: GPIO disable error: %s", e)
