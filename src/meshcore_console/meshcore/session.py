@@ -5,6 +5,8 @@ import gc
 import inspect
 import logging
 import queue
+import threading
+import time
 from typing import Any, AsyncIterator
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,7 @@ class PyMCCoreSession:
         self._db = open_db()
         self._channel_db = ChannelDatabase(self._db)
         self._contact_book = ContactBook()
+        self._hw_thread_ids: frozenset[int] = frozenset()
 
     def _log(self, message: str) -> None:
         if self._logger is not None:
@@ -65,6 +68,28 @@ class PyMCCoreSession:
         except Exception as exc:
             logger.debug("cleanup %s.%s() failed: %s", type(target).__name__, name, exc)
 
+    async def _poll_hw_threads(self, timeout: float = 5.0) -> None:
+        """Wait for hardware threads spawned during start() to exit.
+
+        pyMC_core's GPIOPinManager creates OS threads for edge detection and
+        IRQ handling.  These threads hold GPIO line file descriptors; the
+        kernel only releases the lines once the threads (and their fds) are
+        gone.  Polling for their exit is more reliable than a fixed sleep.
+        """
+        if not self._hw_thread_ids:
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            alive = {t.ident for t in threading.enumerate() if t.is_alive()}
+            remaining = self._hw_thread_ids & alive
+            if not remaining:
+                self._log("hardware threads exited, GPIO released")
+                self._hw_thread_ids = frozenset()
+                return
+            await asyncio.sleep(0.1)
+        self._log(f"timeout waiting for {len(remaining)} hardware thread(s) to exit")
+        self._hw_thread_ids = frozenset()
+
     async def start(self) -> None:
         if self._node is not None and self._node_task is not None and not self._node_task.done():
             return
@@ -74,6 +99,11 @@ class PyMCCoreSession:
         hardware_config = self.config.hardware or load_hardware_config_from_env()
 
         self._log(f"radio config {hardware_config.to_log_string()}")
+
+        # Snapshot threads before hardware init so we can track GPIO/IRQ threads
+        # spawned by pyMC_core and wait for them during stop().
+        pre_threads = {t.ident for t in threading.enumerate()}
+
         self._log("creating SX1262Radio")
         self._radio = create_radio(
             SX1262Radio,
@@ -116,6 +146,10 @@ class PyMCCoreSession:
             self._log("node.start() task exited early")
             self._node_task.result()
         self._log("node.start() task running")
+
+        # Record threads spawned by hardware init (GPIO edge detection, IRQ handlers).
+        post_threads = {t.ident for t in threading.enumerate()}
+        self._hw_thread_ids = frozenset(post_threads - pre_threads)
 
     async def stop(self) -> None:
         if self._event_service is not None and self._event_subscriber is not None:
@@ -165,9 +199,10 @@ class PyMCCoreSession:
         self._node_task = None
 
         # Force GC so the radio's GPIO file descriptors are closed immediately,
-        # then give the kernel time to release the GPIO lines before a reconnect.
+        # then poll until hardware threads (GPIO edge detection, IRQ handlers)
+        # have exited — that's when the kernel actually releases the GPIO lines.
         gc.collect()
-        await asyncio.sleep(0.5)
+        await self._poll_hw_threads(timeout=5.0)
 
         while not self._event_queue.empty():
             try:
