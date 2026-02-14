@@ -17,3 +17,14 @@ def test_settings_store_round_trip(tmp_path) -> None:
     assert loaded.longitude == -122.6
     assert loaded.frequency == 915_000_000
     conn.close()
+
+
+def test_log_level_round_trip(tmp_path) -> None:
+    conn = open_db(str(tmp_path / "test.db"))
+    store = SettingsStore(conn)
+    settings = MeshcoreSettings(log_level="DEBUG")
+    store.save(settings)
+
+    loaded = store.load()
+    assert loaded.log_level == "DEBUG"
+    conn.close()

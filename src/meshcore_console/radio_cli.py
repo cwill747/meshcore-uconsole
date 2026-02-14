@@ -60,6 +60,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Advert routing type",
     )
 
+    export = sub.add_parser("export-logs", help="Export application logs for bug reports")
+    export.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Write logs to file (default: stdout)",
+    )
+
     return parser
 
 
@@ -180,7 +188,21 @@ async def _run_advert(
     return 0
 
 
+def _export_logs(output: str | None) -> int:
+    from meshcore_console.meshcore.logging_setup import export_logs_to_path, export_logs_to_stdout
+
+    if output:
+        export_logs_to_path(output)
+        print(f"Logs written to {output}")
+    else:
+        export_logs_to_stdout()
+    return 0
+
+
 async def _async_main(args: argparse.Namespace) -> int:
+    if args.command == "export-logs":
+        return _export_logs(args.output)
+
     _debug(args.debug, f"command={args.command} node_name={args.node_name}")
     if args.command == "doctor":
         _debug(args.debug, "running doctor checks")
