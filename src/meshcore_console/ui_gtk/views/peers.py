@@ -45,7 +45,7 @@ class PeersView(Gtk.Box):
         # Column 1: Contacts
         contacts_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         contacts_column.add_css_class("panel-card")
-        contacts_column.set_size_request(220, -1)
+        contacts_column.set_size_request(380, -1)
 
         contacts_header = Gtk.Label(label="Contacts")
         contacts_header.add_css_class("panel-title")
@@ -71,7 +71,7 @@ class PeersView(Gtk.Box):
         # Column 2: Repeaters/Network
         network_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         network_column.add_css_class("panel-card")
-        network_column.set_size_request(220, -1)
+        network_column.set_size_request(380, -1)
 
         network_header = Gtk.Label(label="Repeaters")
         network_header.add_css_class("panel-title")
@@ -175,6 +175,14 @@ class PeersView(Gtk.Box):
             body.set_margin_bottom(6)
             body.set_margin_start(10)
             body.set_margin_end(10)
+
+            # Node prefix square (first 2 hex chars of public key)
+            prefix_text = (peer.public_key or "")[:2].upper()
+            if prefix_text:
+                prefix = Gtk.Label(label=prefix_text)
+                prefix.add_css_class("node-prefix")
+                prefix.set_valign(Gtk.Align.CENTER)
+                body.append(prefix)
 
             # Left side: name and meta
             text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
