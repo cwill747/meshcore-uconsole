@@ -57,6 +57,10 @@ def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: igno
         help="Advert routing type",
     )
 
+    import_ch = sub.add_parser("import-channel", help="Import a channel by name and secret key")
+    import_ch.add_argument("--name", required=True, help="Channel display name (e.g. 'Emergency')")
+    import_ch.add_argument("--secret", required=True, help="Channel secret key (hex string)")
+
     export = sub.add_parser("export-logs", help="Export application logs for bug reports")
     export.add_argument(
         "-o",
@@ -183,6 +187,18 @@ async def _run_advert(
     return 0
 
 
+def _import_channel(name: str, secret: str) -> int:
+    from meshcore_console.meshcore.channel_db import ChannelDatabase
+    from meshcore_console.meshcore.db import open_db
+
+    conn = open_db()
+    channel_db = ChannelDatabase(conn)
+    channel_db.add_channel(name, secret)
+    conn.close()
+    print(json.dumps({"status": "imported", "name": name}))
+    return 0
+
+
 def _export_logs(output: str | None) -> int:
     from meshcore_console.meshcore.logging_setup import export_logs_to_path, export_logs_to_stdout
 
@@ -195,6 +211,9 @@ def _export_logs(output: str | None) -> int:
 
 
 async def _async_main(args: argparse.Namespace) -> int:
+    if args.command == "import-channel":
+        return _import_channel(args.name, args.secret)
+
     if args.command == "export-logs":
         return _export_logs(args.output)
 
