@@ -18,6 +18,8 @@ from gi.repository import GLib, Gtk, Pango
 from meshcore_console.core.enums import AnalyzerFilter, EventType
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.ui_gtk.state import UiEventStore
+from meshcore_console.ui_gtk.widgets import NodeBadge, find_peer_for_hop
+from meshcore_console.ui_gtk.widgets.node_badge import STYLE_REPEATER, STYLE_SELF
 
 
 @dataclass(slots=True)
@@ -699,31 +701,34 @@ class AnalyzerView(Gtk.Box):
 
         # Show actual path if there are hops
         if packet.path_hops:
+            all_peers = self._service.list_peers()
             path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
             path_box.set_halign(Gtk.Align.START)
             path_box.set_margin_top(4)
 
-            you_label = Gtk.Label(label="You")
-            you_label.add_css_class("path-node")
-            path_box.append(you_label)
+            you_badge = NodeBadge("Me", "You (this node)", style=STYLE_SELF)
+            path_box.append(you_badge)
 
             for hop in packet.path_hops:
                 arrow = Gtk.Label(label="←")
                 arrow.add_css_class("panel-muted")
                 path_box.append(arrow)
 
-                hop_label = Gtk.Label(label=hop)
-                hop_label.add_css_class("path-node")
-                hop_label.add_css_class("path-repeater")
-                path_box.append(hop_label)
+                hop_peer = find_peer_for_hop(all_peers, hop)
+                hop_name = hop_peer.display_name if hop_peer else hop
+                hop_prefix = hop[:2].upper()
+                hop_badge = NodeBadge(hop_prefix, hop_name, peer=hop_peer, style=STYLE_REPEATER)
+                path_box.append(hop_badge)
 
             arrow = Gtk.Label(label="←")
             arrow.add_css_class("panel-muted")
             path_box.append(arrow)
 
-            sender_label = Gtk.Label(label=packet.node[:12] if packet.node else "Sender")
-            sender_label.add_css_class("path-node")
-            path_box.append(sender_label)
+            sender_name = packet.node[:12] if packet.node else "Sender"
+            sender_peer = find_peer_for_hop(all_peers, packet.node) if packet.node else None
+            sender_prefix = (packet.node or "??")[:2].upper()
+            sender_badge = NodeBadge(sender_prefix, sender_name, peer=sender_peer)
+            path_box.append(sender_badge)
 
             block.append(path_box)
 
