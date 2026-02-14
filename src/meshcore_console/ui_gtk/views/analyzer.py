@@ -275,7 +275,7 @@ class AnalyzerView(Gtk.Box):
         if not node:
             sender_id = data.get("sender_id") or data.get("peer_id") or data.get("peer")
             if sender_id:
-                node = str(sender_id)[:12]
+                node = str(sender_id)
 
         if not node:
             node = "Unknown"
@@ -485,28 +485,29 @@ class AnalyzerView(Gtk.Box):
         time_label.set_single_line_mode(True)
         line.append(time_label)
 
-        type_text = packet.packet_type[:10]
-        type_label = Gtk.Label(label=type_text)
+        type_label = Gtk.Label(label=packet.packet_type)
         type_label.add_css_class("packet-type")
         type_label.add_css_class(self._type_class(packet.packet_type))
         type_label.set_size_request(self.COL_TYPE, -1)
+        type_label.set_ellipsize(Pango.EllipsizeMode.END)
         type_label.set_xalign(0)
         type_label.set_single_line_mode(True)
         line.append(type_label)
 
-        node_text = packet.node[:18]
-        node_label = Gtk.Label(label=node_text)
+        node_label = Gtk.Label(label=packet.node)
         node_label.set_xalign(0)
         node_label.set_size_request(self.COL_NODE, -1)
         node_label.set_single_line_mode(True)
+        node_label.set_ellipsize(Pango.EllipsizeMode.END)
+        node_label.set_max_width_chars(18)
         line.append(node_label)
 
-        content_text = packet.content[:80]
-        content_label = Gtk.Label(label=content_text)
+        content_label = Gtk.Label(label=packet.content)
         content_label.add_css_class("panel-muted")
         content_label.set_xalign(0)
         content_label.set_hexpand(True)
         content_label.set_single_line_mode(True)
+        content_label.set_ellipsize(Pango.EllipsizeMode.END)
         line.append(content_label)
 
         sig_label = Gtk.Label(label=f"{packet.rssi} / {packet.snr:.2f}")
@@ -724,7 +725,7 @@ class AnalyzerView(Gtk.Box):
             arrow.add_css_class("panel-muted")
             path_box.append(arrow)
 
-            sender_name = packet.node[:12] if packet.node else "Sender"
+            sender_name = packet.node if packet.node else "Sender"
             sender_peer = find_peer_for_hop(all_peers, packet.node) if packet.node else None
             sender_prefix = (packet.node or "??")[:2].upper()
             sender_badge = NodeBadge(sender_prefix, sender_name, peer=sender_peer)

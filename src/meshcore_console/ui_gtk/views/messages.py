@@ -4,7 +4,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import GLib, Gtk
+from gi.repository import GLib, Gtk, Pango
 
 from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
@@ -87,6 +87,17 @@ class MessagesView(Gtk.Box):
         compose.set_margin_end(12)
         compose.set_margin_top(8)
         compose.set_margin_bottom(8)
+        # Emoji picker button
+        emoji_chooser = Gtk.EmojiChooser.new()
+        emoji_chooser.connect("emoji-picked", self._on_emoji_picked)
+        emoji_btn = Gtk.MenuButton.new()
+        emoji_btn.set_icon_name("face-smile-symbolic")
+        emoji_btn.set_popover(emoji_chooser)
+        emoji_btn.set_tooltip_text("Insert emoji")
+        emoji_btn.add_css_class("flat")
+        self._emoji_btn = emoji_btn
+        compose.append(emoji_btn)
+
         self._entry = Gtk.Entry.new()
         self._entry.set_placeholder_text("Type message and press Send")
         self._entry.set_hexpand(True)
@@ -137,11 +148,19 @@ class MessagesView(Gtk.Box):
         self._refresh_compose_state()
         return True
 
+    def _on_emoji_picked(self, _chooser: Gtk.EmojiChooser, emoji: str) -> None:
+        """Insert the chosen emoji at the cursor position in the entry."""
+        pos = self._entry.get_position()
+        self._entry.insert_text(emoji, pos)
+        self._entry.set_position(pos + len(emoji))
+        self._entry.grab_focus()
+
     def _refresh_compose_state(self) -> None:
         """Enable/disable compose area based on connection status."""
         connected = self._service.get_status().connected
         self._entry.set_sensitive(connected)
         self._send_button.set_sensitive(connected)
+        self._emoji_btn.set_sensitive(connected)
         if connected:
             self._entry.set_placeholder_text("Type message and press Send")
         else:
@@ -335,11 +354,13 @@ class MessagesView(Gtk.Box):
         self._details_box.append(header)
 
         # Message preview
-        preview = Gtk.Label(label=message.body[:100])
+        preview = Gtk.Label(label=message.body)
         preview.add_css_class("panel-muted")
         preview.set_halign(Gtk.Align.START)
         preview.set_wrap(True)
         preview.set_max_width_chars(50)
+        preview.set_ellipsize(Pango.EllipsizeMode.END)
+        preview.set_lines(2)
         self._details_box.append(preview)
 
         # Details section
