@@ -73,17 +73,17 @@ uv sync
 
 3. Validate host + hardware:
 ```bash
-uv run meshcore-radio doctor
+uv run meshcore-console doctor
 ```
 
 4. Start listening for mesh events:
 ```bash
-uv run meshcore-radio listen
+uv run meshcore-console listen
 ```
 
 5. Send a message:
 ```bash
-uv run meshcore-radio send --peer "<contact-name>" --message "hello"
+uv run meshcore-console send --peer "<contact-name>" --message "hello"
 ```
 
 6. Launch GTK UI on Pi:
@@ -100,9 +100,9 @@ MESHCORE_MOCK=1 ./scripts/run-gtk-pi.sh
 
 | Command | Description |
 |---------|-------------|
-| `meshcore-radio doctor` | Validate SPI/GPIO configuration and radio hardware connectivity |
-| `meshcore-radio listen` | Listen for mesh packets and print decoded events to stdout |
-| `meshcore-radio send` | Send a direct message to a named peer |
+| `meshcore-console doctor` | Validate SPI/GPIO configuration and radio hardware connectivity |
+| `meshcore-console listen` | Listen for mesh packets and print decoded events to stdout |
+| `meshcore-console send` | Send a direct message to a named peer |
 
 ### Hardware Troubleshooting
 
@@ -111,7 +111,7 @@ If `doctor` fails on SPI/GPIO, confirm these before retrying:
 - `/boot/firmware/config.txt` contains `dtoverlay=spi1-1cs`
 - You rebooted after bootstrap
 
-Hardware overrides can be supplied via env vars when running `meshcore-radio`.
+Hardware overrides can be supplied via env vars when running `meshcore-console`.
 Notable radio bring-up flags:
 - `MESHCORE_USE_DIO2_RF=1` (default in this repo)
 - `MESHCORE_USE_DIO3_TCXO=1` (default in this repo)

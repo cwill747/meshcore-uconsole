@@ -127,8 +127,8 @@ Mock implementation is in `meshcore/mock_session.py`. It exercises the same adap
 | `./scripts/run-dev.sh` | Run GTK app in mock mode (macOS) |
 | `./scripts/run-gtk-pi.sh` | Run GTK app on Raspberry Pi |
 | `uv run pytest` | Run tests |
-| `uv run meshcore-radio doctor` | Validate radio hardware |
-| `uv run meshcore-radio listen` | Listen for mesh events (headless) |
+| `uv run meshcore-console doctor` | Validate radio hardware |
+| `uv run meshcore-console listen` | Listen for mesh events (headless) |
 
 ### Environment Variables
 

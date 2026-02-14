@@ -4,50 +4,47 @@ import argparse
 import asyncio
 import json
 import os
-import traceback
 import time
 from typing import Any
 
-from meshcore_console.meshcore.session import PyMCCoreSession, load_runtime_config
+from meshcore_console.meshcore.config import load_runtime_config
+from meshcore_console.meshcore.session import PyMCCoreSession
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    def add_global_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--node-name", default="uconsole-node", help="Mesh node name")
-        p.add_argument(
-            "--debug",
-            dest="debug",
-            action="store_true",
-            help="Enable verbose debug logs",
-        )
-        p.add_argument(
-            "--start-timeout",
-            type=float,
-            default=20.0,
-            help="Fail startup if mesh node does not start within N seconds",
-        )
+def _add_global_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--node-name", default="uconsole-node", help="Mesh node name")
+    p.add_argument(
+        "--debug",
+        dest="debug",
+        action="store_true",
+        help="Enable verbose debug logs",
+    )
+    p.add_argument(
+        "--start-timeout",
+        type=float,
+        default=20.0,
+        help="Fail startup if mesh node does not start within N seconds",
+    )
 
-    parser = argparse.ArgumentParser(description="Headless meshcore radio CLI")
-    add_global_args(parser)
 
-    sub = parser.add_subparsers(dest="command", required=True)
-
+def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    """Register all CLI subcommands on an existing subparsers action."""
     doctor = sub.add_parser("doctor", help="Check host prerequisites for pyMC_core radio access")
-    add_global_args(doctor)
+    _add_global_args(doctor)
 
     listen = sub.add_parser("listen", help="Start node and print incoming events")
-    add_global_args(listen)
+    _add_global_args(listen)
     listen.add_argument(
         "--duration", type=int, default=0, help="Stop after N seconds (0 = until Ctrl+C)"
     )
 
     send = sub.add_parser("send", help="Start node and send a text message")
-    add_global_args(send)
+    _add_global_args(send)
     send.add_argument("--peer", required=True, help="Peer name in meshcore contacts")
     send.add_argument("--message", required=True, help="Text body to send")
 
     advert = sub.add_parser("advert", help="Start node and send an advert packet")
-    add_global_args(advert)
+    _add_global_args(advert)
     advert.add_argument(
         "--name", default=None, help="Advert display name (defaults to --node-name)"
     )
@@ -67,8 +64,6 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write logs to file (default: stdout)",
     )
-
-    return parser
 
 
 def _doctor() -> int:
@@ -226,29 +221,3 @@ async def _async_main(args: argparse.Namespace) -> int:
             start_timeout=args.start_timeout,
         )
     raise RuntimeError(f"Unsupported command: {args.command}")
-
-
-def main() -> int:
-    parser = _build_parser()
-    args = parser.parse_args()
-    try:
-        return asyncio.run(_async_main(args))
-    except TimeoutError:
-        print(
-            "error: startup timed out. Run with --debug to see the last startup stage; "
-            "common causes are SPI pin mismatch or radio not responding."
-        )
-        return 1
-    except Exception as exc:  # noqa: BLE001
-        if getattr(args, "debug", False):
-            print(f"[debug] error: {exc}")
-            traceback.print_exc()
-        else:
-            print(f"error: {exc}")
-        return 1
-    except KeyboardInterrupt:
-        return 130
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
