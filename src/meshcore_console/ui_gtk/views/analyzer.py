@@ -19,8 +19,8 @@ from meshcore_console.core.enums import AnalyzerFilter, EventType
 from meshcore_console.core.packets import get_handler
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.ui_gtk.state import UiEventStore
-from meshcore_console.ui_gtk.widgets import NodeBadge, find_peer_for_hop
-from meshcore_console.ui_gtk.widgets.node_badge import STYLE_REPEATER, STYLE_SELF
+from meshcore_console.ui_gtk.widgets import DaySeparator, DetailBlock, PathVisualization
+from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF
 
 
 @dataclass(slots=True)
@@ -485,7 +485,7 @@ class AnalyzerView(Gtk.Box):
             # Packets are newest-first, so a change means we're crossing into
             # an older day as we go down the list.
             if prev_date is not None and packet.date != prev_date:
-                self._stream.append(self._day_separator_row(packet.date))
+                self._stream.append(DaySeparator(packet.date))
             prev_date = packet.date
 
             row = self._build_stream_row(packet, idx)
@@ -502,44 +502,6 @@ class AnalyzerView(Gtk.Box):
         selected = self._stream.get_row_at_index(self._selected_index)
         if selected is not None:
             self._stream.select_row(selected)
-
-    @staticmethod
-    def _day_separator_row(date_str: str) -> Gtk.ListBoxRow:
-        """Create a non-selectable separator row showing a date."""
-        try:
-            dt = datetime.strptime(date_str, "%Y-%m-%d")
-            display = dt.strftime("%b %d, %Y")  # e.g. "Feb 12, 2026"
-        except ValueError:
-            display = date_str
-
-        row = Gtk.ListBoxRow.new()
-        row.set_selectable(False)
-        row.set_activatable(False)
-        row.add_css_class("analyzer-day-separator")
-
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_top(6)
-        box.set_margin_bottom(6)
-        box.set_margin_start(4)
-        box.set_margin_end(4)
-        box.set_halign(Gtk.Align.FILL)
-
-        left_rule = Gtk.Separator.new(Gtk.Orientation.HORIZONTAL)
-        left_rule.set_hexpand(True)
-        left_rule.set_valign(Gtk.Align.CENTER)
-        box.append(left_rule)
-
-        label = Gtk.Label(label=display)
-        label.add_css_class("day-separator-label")
-        box.append(label)
-
-        right_rule = Gtk.Separator.new(Gtk.Orientation.HORIZONTAL)
-        right_rule.set_hexpand(True)
-        right_rule.set_valign(Gtk.Align.CENTER)
-        box.append(right_rule)
-
-        row.set_child(box)
-        return row
 
     def _on_packet_selected(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
@@ -585,9 +547,9 @@ class AnalyzerView(Gtk.Box):
         subtitle.set_max_width_chars(36)
         self._details.append(subtitle)
 
-        self._details.append(self._detail_block("Timestamp", packet.timestamp))
+        self._details.append(DetailBlock("Timestamp", packet.timestamp))
         self._details.append(
-            self._detail_block("Radio Signal", f"RSSI {packet.rssi} dBm   SNR {packet.snr:.2f} dB")
+            DetailBlock("Radio Signal", f"RSSI {packet.rssi} dBm   SNR {packet.snr:.2f} dB")
         )
         self._details.append(self._decoded_payload_block(packet))
         self._details.append(self._routing_block(packet))
@@ -598,45 +560,12 @@ class AnalyzerView(Gtk.Box):
         self._stream.unselect_all()
         self._details_revealer.set_reveal_child(False)
 
-    def _detail_block(self, title: str, value: str) -> Gtk.Box:
-        block = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        block.add_css_class("analyzer-detail-block")
-        header = Gtk.Label(label=title)
-        header.add_css_class("panel-muted")
-        header.set_halign(Gtk.Align.START)
-        block.append(header)
-        # Pre-wrap long values to bound natural width
-        wrapped = self._wrap_text(value, 28) if len(value) > 28 else value
-        body = Gtk.Label(label=wrapped)
-        body.set_halign(Gtk.Align.START)
-        body.set_xalign(0)
-        block.append(body)
-        return block
-
-    def _decoded_payload_block(self, packet: PacketRecord) -> Gtk.Box:
-        block = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        block.add_css_class("analyzer-detail-block")
-        header = Gtk.Label(label="Decoded Payload")
-        header.add_css_class("panel-muted")
-        header.set_halign(Gtk.Align.START)
-        block.append(header)
-
-        # Show payload text if available, otherwise indicate no text payload
+    def _decoded_payload_block(self, packet: PacketRecord) -> DetailBlock:
         payload = packet.payload_text if packet.payload_text else "(binary payload)"
-        wrapped = self._wrap_text(payload, 28) if len(payload) > 28 else payload
-        content = Gtk.Label(label=wrapped)
-        content.set_halign(Gtk.Align.START)
-        content.set_xalign(0)
-        block.append(content)
-        return block
+        return DetailBlock("Decoded Payload", payload)
 
-    def _routing_block(self, packet: PacketRecord) -> Gtk.Box:
-        block = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        block.add_css_class("analyzer-detail-block")
-        header = Gtk.Label(label="Routing")
-        header.add_css_class("panel-muted")
-        header.set_halign(Gtk.Align.START)
-        block.append(header)
+    def _routing_block(self, packet: PacketRecord) -> DetailBlock:
+        block = DetailBlock("Routing")
 
         # Show route type and hop count
         if packet.path_len == 0:
@@ -648,40 +577,26 @@ class AnalyzerView(Gtk.Box):
         route_label = Gtk.Label(label=route_desc)
         route_label.add_css_class("route-hop")
         route_label.set_halign(Gtk.Align.START)
-        block.append(route_label)
+        block.set_content(route_label)
 
         # Show actual path if there are hops
         if packet.path_hops:
+            from meshcore_console.ui_gtk.widgets.node_badge import find_peer_for_hop
+
             all_peers = self._service.list_peers()
-            path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            path_box.set_halign(Gtk.Align.START)
-            path_box.set_margin_top(4)
-
-            you_badge = NodeBadge("Me", "You (this node)", style=STYLE_SELF)
-            path_box.append(you_badge)
-
-            for hop in packet.path_hops:
-                arrow = Gtk.Label(label="←")
-                arrow.add_css_class("panel-muted")
-                path_box.append(arrow)
-
-                hop_peer = find_peer_for_hop(all_peers, hop)
-                hop_name = hop_peer.display_name if hop_peer else hop
-                hop_prefix = hop[:2].upper()
-                hop_badge = NodeBadge(hop_prefix, hop_name, peer=hop_peer, style=STYLE_REPEATER)
-                path_box.append(hop_badge)
-
-            arrow = Gtk.Label(label="←")
-            arrow.add_css_class("panel-muted")
-            path_box.append(arrow)
-
             sender_name = packet.node if packet.node else "Sender"
             sender_peer = find_peer_for_hop(all_peers, packet.node) if packet.node else None
             sender_prefix = (packet.node or "??")[:2].upper()
-            sender_badge = NodeBadge(sender_prefix, sender_name, peer=sender_peer)
-            path_box.append(sender_badge)
 
-            block.append(path_box)
+            path = PathVisualization(
+                hops=packet.path_hops,
+                peers=all_peers,
+                arrow="←",
+                start=("Me", "You (this node)", None, STYLE_SELF),
+                end=(sender_prefix, sender_name, sender_peer, STYLE_DEFAULT),
+            )
+            path.set_margin_top(4)
+            block.set_content(path)
 
         # Show packet hash for deduplication reference
         if packet.packet_hash:
@@ -689,35 +604,21 @@ class AnalyzerView(Gtk.Box):
             hash_label.add_css_class("panel-muted")
             hash_label.set_halign(Gtk.Align.START)
             hash_label.set_margin_top(4)
-            block.append(hash_label)
+            block.set_content(hash_label)
 
         return block
 
-    def _raw_block(self, packet: PacketRecord) -> Gtk.Box:
-        block = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        block.add_css_class("analyzer-detail-block")
-        header = Gtk.Label(label="Raw Packet")
-        header.add_css_class("panel-muted")
-        header.set_halign(Gtk.Align.START)
-        block.append(header)
-
-        # Pre-format hex with line breaks so the label measures correctly.
-        # GTK4 calculates natural width BEFORE applying wrap, so we must
-        # insert explicit newlines to bound the measured width.
+    def _raw_block(self, packet: PacketRecord) -> DetailBlock:
         raw_display = packet.raw_hex if packet.raw_hex else "(no raw data)"
-        formatted = self._wrap_text(raw_display, 28)
+        block = DetailBlock("Raw Packet")
+        formatted = DetailBlock._wrap_text(raw_display)
         raw = Gtk.Label(label=formatted)
         raw.add_css_class("analyzer-raw")
         raw.set_halign(Gtk.Align.START)
         raw.set_xalign(0)
         raw.set_selectable(True)
-        block.append(raw)
+        block.set_content(raw)
         return block
-
-    @staticmethod
-    def _wrap_text(text: str, width: int) -> str:
-        """Insert newlines to wrap text at specified character width."""
-        return "\n".join(text[i : i + width] for i in range(0, len(text), width))
 
     @staticmethod
     def _type_class(packet_type: str) -> str:

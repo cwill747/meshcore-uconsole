@@ -9,8 +9,7 @@ from gi.repository import GLib, Gtk, Pango
 from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
-from meshcore_console.ui_gtk.widgets import DetailRow, NodeBadge, find_peer_for_hop
-from meshcore_console.ui_gtk.widgets.node_badge import STYLE_SELF
+from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState, MessageBubble
 
 
 class MessagesView(Gtk.Box):
@@ -139,8 +138,9 @@ class MessagesView(Gtk.Box):
                             break
                         self._message_box.remove(child)
                 for message in new_messages:
-                    bubble = self._create_message_bubble(message)
-                    self._message_box.append(bubble)
+                    self._message_box.append(
+                        MessageBubble(message, self._service, self._on_message_clicked)
+                    )
                 self._last_message_count = new_count
             elif new_count < self._last_message_count:
                 # Message count decreased (e.g. clear) - full rebuild
@@ -231,89 +231,13 @@ class MessagesView(Gtk.Box):
         self._last_message_count = len(messages)
 
         if not messages:
-            empty = Gtk.Label(label="No messages in this channel yet.")
-            empty.add_css_class("panel-muted")
-            empty.set_halign(Gtk.Align.CENTER)
-            empty.set_valign(Gtk.Align.CENTER)
-            empty.set_vexpand(True)
-            self._message_box.append(empty)
+            self._message_box.append(EmptyState("No messages in this channel yet.", vexpand=True))
             return
 
         for message in messages:
-            bubble = self._create_message_bubble(message)
-            self._message_box.append(bubble)
-
-    def _create_message_bubble(self, message: Message) -> Gtk.Box:
-        """Create an iMessage-style bubble for a message."""
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        row.set_margin_top(2)
-        row.set_margin_bottom(2)
-
-        # Sender badge (like a profile picture)
-        badge = self._make_sender_badge(message)
-        badge.set_valign(Gtk.Align.END)
-
-        # Create the bubble
-        bubble = Gtk.Button.new()
-        bubble.add_css_class("message-bubble")
-        bubble.set_can_focus(False)
-
-        if message.is_outgoing:
-            bubble.add_css_class("message-outgoing")
-            row.set_halign(Gtk.Align.END)
-            row.append(bubble)
-            row.append(badge)
-        else:
-            bubble.add_css_class("message-incoming")
-            row.set_halign(Gtk.Align.START)
-            row.append(badge)
-            row.append(bubble)
-
-        # Bubble content
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        content.set_margin_start(10)
-        content.set_margin_end(10)
-        content.set_margin_top(6)
-        content.set_margin_bottom(6)
-
-        # Message body
-        body_label = Gtk.Label(label=message.body)
-        body_label.set_wrap(True)
-        body_label.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        body_label.set_max_width_chars(40)
-        body_label.set_xalign(0)
-        body_label.add_css_class("message-body")
-        content.append(body_label)
-
-        # Meta line (sender for incoming, time for all)
-        if message.is_outgoing:
-            meta_text = message.created_at.strftime("%H:%M")
-        else:
-            meta_text = f"{message.sender_id}  {message.created_at.strftime('%H:%M')}"
-        meta = Gtk.Label(label=meta_text)
-        meta.add_css_class("message-meta")
-        meta.set_xalign(1 if message.is_outgoing else 0)
-        content.append(meta)
-
-        bubble.set_child(content)
-        bubble.connect("clicked", self._on_message_clicked, message)
-
-        return row
-
-    def _make_sender_badge(self, message: Message) -> NodeBadge:
-        """Create a NodeBadge for the message sender."""
-        if message.is_outgoing:
-            self_key = self._service.get_self_public_key()
-            prefix = (self_key or "")[:2].upper() or "Me"
-            return NodeBadge(prefix, "You", style=STYLE_SELF)
-
-        peers = self._service.list_peers()
-        sender_peer = find_peer_for_hop(peers, message.sender_id)
-        if sender_peer and sender_peer.public_key:
-            prefix = sender_peer.public_key[:2].upper()
-        else:
-            prefix = message.sender_id[:2].upper()
-        return NodeBadge(prefix, message.sender_id, peer=sender_peer)
+            self._message_box.append(
+                MessageBubble(message, self._service, self._on_message_clicked)
+            )
 
     def _on_message_clicked(self, _button: Gtk.Button, message: Message) -> None:
         """Show message details when clicked."""

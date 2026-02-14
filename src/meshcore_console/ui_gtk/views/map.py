@@ -27,7 +27,7 @@ from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.platform.mbtiles import MBTilesReader, find_mbtiles_files
-from meshcore_console.ui_gtk.widgets import DetailRow
+from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
 
 
 # Tile URL templates - Shumate uses {z}, {x}, {y} placeholders
@@ -64,18 +64,20 @@ class MapView(Gtk.Box):
     def _build_fallback_ui(self) -> None:
         """Build fallback UI when Shumate is not available."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_halign(Gtk.Align.CENTER)
-        box.set_valign(Gtk.Align.CENTER)
         box.set_hexpand(True)
         box.set_vexpand(True)
 
-        icon = Gtk.Label(label="Map unavailable")
-        icon.add_css_class("panel-title")
-        box.append(icon)
+        title = Gtk.Label(label="Map unavailable")
+        title.add_css_class("panel-title")
+        title.set_halign(Gtk.Align.CENTER)
+        title.set_valign(Gtk.Align.END)
+        title.set_vexpand(True)
+        box.append(title)
 
-        msg = Gtk.Label(label="Install gir1.2-shumate-1.0 to enable the map view.")
-        msg.add_css_class("panel-muted")
-        box.append(msg)
+        hint = EmptyState("Install gir1.2-shumate-1.0 to enable the map view.")
+        hint.set_vexpand(True)
+        hint.set_valign(Gtk.Align.START)
+        box.append(hint)
 
         self.append(box)
 

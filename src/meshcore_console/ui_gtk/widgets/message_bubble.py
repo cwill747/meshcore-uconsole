@@ -1,0 +1,107 @@
+"""Reusable iMessage-style chat message bubble."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+
+from gi.repository import Gtk
+
+from meshcore_console.core.models import Message
+from meshcore_console.ui_gtk.widgets.node_badge import STYLE_SELF, NodeBadge
+
+if TYPE_CHECKING:
+    from meshcore_console.core.services import MeshcoreService
+
+
+class MessageBubble(Gtk.Box):
+    """Chat message bubble with sender badge and directional alignment.
+
+    Incoming messages align left with the badge on the left.
+    Outgoing messages align right with the badge on the right.
+
+    Usage::
+
+        bubble = MessageBubble(message, service, on_clicked=handler)
+        message_box.append(bubble)
+    """
+
+    def __init__(
+        self,
+        message: Message,
+        service: MeshcoreService,
+        on_clicked: Callable[[Gtk.Button, Message], None],
+    ) -> None:
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.set_margin_top(2)
+        self.set_margin_bottom(2)
+
+        # Sender badge
+        badge = self._make_sender_badge(message, service)
+        badge.set_valign(Gtk.Align.END)
+
+        # Create the bubble button
+        bubble = Gtk.Button.new()
+        bubble.add_css_class("message-bubble")
+        bubble.set_can_focus(False)
+
+        if message.is_outgoing:
+            bubble.add_css_class("message-outgoing")
+            self.set_halign(Gtk.Align.END)
+            self.append(bubble)
+            self.append(badge)
+        else:
+            bubble.add_css_class("message-incoming")
+            self.set_halign(Gtk.Align.START)
+            self.append(badge)
+            self.append(bubble)
+
+        # Bubble content
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        content.set_margin_start(10)
+        content.set_margin_end(10)
+        content.set_margin_top(6)
+        content.set_margin_bottom(6)
+
+        # Message body
+        body_label = Gtk.Label(label=message.body)
+        body_label.set_wrap(True)
+        body_label.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        body_label.set_max_width_chars(40)
+        body_label.set_xalign(0)
+        body_label.add_css_class("message-body")
+        content.append(body_label)
+
+        # Meta line (sender for incoming, time for all)
+        if message.is_outgoing:
+            meta_text = message.created_at.strftime("%H:%M")
+        else:
+            meta_text = f"{message.sender_id}  {message.created_at.strftime('%H:%M')}"
+        meta = Gtk.Label(label=meta_text)
+        meta.add_css_class("message-meta")
+        meta.set_xalign(1 if message.is_outgoing else 0)
+        content.append(meta)
+
+        bubble.set_child(content)
+        bubble.connect("clicked", on_clicked, message)
+
+    @staticmethod
+    def _make_sender_badge(message: Message, service: MeshcoreService) -> NodeBadge:
+        """Create a NodeBadge for the message sender."""
+        from meshcore_console.ui_gtk.widgets.node_badge import find_peer_for_hop
+
+        if message.is_outgoing:
+            self_key = service.get_self_public_key()
+            prefix = (self_key or "")[:2].upper() or "Me"
+            return NodeBadge(prefix, "You", style=STYLE_SELF)
+
+        peers = service.list_peers()
+        sender_peer = find_peer_for_hop(peers, message.sender_id)
+        if sender_peer and sender_peer.public_key:
+            prefix = sender_peer.public_key[:2].upper()
+        else:
+            prefix = message.sender_id[:2].upper()
+        return NodeBadge(prefix, message.sender_id, peer=sender_peer)

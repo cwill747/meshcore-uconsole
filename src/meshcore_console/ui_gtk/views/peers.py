@@ -6,7 +6,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import GLib, Gtk
 
 if TYPE_CHECKING:
     from .messages import MessagesView
@@ -14,8 +14,13 @@ if TYPE_CHECKING:
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
-from meshcore_console.ui_gtk.widgets import DetailRow, NodeBadge, find_peer_for_hop
-from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_REPEATER, STYLE_SELF
+from meshcore_console.ui_gtk.widgets import (
+    DetailRow,
+    EmptyState,
+    PathVisualization,
+    PeerListRow,
+)
+from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF
 
 
 def format_public_key(key: str | None) -> str:
@@ -156,73 +161,12 @@ class PeersView(Gtk.Box):
         if not peers:
             row = Gtk.ListBoxRow.new()
             row.set_selectable(False)
-            label = Gtk.Label(label=empty_msg)
-            label.add_css_class("panel-muted")
-            label.set_halign(Gtk.Align.CENTER)
-            label.set_valign(Gtk.Align.CENTER)
-            label.set_margin_top(24)
-            label.set_margin_bottom(24)
-            row.set_child(label)
+            row.set_child(EmptyState(empty_msg))
             listbox.append(row)
             return
 
         for peer in peers:
-            row = Gtk.ListBoxRow.new()
-            row.add_css_class("peer-row")
-            setattr(row, "peer", peer)
-
-            body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            body.set_margin_top(6)
-            body.set_margin_bottom(6)
-            body.set_margin_start(10)
-            body.set_margin_end(10)
-
-            # Node prefix badge (first 2 hex chars of public key)
-            prefix_text = (peer.public_key or "")[:2].upper()
-            if prefix_text:
-                style = STYLE_REPEATER if peer.is_repeater else STYLE_DEFAULT
-                badge = NodeBadge(prefix_text, peer.display_name, peer=peer, style=style)
-                badge.set_valign(Gtk.Align.CENTER)
-                body.append(badge)
-
-            # Left side: name and meta
-            text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-            text_box.set_hexpand(True)
-
-            name = Gtk.Label(label=peer.display_name)
-            name.set_halign(Gtk.Align.START)
-            name.set_ellipsize(Pango.EllipsizeMode.END)
-            name.set_max_width_chars(24)
-            text_box.append(name)
-
-            # Show last seen time
-            if peer.last_advert_time:
-                time_str = peer.last_advert_time.strftime("%H:%M")
-                meta_text = f"seen {time_str}"
-            else:
-                meta_text = "not seen"
-            meta = Gtk.Label(label=meta_text)
-            meta.add_css_class("panel-muted")
-            meta.add_css_class("peer-meta")
-            meta.set_halign(Gtk.Align.START)
-            text_box.append(meta)
-
-            body.append(text_box)
-
-            # Right side: signal indicator
-            if peer.signal_quality is not None:
-                signal_label = Gtk.Label(label=f"{peer.signal_quality}%")
-                signal_label.add_css_class("peer-signal")
-                if peer.signal_quality >= 70:
-                    signal_label.add_css_class("signal-good")
-                elif peer.signal_quality >= 40:
-                    signal_label.add_css_class("signal-fair")
-                else:
-                    signal_label.add_css_class("signal-poor")
-                body.append(signal_label)
-
-            row.set_child(body)
-            listbox.append(row)
+            listbox.append(PeerListRow(peer))
 
     def _on_peer_selected(self, listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         """Handle peer selection to show details."""
@@ -246,13 +190,9 @@ class PeersView(Gtk.Box):
         """Show empty state in details panel."""
         self._details_title.set_text("Peer Details")
         self._clear_details()
-
-        hint = Gtk.Label(label="Select a contact or repeater to view details")
-        hint.add_css_class("panel-muted")
-        hint.set_halign(Gtk.Align.CENTER)
-        hint.set_valign(Gtk.Align.CENTER)
-        hint.set_vexpand(True)
-        self._details_content.append(hint)
+        self._details_content.append(
+            EmptyState("Select a contact or repeater to view details", vexpand=True)
+        )
 
     def _clear_details(self) -> None:
         """Clear the details content area."""
@@ -319,33 +259,14 @@ class PeersView(Gtk.Box):
         self._add_section_header("Network Path")
 
         if peer.last_path:
-            all_peers = self._service.list_peers()
-            path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            path_box.set_halign(Gtk.Align.START)
-
-            you_badge = NodeBadge("Me", "You (this node)", style=STYLE_SELF)
-            path_box.append(you_badge)
-
-            for hop in peer.last_path:
-                arrow = Gtk.Label(label="→")
-                arrow.add_css_class("panel-muted")
-                path_box.append(arrow)
-
-                hop_peer = find_peer_for_hop(all_peers, hop)
-                hop_name = hop_peer.display_name if hop_peer else hop
-                hop_prefix = hop[:2].upper()
-                hop_badge = NodeBadge(hop_prefix, hop_name, peer=hop_peer, style=STYLE_REPEATER)
-                path_box.append(hop_badge)
-
-            arrow = Gtk.Label(label="→")
-            arrow.add_css_class("panel-muted")
-            path_box.append(arrow)
-
             peer_prefix = (peer.public_key or peer.display_name)[:2].upper()
-            peer_badge = NodeBadge(peer_prefix, peer.display_name, peer=peer)
-            path_box.append(peer_badge)
-
-            self._details_content.append(path_box)
+            path = PathVisualization(
+                hops=peer.last_path,
+                peers=self._service.list_peers(),
+                start=("Me", "You (this node)", None, STYLE_SELF),
+                end=(peer_prefix, peer.display_name, peer, STYLE_DEFAULT),
+            )
+            self._details_content.append(path)
         else:
             direct_label = Gtk.Label(label="Direct connection (no hops)")
             direct_label.add_css_class("panel-muted")
