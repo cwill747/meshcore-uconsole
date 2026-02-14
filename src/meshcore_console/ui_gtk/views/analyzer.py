@@ -42,9 +42,9 @@ class PacketRecord:
 
 
 class AnalyzerView(Gtk.Box):
-    COL_TIME = 80
+    COL_TIME = 95
     COL_TYPE = 90
-    COL_NODE = 120
+    COL_NODE = 140
     COL_SIGNAL = 100  # Signal column is fixed, content expands
 
     def __init__(self, service: MeshcoreService, event_store: UiEventStore) -> None:
