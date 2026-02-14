@@ -201,7 +201,11 @@ class MeshcoreClient(MeshcoreService):
         is_group = channel_id == "public" or channel_id.startswith("#")
         if channel_id not in self._channels:
             display = f"#{channel_id}" if is_group else channel_id
-            channel = Channel(channel_id=channel_id, display_name=display)
+            channel = Channel(
+                channel_id=channel_id,
+                display_name=display,
+                peer_name=channel_id if not is_group else None,
+            )
             self._channels[channel_id] = channel
             self._channel_store.add_or_update(channel)
 
@@ -216,7 +220,7 @@ class MeshcoreClient(MeshcoreService):
             # Use the original-case peer name from the channel so pyMC_core
             # can find the contact in the contact book (case-sensitive lookup).
             channel = self._channels.get(channel_id)
-            resolved_name = channel.peer_name if channel and channel.peer_name else peer_id
+            resolved_name = (channel.peer_name or channel.display_name) if channel else peer_id
             self._run_async(self._session.send_text(peer_name=resolved_name, message=body))
         message = Message(
             message_id=str(uuid4()),

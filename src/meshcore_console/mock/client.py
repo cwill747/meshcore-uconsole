@@ -244,6 +244,7 @@ class MockMeshcoreClient(MeshcoreService):
                 channel_id=channel_name,
                 display_name=display,
                 unread_count=1,
+                peer_name=sender_name if is_direct else None,
             )
         else:
             self._channels[channel_name].unread_count += 1

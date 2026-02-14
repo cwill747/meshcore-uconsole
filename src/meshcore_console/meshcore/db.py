@@ -70,6 +70,8 @@ CREATE TABLE packets (
 # Index 0 = v0 -> v1 (initial schema creation).
 MIGRATIONS: list[tuple[str, ...]] = [
     tuple(stmt.strip() for stmt in SCHEMA_V1.split(";") if stmt.strip()),
+    # v1 -> v2: add peer_name column to channels for original-case contact names
+    ("ALTER TABLE channels ADD COLUMN peer_name TEXT",),
 ]
 
 
