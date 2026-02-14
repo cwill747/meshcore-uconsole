@@ -16,6 +16,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import GLib, Gtk, Pango
 
 from meshcore_console.core.enums import AnalyzerFilter, EventType
+from meshcore_console.core.packets import get_handler
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.ui_gtk.widgets import NodeBadge, find_peer_for_hop
@@ -281,16 +282,18 @@ class AnalyzerView(Gtk.Box):
             node = "Unknown"
         node = str(node)
 
-        # Decoded payload text
+        # Decoded payload text (only set for successfully decrypted packets)
         payload_text = str(data.get("payload_text") or "")
 
-        # Type-specific content extraction for packets without payload_text
-        if not payload_text:
-            payload_text = self._extract_type_specific_content(packet_type, data)
+        # Build display content: prefer decoded text, then type-specific, then hex
+        handler = get_handler(packet_type)
+        if payload_text:
+            content = handler.format_content(payload_text, data)
+        else:
+            content = handler.content_summary(data)
 
-        # Content for the table - prefer decoded text, fall back to hex preview
-        content = payload_text
         if not content:
+            # Last resort for unknown/unhandled types: hex preview
             payload_hex = data.get("payload_hex") or ""
             if payload_hex:
                 content = (
@@ -339,61 +342,8 @@ class AnalyzerView(Gtk.Box):
 
     @staticmethod
     def _extract_type_specific_content(packet_type: str, data: dict) -> str:
-        """Extract human-readable content based on packet type.
-
-        pyMC_core packet types have different payload structures:
-        - ADVERT: Node identity with optional location
-        - ACK: Acknowledgment, may reference packet_hash
-        - PATH/TRACE: Network diagnostics with hop info
-        - GRP_TXT/GRP_DATA: Channel name + content
-        - REQ/ANON_REQ/RESPONSE: Request/response payloads
-        - MULTIPART: Fragment info (part_num, total_parts)
-        """
-        ptype = packet_type.upper()
-
-        # ADVERT: Show name and location
-        if "ADVERT" in ptype:
-            advert_name = data.get("advert_name")
-            if advert_name:
-                lat = data.get("advert_lat")
-                lon = data.get("advert_lon")
-                if lat is not None and lon is not None:
-                    return f"{advert_name} @ {lat:.4f}, {lon:.4f}"
-                return f"Advert: {advert_name}"
-
-        # ACK: Show acknowledgment info
-        if "ACK" in ptype:
-            ack_hash = data.get("ack_hash") or data.get("packet_hash")
-            if ack_hash:
-                return f"ACK for {ack_hash[:12]}"
-            return "ACK"
-
-        # PATH/TRACE: Show path discovery info
-        if "PATH" in ptype or "TRACE" in ptype:
-            path_hops = data.get("path_hops") or []
-            if path_hops:
-                return f"Path: {' → '.join(str(h)[:8] for h in path_hops[:5])}"
-            return "Path discovery"
-
-        # GRP_TXT/GRP_DATA: Show channel name
-        if "GRP" in ptype:
-            channel = data.get("channel_name")
-            if channel:
-                return f"#{channel}"
-
-        # MULTIPART: Show fragment info
-        if "MULTI" in ptype:
-            part = data.get("part_num", data.get("fragment_num", "?"))
-            total = data.get("total_parts", data.get("fragment_count", "?"))
-            return f"Fragment {part}/{total}"
-
-        # REQ/ANON_REQ/RESPONSE: Generic request/response
-        if "REQ" in ptype:
-            req_type = data.get("request_type") or data.get("req_type")
-            if req_type:
-                return f"Request: {req_type}"
-
-        return ""
+        """Extract human-readable content based on packet type."""
+        return get_handler(packet_type).content_summary(data)
 
     def _parse_event_timestamp(self, event: dict[str, object]) -> tuple[str, str]:
         """Extract timestamp and date from event, falling back to current time.
@@ -771,32 +721,8 @@ class AnalyzerView(Gtk.Box):
 
     @staticmethod
     def _type_class(packet_type: str) -> str:
-        """Map packet type to CSS class for styling.
-
-        pyMC_core packet types:
-            REQ, RESPONSE, TXT_MSG, ACK, ADVERT, GRP_TXT,
-            GRP_DATA, ANON_REQ, PATH, TRACE, MULTIPART, RAW_CUSTOM
-        """
-        ptype = packet_type.upper()
-        if "GRP" in ptype:
-            return "type-grp"  # GRP_TXT, GRP_DATA
-        if "TXT" in ptype:
-            return "type-txt"  # TXT_MSG
-        if "ADVERT" in ptype:
-            return "type-advert"
-        if "RESP" in ptype:
-            return "type-response"
-        if "ACK" in ptype:
-            return "type-ack"
-        if "REQ" in ptype:
-            return "type-req"  # REQ, ANON_REQ
-        if "PATH" in ptype or "TRACE" in ptype:
-            return "type-path"  # PATH, TRACE (network diagnostics)
-        if "MULTI" in ptype:
-            return "type-multi"  # MULTIPART
-        if "RAW" in ptype:
-            return "type-raw"  # RAW_CUSTOM
-        return "type-other"
+        """Map packet type to CSS class for styling."""
+        return get_handler(packet_type).css_class
 
     @staticmethod
     def _header_label(text: str, width: int) -> Gtk.Label:

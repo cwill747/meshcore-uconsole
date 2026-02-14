@@ -3,6 +3,7 @@ from __future__ import annotations
 import unicodedata
 from typing import Any
 
+from meshcore_console.core.packets import is_encrypted_type
 from meshcore_console.core.types import PacketDataDict
 
 try:
@@ -227,6 +228,9 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
     # Use decrypted_text as payload_text if available
     if decrypted_text:
         payload_text = decrypted_text
+    elif payload_type is not None and is_encrypted_type(payload_type):
+        # Encrypted payload types — raw UTF-8 decode is garbage, clear it.
+        payload_text = None
 
     # Extract sender info
     sender_name = _extract_sender_name(packet)
