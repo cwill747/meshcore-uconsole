@@ -1,25 +1,15 @@
 from __future__ import annotations
 
-import logging
 import os
 import signal
 from pathlib import Path
 from typing import Sequence
 
+from meshcore_console.meshcore.logging_setup import configure_logging, set_stderr_level
+
 import gi
 
-
-def _configure_logging() -> None:
-    """Configure logging for the application."""
-    level = logging.DEBUG if os.environ.get("MESHCORE_DEBUG", "0") == "1" else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="[%(name)s] %(message)s",
-        handlers=[logging.StreamHandler()],
-    )
-
-
-_configure_logging()
+configure_logging()
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -64,6 +54,10 @@ class MeshcoreApplication(Adw.Application):
             from meshcore_console.meshcore.client import MeshcoreClient
 
             self.service = MeshcoreClient()
+
+        # Apply persisted log level unless LOG_LEVEL env var is set
+        if not os.environ.get("LOG_LEVEL"):
+            set_stderr_level(self.service.get_settings().log_level)
 
     def do_activate(self) -> None:
         _load_css()

@@ -4,9 +4,14 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gtk
+from gi.repository import Gio, Gtk
 
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.meshcore.logging_setup import (
+    VALID_LEVELS,
+    export_logs_to_path,
+    set_stderr_level,
+)
 from meshcore_console.meshcore.settings import MeshcoreSettings, apply_preset
 from meshcore_console.ui_gtk.widgets.qr_dialog import QrCodeDialog
 
@@ -55,9 +60,10 @@ class SettingsView(Gtk.Box):
         left_col.append(self._build_radio_panel())
         columns.append(left_col)
 
-        # Right column: Hardware (advanced)
+        # Right column: Hardware (advanced) + Logging
         right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         right_col.append(self._build_hardware_panel())
+        right_col.append(self._build_logging_panel())
         columns.append(right_col)
 
         # Actions bar at bottom
@@ -240,6 +246,74 @@ class SettingsView(Gtk.Box):
         panel.append(grid)
         return panel
 
+    def _build_logging_panel(self) -> Gtk.Box:
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        panel.add_css_class("panel-card")
+        panel.set_valign(Gtk.Align.START)
+
+        title = Gtk.Label(label="Logging")
+        title.add_css_class("panel-title")
+        title.set_halign(Gtk.Align.START)
+        panel.append(title)
+
+        grid = Gtk.Grid()
+        grid.set_row_spacing(8)
+        grid.set_column_spacing(8)
+
+        # Console log level dropdown
+        grid.attach(self._grid_label("Console Level"), 0, 0, 1, 1)
+        self._log_level_combo = Gtk.ComboBoxText.new()
+        for level in VALID_LEVELS:
+            self._log_level_combo.append(level, level)
+        self._log_level_combo.set_active_id("INFO")
+        self._log_level_combo.connect("changed", self._on_log_level_changed)
+        grid.attach(self._log_level_combo, 1, 0, 1, 1)
+
+        # Export logs button
+        export_btn = Gtk.Button.new_with_label("Export Logs")
+        export_btn.connect("clicked", self._on_export_logs)
+        grid.attach(export_btn, 0, 1, 2, 1)
+
+        panel.append(grid)
+        return panel
+
+    def _on_log_level_changed(self, combo: Gtk.ComboBoxText) -> None:
+        level = combo.get_active_id()
+        if level:
+            set_stderr_level(level)
+
+    def _on_export_logs(self, _button: Gtk.Button) -> None:
+        from datetime import datetime, timezone
+
+        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Export Logs")
+        dialog.set_initial_name(f"meshcore-logs-{ts}.txt")
+        txt_filter = Gtk.FileFilter()
+        txt_filter.set_name("Text files")
+        txt_filter.add_pattern("*.txt")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(txt_filter)
+        dialog.set_filters(filters)
+
+        window = self.get_root()
+        parent = window if isinstance(window, Gtk.Window) else None
+        dialog.save(parent, None, self._on_export_save_done)
+
+    def _on_export_save_done(self, dialog: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
+        try:
+            gfile = dialog.save_finish(result)
+        except Exception:  # noqa: BLE001
+            return  # user cancelled
+        dest = gfile.get_path()
+        if not dest:
+            return
+        try:
+            export_logs_to_path(dest)
+            self._status_label.set_text(f"Logs exported to {dest}")
+        except Exception as exc:  # noqa: BLE001
+            self._status_label.set_text(f"Export failed: {exc}")
+
     def _grid_label(self, text: str) -> Gtk.Label:
         label = Gtk.Label(label=text)
         label.add_css_class("panel-muted")
@@ -349,6 +423,9 @@ class SettingsView(Gtk.Box):
         self._set_switch("use_dio2_rf", settings.use_dio2_rf)
         self._set_switch("use_dio3_tcxo", settings.use_dio3_tcxo)
 
+        # Logging
+        self._log_level_combo.set_active_id(settings.log_level)
+
     def _collect_settings(self, allow_partial: bool = False) -> MeshcoreSettings:
         current = self._service.get_settings()
         out = current.clone()
@@ -392,6 +469,9 @@ class SettingsView(Gtk.Box):
         out.is_waveshare = self._switches["is_waveshare"].get_active()
         out.use_dio2_rf = self._switches["use_dio2_rf"].get_active()
         out.use_dio3_tcxo = self._switches["use_dio3_tcxo"].get_active()
+
+        # Logging
+        out.log_level = self._log_level_combo.get_active_id() or "INFO"
 
         return out
 

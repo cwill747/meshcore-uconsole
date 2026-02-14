@@ -12,6 +12,7 @@ class MeshcoreSettings:
     share_position: bool = False  # Share GPS position in adverts
     allow_telemetry: bool = True  # Allow telemetry requests from other nodes
     autoconnect: bool = False  # Automatically connect to radio on app startup
+    log_level: str = "INFO"  # stderr log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 
     # Radio
     radio_preset: str = "meshcore-us"
