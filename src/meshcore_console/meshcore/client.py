@@ -178,10 +178,12 @@ class MeshcoreClient(MeshcoreService):
         """Ensure a channel exists, creating it if necessary."""
         if channel_id in self._channels:
             return self._channels[channel_id]
+        is_group = channel_id == "public" or channel_id.startswith("#")
         channel = Channel(
             channel_id=channel_id,
-            display_name=display_name or f"#{channel_id}",
+            display_name=display_name or (f"#{channel_id}" if is_group else channel_id),
             unread_count=0,
+            peer_name=channel_id if not is_group else None,
         )
         self._channels[channel_id] = channel
         self._channel_store.add_or_update(channel)
@@ -211,7 +213,11 @@ class MeshcoreClient(MeshcoreService):
                 channel_name = "Public"
             self._run_async(self._session.send_group_text(channel_name=channel_name, message=body))
         else:
-            self._run_async(self._session.send_text(peer_name=peer_id, message=body))
+            # Use the original-case peer name from the channel so pyMC_core
+            # can find the contact in the contact book (case-sensitive lookup).
+            channel = self._channels.get(channel_id)
+            resolved_name = channel.peer_name if channel and channel.peer_name else peer_id
+            self._run_async(self._session.send_text(peer_name=resolved_name, message=body))
         message = Message(
             message_id=str(uuid4()),
             sender_id=self._settings.node_name,
@@ -541,6 +547,8 @@ class MeshcoreClient(MeshcoreService):
         else:
             raw_channel = data["channel_name"]
         channel_name = raw_channel.lower()
+        # Preserve the original-case sender name so we can resolve contacts later.
+        peer_display_name = sender_name if is_direct else None
 
         # Avoid duplicate messages using content-based deduplication
         msg_id = data.get("message_id") or str(uuid4())
@@ -576,6 +584,7 @@ class MeshcoreClient(MeshcoreService):
                 channel_id=channel_name,
                 display_name=display,
                 unread_count=1,
+                peer_name=peer_display_name,
             )
             self._channels[channel_name] = channel
             self._channel_store.add_or_update(channel)
