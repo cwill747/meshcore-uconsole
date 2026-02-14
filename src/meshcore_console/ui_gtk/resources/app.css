@@ -535,6 +535,16 @@ combobox:focus {
   background: alpha(@mc_accent, 0.1);
 }
 
+/* NodeBadge - reset MenuButton chrome */
+.node-badge {
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
 .node-prefix {
   font-family: "SF Mono", "Menlo", "Monaco", monospace;
   font-size: 11px;
@@ -545,6 +555,22 @@ combobox:focus {
   border-radius: 4px;
   background: alpha(#67b5ff, 0.2);
   color: #67b5ff;
+}
+
+.node-prefix-repeater {
+  background: alpha(@mc_warn, 0.2);
+  color: @mc_warn;
+  border: 1px solid alpha(@mc_warn, 0.4);
+}
+
+.node-prefix-self {
+  background: alpha(@mc_accent, 0.2);
+  color: @mc_accent;
+}
+
+.node-popover-name {
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .peer-meta {

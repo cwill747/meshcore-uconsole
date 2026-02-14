@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
-from meshcore_console.ui_gtk.widgets import DetailRow
+from meshcore_console.ui_gtk.widgets import DetailRow, NodeBadge, find_peer_for_hop
+from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_REPEATER, STYLE_SELF
 
 
 def format_public_key(key: str | None) -> str:
@@ -176,13 +177,13 @@ class PeersView(Gtk.Box):
             body.set_margin_start(10)
             body.set_margin_end(10)
 
-            # Node prefix square (first 2 hex chars of public key)
+            # Node prefix badge (first 2 hex chars of public key)
             prefix_text = (peer.public_key or "")[:2].upper()
             if prefix_text:
-                prefix = Gtk.Label(label=prefix_text)
-                prefix.add_css_class("node-prefix")
-                prefix.set_valign(Gtk.Align.CENTER)
-                body.append(prefix)
+                style = STYLE_REPEATER if peer.is_repeater else STYLE_DEFAULT
+                badge = NodeBadge(prefix_text, peer.display_name, peer=peer, style=style)
+                badge.set_valign(Gtk.Align.CENTER)
+                body.append(badge)
 
             # Left side: name and meta
             text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -317,30 +318,31 @@ class PeersView(Gtk.Box):
         self._add_section_header("Network Path")
 
         if peer.last_path:
+            all_peers = self._service.list_peers()
             path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
             path_box.set_halign(Gtk.Align.START)
 
-            you_label = Gtk.Label(label="You")
-            you_label.add_css_class("path-node")
-            path_box.append(you_label)
+            you_badge = NodeBadge("Me", "You (this node)", style=STYLE_SELF)
+            path_box.append(you_badge)
 
             for hop in peer.last_path:
                 arrow = Gtk.Label(label="→")
                 arrow.add_css_class("panel-muted")
                 path_box.append(arrow)
 
-                hop_label = Gtk.Label(label=hop[:10])
-                hop_label.add_css_class("path-node")
-                hop_label.add_css_class("path-repeater")
-                path_box.append(hop_label)
+                hop_peer = find_peer_for_hop(all_peers, hop)
+                hop_name = hop_peer.display_name if hop_peer else hop
+                hop_prefix = hop[:2].upper()
+                hop_badge = NodeBadge(hop_prefix, hop_name, peer=hop_peer, style=STYLE_REPEATER)
+                path_box.append(hop_badge)
 
             arrow = Gtk.Label(label="→")
             arrow.add_css_class("panel-muted")
             path_box.append(arrow)
 
-            peer_label = Gtk.Label(label=peer.display_name[:10])
-            peer_label.add_css_class("path-node")
-            path_box.append(peer_label)
+            peer_prefix = (peer.public_key or peer.display_name)[:2].upper()
+            peer_badge = NodeBadge(peer_prefix, peer.display_name, peer=peer)
+            path_box.append(peer_badge)
 
             self._details_content.append(path_box)
         else:
@@ -380,6 +382,20 @@ class PeersView(Gtk.Box):
         header.set_halign(Gtk.Align.START)
         header.set_margin_top(12)
         self._details_content.append(header)
+
+    def select_peer(self, peer_id: str) -> None:
+        """Select a peer programmatically and show its details."""
+        for listbox in (self._contacts_list, self._network_list):
+            index = 0
+            while True:
+                row = listbox.get_row_at_index(index)
+                if row is None:
+                    break
+                peer = getattr(row, "peer", None)
+                if peer and peer.peer_id == peer_id:
+                    listbox.select_row(row)
+                    return
+                index += 1
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Navigate to messages view and start a conversation with this peer."""
