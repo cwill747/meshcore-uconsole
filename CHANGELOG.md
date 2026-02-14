@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.1.0 (2026-02-13)
+
+### Feat
+
+- Add emoji support
+- Add more node info badges
+- Add node prefix to channel view, fix viewport
+- Add log level setting to settings and log it somewhere (#17)
+
+### Fix
+
+- Node disposal issues
+- Make analyzer columns a bit bigger
+- Make content text more robust
+- Case-sensitive DMs
+- Remove double CLIs
+
 ## v1.0.0 (2026-02-13)
 
 ### Feat
