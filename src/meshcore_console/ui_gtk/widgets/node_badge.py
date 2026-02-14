@@ -59,6 +59,9 @@ class NodeBadge(Gtk.Button):
         self.add_css_class("node-badge")
 
         self._peer = peer
+        self._prefix = prefix
+        self._display_name = display_name
+        self._popover: Gtk.Popover | None = None
 
         # Inner badge label
         label = Gtk.Label(label=prefix)
@@ -69,16 +72,11 @@ class NodeBadge(Gtk.Button):
             label.add_css_class("node-prefix-self")
         self.set_child(label)
 
-        # Hover tooltip shows display name
-        self.set_tooltip_text(display_name)
-
-        # Popover (manually managed — not auto-shown)
-        self._popover = Gtk.Popover.new()
-        self._popover.set_parent(self)
-        self._popover.set_child(self._build_popover(prefix, display_name, peer))
-
-        # Left click → toggle popover
+        # Left click → toggle popover (created lazily)
         self.connect("clicked", self._on_clicked)
+
+        # Clean up the manually-parented popover when removed from tree
+        self.connect("unrealize", self._on_unrealize)
 
         # Right click → navigate to Peers tab
         if peer is not None:
@@ -87,22 +85,33 @@ class NodeBadge(Gtk.Button):
             right_click.connect("released", self._on_right_click)
             self.add_controller(right_click)
 
-    def do_dispose(self) -> None:
-        """Clean up the manually-parented popover before finalization."""
-        self._popover.unparent()
-        super().do_dispose()
+    def _on_unrealize(self, _widget: Gtk.Widget) -> None:
+        if self._popover is not None:
+            self._popover.unparent()
+            self._popover = None
+
+    def _ensure_popover(self) -> Gtk.Popover:
+        if self._popover is None:
+            self._popover = Gtk.Popover.new()
+            self._popover.set_parent(self)
+            self._popover.set_child(
+                self._build_popover(self._prefix, self._display_name, self._peer)
+            )
+        return self._popover
 
     def _on_clicked(self, _button: Gtk.Button) -> None:
-        if self._popover.get_visible():
-            self._popover.popdown()
+        popover = self._ensure_popover()
+        if popover.get_visible():
+            popover.popdown()
         else:
-            self._popover.popup()
+            popover.popup()
 
     def _on_right_click(
         self, gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
     ) -> None:
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        self._popover.popdown()
+        if self._popover is not None:
+            self._popover.popdown()
         self._navigate_to_peer()
 
     def _navigate_to_peer(self) -> None:
