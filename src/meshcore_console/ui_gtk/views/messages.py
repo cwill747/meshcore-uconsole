@@ -367,8 +367,19 @@ class MessagesView(Gtk.Box):
         if not channel_id:
             return
         self._selected_channel_id = channel_id
-        self._thread_title.set_text(f"#{channel_id}")
+        self._update_thread_title(channel_id)
         self._reload_messages()
+
+    def _get_channel_display_name(self, channel_id: str) -> str:
+        """Return the display name for a channel, falling back to channel_id."""
+        channels = self._service.list_channels()
+        for ch in channels:
+            if ch.channel_id == channel_id:
+                return ch.display_name
+        return channel_id
+
+    def _update_thread_title(self, channel_id: str) -> None:
+        self._thread_title.set_text(self._get_channel_display_name(channel_id))
 
     def _on_send(self, *_args: object) -> None:
         body = self._entry.get_text().strip()
@@ -381,8 +392,9 @@ class MessagesView(Gtk.Box):
             self._send_status.set_text(f"Send failed: {exc}")
             return
 
+        display = self._get_channel_display_name(self._selected_channel_id)
         self._entry.set_text("")
-        self._send_status.set_text(f"Sent to #{self._selected_channel_id}")
+        self._send_status.set_text(f"Sent to {display}")
         self._reload_messages()
 
     def select_channel(self, channel_id: str) -> None:
@@ -391,8 +403,8 @@ class MessagesView(Gtk.Box):
         self._service.ensure_channel(channel_id)
 
         self._selected_channel_id = channel_id
-        self._thread_title.set_text(f"#{channel_id}")
 
         # Reload channels to include the newly-ensured channel, then select it
         self._reload_channels()
+        self._update_thread_title(channel_id)
         self._reload_messages()
