@@ -189,9 +189,10 @@ class PeersView(Gtk.Box):
             text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             text_box.set_hexpand(True)
 
-            name = Gtk.Label(label=peer.display_name[:24])
+            name = Gtk.Label(label=peer.display_name)
             name.set_halign(Gtk.Align.START)
             name.set_ellipsize(Pango.EllipsizeMode.END)
+            name.set_max_width_chars(24)
             text_box.append(name)
 
             # Show last seen time

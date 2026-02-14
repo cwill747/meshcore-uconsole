@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 from meshcore_console.core.types import PacketDataDict
@@ -9,6 +10,16 @@ try:
 except ImportError:
     PAYLOAD_TYPES = {}
     ROUTE_TYPES = {}
+
+try:
+    from pymc_core.protocol.utils import (
+        decode_appdata as _pymc_decode_appdata,
+        parse_advert_payload as _pymc_parse_advert,
+    )
+
+    _HAS_PYMC_PARSER = True
+except ImportError:
+    _HAS_PYMC_PARSER = False
 
 
 def _extract_sender_name(packet: Any) -> str | None:
@@ -74,55 +85,55 @@ def _extract_sender_id(packet: Any) -> str | None:
 def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
     """Parse an ADVERT payload to extract name and location.
 
-    ADVERT structure:
-    - pubkey (32 bytes)
-    - timestamp (4 bytes)
-    - signature (64 bytes)
-    - appdata:
-        - flags (1 byte): 0x10=HAS_LOCATION, 0x20=HAS_FEATURE1, 0x40=HAS_FEATURE2, 0x80=HAS_NAME
-        - lat (4 bytes, signed int * 1000000) if HAS_LOCATION
-        - lon (4 bytes, signed int * 1000000) if HAS_LOCATION
-        - feature1 (2 bytes) if HAS_FEATURE1
-        - feature2 (2 bytes) if HAS_FEATURE2
-        - name (remaining bytes) if HAS_NAME
+    Delegates to pyMC_core's canonical parser when available, with a
+    built-in fallback for environments where pyMC_core is not installed.
     """
+    # --- Primary path: use pyMC_core's parser (authoritative) ----------
+    if _HAS_PYMC_PARSER:
+        try:
+            parsed = _pymc_parse_advert(payload_bytes)
+            decoded = _pymc_decode_appdata(parsed["appdata"])
+            result: dict[str, Any] = {"sender_pubkey": parsed["pubkey"]}
+            flags = decoded.get("flags", 0)
+            result["advert_type"] = flags & 0x0F
+            lat = decoded.get("latitude")
+            lon = decoded.get("longitude")
+            if lat is not None and lon is not None:
+                result["advert_lat"] = lat
+                result["advert_lon"] = lon
+            name = decoded.get("node_name")
+            if name:
+                result["advert_name"] = name
+            return result
+        except Exception:
+            pass  # fall through to manual parser
+
+    # --- Fallback: manual parser (for mock / no pyMC_core) -------------
     import struct
 
-    result: dict[str, Any] = {}
+    result = {}
 
-    # Constants from pymc_core
     PUB_KEY_SIZE = 32
     TIMESTAMP_SIZE = 4
     SIGNATURE_SIZE = 64
-    HEADER_SIZE = PUB_KEY_SIZE + TIMESTAMP_SIZE + SIGNATURE_SIZE  # 100 bytes
-
-    ADVERT_FLAG_HAS_LOCATION = 0x10
-    ADVERT_FLAG_HAS_FEATURE1 = 0x20
-    ADVERT_FLAG_HAS_FEATURE2 = 0x40
-    ADVERT_FLAG_HAS_NAME = 0x80
+    HEADER_SIZE = PUB_KEY_SIZE + TIMESTAMP_SIZE + SIGNATURE_SIZE  # 100
 
     try:
         if len(payload_bytes) < HEADER_SIZE + 1:
             return result
 
-        # Extract public key (first 32 bytes) - can be used as sender ID
         pubkey = payload_bytes[:PUB_KEY_SIZE]
         result["sender_pubkey"] = pubkey.hex()
 
-        # appdata starts after header
         appdata = payload_bytes[HEADER_SIZE:]
         if not appdata:
             return result
 
         flags = appdata[0]
         offset = 1
+        result["advert_type"] = flags & 0x0F
 
-        # Extract node type from lower nibble
-        advert_type = flags & 0x0F
-        result["advert_type"] = advert_type
-
-        # Parse location if present
-        if flags & ADVERT_FLAG_HAS_LOCATION:
+        if flags & 0x10:  # HAS_LOCATION
             if len(appdata) >= offset + 8:
                 lat_int = struct.unpack("<i", appdata[offset : offset + 4])[0]
                 lon_int = struct.unpack("<i", appdata[offset + 4 : offset + 8])[0]
@@ -130,21 +141,20 @@ def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
                 result["advert_lon"] = lon_int / 1000000.0
                 offset += 8
 
-        # Skip feature1 if present
-        if flags & ADVERT_FLAG_HAS_FEATURE1:
-            offset += 2
+        if flags & 0x20:  # HAS_FEATURE1
+            if len(appdata) >= offset + 2:
+                offset += 2
 
-        # Skip feature2 if present
-        if flags & ADVERT_FLAG_HAS_FEATURE2:
-            offset += 2
+        if flags & 0x40:  # HAS_FEATURE2
+            if len(appdata) >= offset + 2:
+                offset += 2
 
-        # Parse name if present
-        if flags & ADVERT_FLAG_HAS_NAME:
+        if flags & 0x80:  # HAS_NAME
             name_bytes = appdata[offset:]
             if name_bytes:
                 try:
-                    name = name_bytes.decode("utf-8").rstrip("\x00")
-                    if name and name.isprintable():
+                    name = name_bytes.decode("utf-8").rstrip("\x00").strip()
+                    if name and not any(unicodedata.category(c) == "Cc" for c in name):
                         result["advert_name"] = name
                 except Exception:
                     pass
@@ -174,10 +184,22 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
     payload_text = None
     payload_hex = None
     payload_bytes_val: bytes | None = None
-    payload = getattr(packet, "payload", None)
-    if payload is not None:
+    # Prefer get_payload() which respects payload_len (matches pyMC_core handlers)
+    get_payload = getattr(packet, "get_payload", None)
+    if callable(get_payload):
         try:
-            payload_bytes_val = bytes(payload)
+            payload_bytes_val = get_payload()
+        except Exception:
+            payload_bytes_val = None
+    if payload_bytes_val is None:
+        raw = getattr(packet, "payload", None)
+        if raw is not None:
+            try:
+                payload_bytes_val = bytes(raw)
+            except Exception:
+                pass
+    if payload_bytes_val is not None:
+        try:
             payload_hex = payload_bytes_val.hex()
             try:
                 payload_text = payload_bytes_val.decode("utf-8")

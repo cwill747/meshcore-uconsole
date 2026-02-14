@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Shumate", "1.0")
 
-from gi.repository import GLib, Gtk
+from gi.repository import GLib, Gtk, Pango
 
 if TYPE_CHECKING:
     from .messages import MessagesView
@@ -394,8 +394,10 @@ class MapView(Gtk.Box):
         marker_box.append(dot)
 
         # Label
-        label = Gtk.Label(label=peer.display_name[:12])
+        label = Gtk.Label(label=peer.display_name)
         label.add_css_class("map-marker-label")
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_max_width_chars(12)
         marker_box.append(label)
 
         marker.set_child(marker_box)
