@@ -32,7 +32,6 @@ dev = [
 
 [project.scripts]
 meshcore-console = "meshcore_console.main:main"
-meshcore-radio = "meshcore_console.radio_cli:main"
 
 [tool.uv]
 package = true
