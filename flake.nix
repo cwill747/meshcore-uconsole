@@ -61,10 +61,13 @@
           ] ++ runtimeLibs;
 
           # Help GI and dynamic linker find typelibs and native libs in dev shell.
+          # These attributes are available to `nix develop --command` (unlike shellHook exports).
           GI_TYPELIB_PATH = lib.makeSearchPath "lib/girepository-1.0" typelibPkgs;
           LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs;
           DYLD_FALLBACK_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs;
           PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" runtimeLibs;
+          GSETTINGS_SCHEMA_DIR = lib.makeSearchPath "share/glib-2.0/schemas" schemaPkgs;
+          GIO_EXTRA_MODULES = "${pkgs.glib-networking}/lib/gio/modules";
 
           shellHook = ''
             export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
