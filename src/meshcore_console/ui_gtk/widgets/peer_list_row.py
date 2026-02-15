@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, timezone
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -57,10 +59,16 @@ class PeerListRow(Gtk.ListBoxRow):
         name.set_max_width_chars(24)
         text_box.append(name)
 
-        # Show last seen time
+        # Show last seen time (with date if not today)
         if peer.last_advert_time:
-            time_str = peer.last_advert_time.strftime("%H:%M")
-            meta_text = f"seen {time_str}"
+            dt = peer.last_advert_time
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            local_dt = dt.astimezone()
+            if local_dt.date() == date.today():
+                meta_text = f"seen {local_dt.strftime('%H:%M')}"
+            else:
+                meta_text = f"seen {local_dt.strftime('%b %-d, %H:%M')}"
         else:
             meta_text = "not seen"
         meta = Gtk.Label(label=meta_text)

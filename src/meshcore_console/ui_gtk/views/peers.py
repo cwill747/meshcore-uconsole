@@ -45,7 +45,7 @@ class PeersView(Gtk.Box):
     def __init__(self, service: MeshcoreService) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self._service = service
-        self._last_peer_count = 0
+        self._last_peer_snapshot: str = ""
         self._selected_peer: Peer | None = None
 
         # Column 1: Contacts
@@ -130,15 +130,29 @@ class PeersView(Gtk.Box):
         self._refresh_peers()
         GLib.timeout_add(2000, self._poll_peers)
 
+    @staticmethod
+    def _peer_snapshot(peers: list[Peer]) -> str:
+        """Compute a snapshot string to detect peer data changes."""
+        parts = []
+        for p in peers:
+            parts.append(
+                f"{p.display_name}:{p.last_advert_time}:{p.signal_quality}:{p.rssi}:{p.snr}"
+            )
+        return "|".join(parts)
+
     def _poll_peers(self) -> bool:
-        """Check for new peers and refresh if changed."""
+        """Check for peer changes and refresh if needed."""
         peers = self._service.list_peers()
-        if len(peers) != self._last_peer_count:
+        snapshot = self._peer_snapshot(peers)
+        if snapshot != self._last_peer_snapshot:
             self._refresh_peers()
         return True
 
     def _refresh_peers(self) -> None:
-        """Refresh the peers list display."""
+        """Refresh the peers list display, preserving selection."""
+        # Remember selected peer
+        selected_name = self._selected_peer.display_name if self._selected_peer else None
+
         # Clear existing rows
         for listbox in (self._contacts_list, self._network_list):
             while True:
@@ -148,13 +162,17 @@ class PeersView(Gtk.Box):
                 listbox.remove(row)
 
         peers = self._service.list_peers()
-        self._last_peer_count = len(peers)
+        self._last_peer_snapshot = self._peer_snapshot(peers)
 
         contacts = [p for p in peers if not p.is_repeater]
         network = [p for p in peers if p.is_repeater]
 
         self._populate_list(self._contacts_list, contacts, "No contacts yet")
         self._populate_list(self._network_list, network, "No repeaters yet")
+
+        # Restore selection
+        if selected_name:
+            self._reselect_peer(selected_name)
 
     def _populate_list(self, listbox: Gtk.ListBox, peers: list[Peer], empty_msg: str) -> None:
         """Populate a listbox with peers."""
@@ -315,6 +333,20 @@ class PeersView(Gtk.Box):
                     break
                 peer = getattr(row, "peer", None)
                 if peer and peer.peer_id == peer_id:
+                    listbox.select_row(row)
+                    return
+                index += 1
+
+    def _reselect_peer(self, display_name: str) -> None:
+        """Re-select a peer by name after a list refresh."""
+        for listbox in (self._contacts_list, self._network_list):
+            index = 0
+            while True:
+                row = listbox.get_row_at_index(index)
+                if row is None:
+                    break
+                peer = getattr(row, "peer", None)
+                if peer and peer.display_name == display_name:
                     listbox.select_row(row)
                     return
                 index += 1
