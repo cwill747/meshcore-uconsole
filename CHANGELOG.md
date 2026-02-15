@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.2.0 (2026-02-14)
+
+### Feat
+
+- Add ability to import private channel
+
+### Fix
+
+- Consistent timestamps across GUI
+- Sending and receiving messages different channels
+- Let pymc handle out_path
+- Peer data not refreshing on advert
+- Historical packets showed wrong timestamp
+- Fix dms again
+
 ## v1.1.0 (2026-02-13)
 
 ### Feat
