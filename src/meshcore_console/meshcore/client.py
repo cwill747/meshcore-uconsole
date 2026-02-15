@@ -176,16 +176,18 @@ class MeshcoreClient(MeshcoreService):
 
     def ensure_channel(self, channel_id: str, display_name: str | None = None) -> Channel:
         """Ensure a channel exists, creating it if necessary."""
-        if channel_id in self._channels:
-            return self._channels[channel_id]
         is_group = channel_id == "public" or channel_id.startswith("#")
+        # DM channel IDs are always lowercase for consistency
+        normalized_id = channel_id if is_group else channel_id.lower()
+        if normalized_id in self._channels:
+            return self._channels[normalized_id]
         channel = Channel(
-            channel_id=channel_id,
+            channel_id=normalized_id,
             display_name=display_name or (f"#{channel_id}" if is_group else channel_id),
             unread_count=0,
             peer_name=channel_id if not is_group else None,
         )
-        self._channels[channel_id] = channel
+        self._channels[normalized_id] = channel
         self._channel_store.add_or_update(channel)
         return channel
 
@@ -193,18 +195,29 @@ class MeshcoreClient(MeshcoreService):
         filtered = [m for m in self._messages if m.channel_id == channel_id]
         return filtered[-limit:]
 
+    def remove_channel(self, channel_id: str) -> bool:
+        """Remove a channel and its messages. Returns False if channel cannot be removed."""
+        if channel_id == "public":
+            return False
+        self._channels.pop(channel_id, None)
+        self._messages = [m for m in self._messages if m.channel_id != channel_id]
+        self._channel_store.remove(channel_id)
+        self._message_store.remove_for_channel(channel_id)
+        return True
+
     def send_message(self, peer_id: str, body: str) -> Message:
         if not self._connected:
             self.connect()
 
-        channel_id = peer_id
-        is_group = channel_id == "public" or channel_id.startswith("#")
+        is_group = peer_id == "public" or peer_id.startswith("#")
+        # DM channel IDs are always lowercase to match _process_message_event
+        channel_id = peer_id if is_group else peer_id.lower()
         if channel_id not in self._channels:
-            display = f"#{channel_id}" if is_group else channel_id
+            display = f"#{channel_id}" if is_group else peer_id
             channel = Channel(
                 channel_id=channel_id,
                 display_name=display,
-                peer_name=channel_id if not is_group else None,
+                peer_name=peer_id if not is_group else None,
             )
             self._channels[channel_id] = channel
             self._channel_store.add_or_update(channel)

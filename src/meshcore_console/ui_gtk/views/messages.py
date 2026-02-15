@@ -3,8 +3,9 @@ from __future__ import annotations
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
 
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
 from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
@@ -200,6 +201,14 @@ class MessagesView(Gtk.Box):
             body.append(meta)
 
             row.set_child(body)
+
+            # Right-click gesture for channel removal (not on #public)
+            if channel.channel_id != "public":
+                gesture = Gtk.GestureClick.new()
+                gesture.set_button(Gdk.BUTTON_SECONDARY)
+                gesture.connect("pressed", self._on_channel_right_click, row)
+                row.add_controller(gesture)
+
             self._channel_list.append(row)
 
             if channel.channel_id == self._selected_channel_id:
@@ -338,6 +347,66 @@ class MessagesView(Gtk.Box):
         self._update_thread_title(channel_id)
         self._reload_messages()
 
+    def _on_channel_right_click(
+        self,
+        gesture: Gtk.GestureClick,
+        _n_press: int,
+        x: float,
+        y: float,
+        row: Gtk.ListBoxRow,
+    ) -> None:
+        """Show context menu on right-click for channel removal."""
+        channel_id = getattr(row, "channel_id", None)
+        if not channel_id or channel_id == "public":
+            return
+
+        # Build a popover menu
+        menu = Gtk.PopoverMenu.new_from_model(None)
+        action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        remove_btn = Gtk.Button.new_with_label("Remove channel")
+        remove_btn.add_css_class("flat")
+        remove_btn.connect("clicked", self._on_remove_channel_clicked, channel_id, menu)
+        action_box.append(remove_btn)
+
+        popover = Gtk.Popover.new()
+        popover.set_child(action_box)
+        popover.set_parent(row)
+        popover.set_position(Gtk.PositionType.RIGHT)
+        popover.set_pointing_to(Gdk.Rectangle())
+        popover.popup()
+
+    def _on_remove_channel_clicked(
+        self, _button: Gtk.Button, channel_id: str, popover: Gtk.Popover
+    ) -> None:
+        """Show confirmation dialog before removing a channel."""
+        popover.popdown()
+
+        display_name = self._get_channel_display_name(channel_id)
+        dialog = Adw.AlertDialog.new(
+            f"Remove {display_name}?",
+            "This will remove the channel and all its messages. This cannot be undone.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_remove_confirmed, channel_id)
+        dialog.present(self.get_root())
+
+    def _on_remove_confirmed(
+        self, _dialog: Adw.AlertDialog, response: str, channel_id: str
+    ) -> None:
+        """Handle confirmation dialog response."""
+        if response != "remove":
+            return
+        if self._service.remove_channel(channel_id):
+            # Switch to #public if we removed the currently selected channel
+            if self._selected_channel_id == channel_id:
+                self._selected_channel_id = "public"
+            self._reload_channels()
+
     def _get_channel_display_name(self, channel_id: str) -> str:
         """Return the display name for a channel, falling back to channel_id."""
         channels = self._service.list_channels()
@@ -368,11 +437,12 @@ class MessagesView(Gtk.Box):
     def select_channel(self, channel_id: str) -> None:
         """Select a channel programmatically (for direct messaging from peers view)."""
         # Ensure the channel exists in the service before trying to select it
-        self._service.ensure_channel(channel_id)
+        channel = self._service.ensure_channel(channel_id)
 
-        self._selected_channel_id = channel_id
+        # Use the normalized channel_id (lowercase for DMs)
+        self._selected_channel_id = channel.channel_id
 
         # Reload channels to include the newly-ensured channel, then select it
         self._reload_channels()
-        self._update_thread_title(channel_id)
+        self._update_thread_title(channel.channel_id)
         self._reload_messages()

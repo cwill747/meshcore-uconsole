@@ -70,6 +70,10 @@ class MessageStore:
             else [_row_to_message(r) for r in rows]
         )
 
+    def remove_for_channel(self, channel_id: str) -> None:
+        self._conn.execute("DELETE FROM messages WHERE channel_id = ?", (channel_id,))
+        self._conn.commit()
+
     def __len__(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
 
@@ -169,6 +173,10 @@ class UIChannelStore:
             )
             for row in rows
         }
+
+    def remove(self, channel_id: str) -> None:
+        self._conn.execute("DELETE FROM channels WHERE channel_id = ?", (channel_id,))
+        self._conn.commit()
 
     def increment_unread(self, channel_id: str) -> None:
         self._conn.execute(
