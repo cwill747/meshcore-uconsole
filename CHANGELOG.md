@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.3.0 (2026-02-15)
+
+### Feat
+
+- Add monkey testing script for UI stress testing
+
+### Fix
+
+- Resolve GTK widget assertions found by monkey testing
+- Fixup screenshot generation (#23)
+
 ## v1.2.0 (2026-02-14)
 
 ### Feat
