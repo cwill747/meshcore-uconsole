@@ -127,11 +127,11 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           VERSION_NUM=${VERSION#v}
           # Extract section between this version and the next version header
-          NOTES=$(awk "/^## ${VERSION}/,/^## v[0-9]/" CHANGELOG.md | sed '$d')
-          # Handle case where this is the only/last version
-          if [ -z "$NOTES" ]; then
-            NOTES=$(awk "/^## ${VERSION}/,0" CHANGELOG.md)
-          fi
+          NOTES=$(awk "
+            /^## ${VERSION}/{found=1}
+            found && /^## v[0-9]/ && !/^## ${VERSION}/{exit}
+            found{print}
+          " CHANGELOG.md)
           cat > release-notes.md << EOF
           ## Installation
 
