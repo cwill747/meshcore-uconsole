@@ -24,9 +24,15 @@ sudo apt install ./meshcore-uconsole_*.deb
 
 Using `apt install` instead of `dpkg -i` ensures dependencies are installed automatically.
 
-![Analyzer view](docs/analyzer.png)
+## Screenshots
 
-![Map view](docs/map.png)
+| Analyzer | Peers |
+|----------|-------|
+| ![Analyzer](docs/analyzer.png) | ![Peers](docs/peers.png) |
+
+| Channels | Map |
+|----------|-----|
+| ![Channels](docs/channels.png) | ![Map](docs/map.png) |
 
 ## Prerequisites
 
