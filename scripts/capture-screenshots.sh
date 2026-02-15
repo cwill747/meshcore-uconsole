@@ -7,6 +7,7 @@ if [[ -z "${IN_NIX_SHELL:-}" ]] && command -v nix >/dev/null 2>&1; then
 fi
 
 export MESHCORE_MOCK=1
+export GTK_A11Y=none
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CAPTURE_SCRIPT="$SCRIPT_DIR/capture_screenshots.py"

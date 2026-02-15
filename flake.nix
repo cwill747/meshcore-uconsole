@@ -50,6 +50,15 @@
           pkgs.graphene
           pkgs.harfbuzz
         ];
+        # Nix puts GSettings schemas under share/gsettings-schemas/<name>/, not share/.
+        schemaDataDirs = map (p: "${p}/share/gsettings-schemas/${p.name}") schemaPkgs;
+        schemaDirs = map (p: "${p}/share/gsettings-schemas/${p.name}/glib-2.0/schemas") schemaPkgs;
+
+        # Generate a fontconfig config pointing to Nix-provided fonts so Pango
+        # can render text in headless / nix develop --command environments.
+        fontsConf = pkgs.makeFontsConf {
+          fontDirectories = [ pkgs.dejavu_fonts pkgs.noto-fonts-color-emoji ];
+        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -61,16 +70,18 @@
           ] ++ runtimeLibs;
 
           # Help GI and dynamic linker find typelibs and native libs in dev shell.
+          # These attributes are available to `nix develop --command` (unlike shellHook exports).
           GI_TYPELIB_PATH = lib.makeSearchPath "lib/girepository-1.0" typelibPkgs;
           LD_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs;
           DYLD_FALLBACK_LIBRARY_PATH = lib.makeLibraryPath runtimeLibs;
           PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" runtimeLibs;
+          GSETTINGS_SCHEMA_DIR = lib.concatStringsSep ":" schemaDirs;
+          GIO_EXTRA_MODULES = "${pkgs.glib-networking}/lib/gio/modules";
+          FONTCONFIG_FILE = fontsConf;
 
           shellHook = ''
             export UV_PROJECT_ENVIRONMENT="$PWD/.venv"
-            export XDG_DATA_DIRS="${lib.makeSearchPath "share" schemaPkgs}:''${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-            export GSETTINGS_SCHEMA_DIR="${lib.makeSearchPath "share/glib-2.0/schemas" schemaPkgs}"
-            export GIO_EXTRA_MODULES="${pkgs.glib-networking}/lib/gio/modules"
+            export XDG_DATA_DIRS="${lib.concatStringsSep ":" schemaDataDirs}:''${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
             echo "Entered meshcore-uconsole dev shell"
             echo "Use: uv venv && uv sync"
           '';
