@@ -88,14 +88,13 @@ class MessagesView(Gtk.Box):
         compose.set_margin_end(12)
         compose.set_margin_top(8)
         compose.set_margin_bottom(8)
-        # Emoji picker button
-        emoji_chooser = Gtk.EmojiChooser.new()
-        emoji_chooser.connect("emoji-picked", self._on_emoji_picked)
+        # Emoji picker button (popover created lazily to avoid Pango emoji
+        # font lookup which crashes in headless / Nix environments)
         emoji_btn = Gtk.MenuButton.new()
         emoji_btn.set_icon_name("face-smile-symbolic")
-        emoji_btn.set_popover(emoji_chooser)
         emoji_btn.set_tooltip_text("Insert emoji")
         emoji_btn.add_css_class("flat")
+        emoji_btn.connect("notify::active", self._ensure_emoji_chooser)
         self._emoji_btn = emoji_btn
         compose.append(emoji_btn)
 
@@ -149,6 +148,15 @@ class MessagesView(Gtk.Box):
                 self._reload_messages()
         self._refresh_compose_state()
         return True
+
+    def _ensure_emoji_chooser(self, btn: Gtk.MenuButton, _pspec: object) -> None:
+        """Lazily create the EmojiChooser on first activation."""
+        if not btn.get_active() or btn.get_popover() is not None:
+            return
+        chooser = Gtk.EmojiChooser.new()
+        chooser.connect("emoji-picked", self._on_emoji_picked)
+        btn.set_popover(chooser)
+        chooser.popup()
 
     def _on_emoji_picked(self, _chooser: Gtk.EmojiChooser, emoji: str) -> None:
         """Insert the chosen emoji at the cursor position in the entry."""
