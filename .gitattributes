@@ -1,0 +1,4 @@
+docs/peers.png filter=lfs diff=lfs merge=lfs -text
+docs/analyzer.png filter=lfs diff=lfs merge=lfs -text
+docs/channels.png filter=lfs diff=lfs merge=lfs -text
+docs/map.png filter=lfs diff=lfs merge=lfs -text
