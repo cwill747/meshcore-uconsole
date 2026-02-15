@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from meshcore_console.core.models import Message
+from meshcore_console.core.time import to_local
 from meshcore_console.ui_gtk.widgets.node_badge import STYLE_SELF, NodeBadge
 
 if TYPE_CHECKING:
@@ -76,10 +77,11 @@ class MessageBubble(Gtk.Box):
         content.append(body_label)
 
         # Meta line (sender for incoming, time for all)
+        local_time = to_local(message.created_at).strftime("%H:%M")
         if message.is_outgoing:
-            meta_text = message.created_at.strftime("%H:%M")
+            meta_text = local_time
         else:
-            meta_text = f"{message.sender_id}  {message.created_at.strftime('%H:%M')}"
+            meta_text = f"{message.sender_id}  {local_time}"
         meta = Gtk.Label(label=meta_text)
         meta.add_css_class("message-meta")
         meta.set_xalign(1 if message.is_outgoing else 0)

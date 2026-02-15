@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.core.time import to_local
 from meshcore_console.ui_gtk.widgets import (
     DetailRow,
     EmptyState,
@@ -256,7 +257,7 @@ class PeersView(Gtk.Box):
             self._details_content.append(DetailRow("Coordinates:", coords))
 
             if peer.location_updated:
-                loc_time = peer.location_updated.strftime("%b %d at %H:%M")
+                loc_time = to_local(peer.location_updated).strftime("%b %d at %H:%M")
                 self._details_content.append(DetailRow("Updated:", loc_time))
         else:
             no_loc = Gtk.Label(label="No location reported")
@@ -268,7 +269,7 @@ class PeersView(Gtk.Box):
         self._add_section_header("Activity")
 
         if peer.last_advert_time:
-            time_str = peer.last_advert_time.strftime("%b %d, %Y at %I:%M %p")
+            time_str = to_local(peer.last_advert_time).strftime("%b %d, %Y at %I:%M %p")
             self._details_content.append(DetailRow("Last Seen:", time_str))
         else:
             self._details_content.append(DetailRow("Last Seen:", "Unknown"))

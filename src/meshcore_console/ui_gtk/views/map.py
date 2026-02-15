@@ -26,6 +26,7 @@ except ImportError:
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.core.time import to_local
 from meshcore_console.platform.mbtiles import MBTilesReader, find_mbtiles_files
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
 
@@ -543,7 +544,7 @@ class MapView(Gtk.Box):
             self._details_content.append(DetailRow("Location:", coord_str))
 
         if peer.location_updated:
-            time_str = peer.location_updated.strftime("%H:%M")
+            time_str = to_local(peer.location_updated).strftime("%H:%M")
             self._details_content.append(DetailRow("Updated:", time_str))
 
         # Signal info
@@ -554,7 +555,7 @@ class MapView(Gtk.Box):
 
         # Last seen
         if peer.last_advert_time:
-            time_str = peer.last_advert_time.strftime("%b %d at %H:%M")
+            time_str = to_local(peer.last_advert_time).strftime("%b %d at %H:%M")
             self._details_content.append(DetailRow("Last seen:", time_str))
 
         # Action buttons (only for contacts)

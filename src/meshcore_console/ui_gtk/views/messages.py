@@ -10,6 +10,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.core.time import to_local
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState, MessageBubble
 
 
@@ -281,7 +282,7 @@ class MessagesView(Gtk.Box):
         sender.set_hexpand(True)
         header.append(sender)
 
-        time_label = Gtk.Label(label=message.created_at.strftime("%I:%M %p"))
+        time_label = Gtk.Label(label=to_local(message.created_at).strftime("%I:%M %p"))
         time_label.add_css_class("panel-muted")
         header.append(time_label)
         self._details_box.append(header)
@@ -314,7 +315,7 @@ class MessagesView(Gtk.Box):
 
         # Time
         time_label = "Sent:" if message.is_outgoing else "Received:"
-        time_value = message.created_at.strftime("%b %d, %Y at %I:%M %p")
+        time_value = to_local(message.created_at).strftime("%b %d, %Y at %I:%M %p")
         self._details_box.append(DetailRow(time_label, time_value))
 
         # SNR (only for incoming)

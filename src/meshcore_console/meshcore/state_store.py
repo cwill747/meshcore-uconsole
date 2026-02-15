@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 
 from meshcore_console.core.models import Channel, Message, Peer
 
@@ -194,7 +194,7 @@ def _row_to_message(row: tuple) -> Message:
     if isinstance(created_at, str):
         created_at = datetime.fromisoformat(created_at)
     else:
-        created_at = datetime.now()
+        created_at = datetime.now(UTC)
     return Message(
         message_id=row[0],
         sender_id=row[1],

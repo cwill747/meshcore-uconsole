@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timezone
+from datetime import date
 
 import gi
 
@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango
 
 from meshcore_console.core.models import Peer
+from meshcore_console.core.time import to_local
 from meshcore_console.ui_gtk.widgets.node_badge import (
     STYLE_DEFAULT,
     STYLE_REPEATER,
@@ -61,10 +62,7 @@ class PeerListRow(Gtk.ListBoxRow):
 
         # Show last seen time (with date if not today)
         if peer.last_advert_time:
-            dt = peer.last_advert_time
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            local_dt = dt.astimezone()
+            local_dt = to_local(peer.last_advert_time)
             if local_dt.date() == date.today():
                 meta_text = f"seen {local_dt.strftime('%H:%M')}"
             else:

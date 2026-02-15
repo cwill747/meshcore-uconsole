@@ -14,6 +14,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
 from meshcore_console.core.models import Peer
+from meshcore_console.core.time import to_local
 
 STYLE_DEFAULT = "default"  # Blue (contacts, general nodes)
 STYLE_REPEATER = "repeater"  # Amber (repeater/relay hops)
@@ -187,7 +188,7 @@ class NodeBadge(Gtk.Button):
 
         # Last seen
         if peer.last_advert_time:
-            time_str = peer.last_advert_time.strftime("%b %d at %H:%M")
+            time_str = to_local(peer.last_advert_time).strftime("%b %d at %H:%M")
             seen = Gtk.Label(label=f"Seen: {time_str}")
             seen.add_css_class("panel-muted")
             seen.set_halign(Gtk.Align.START)
