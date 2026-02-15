@@ -700,7 +700,7 @@ class MonkeyApp(Adw.Application):
             _click_button(random.choice(bubble_buttons))
 
     def _action_messages_click_badge(self) -> None:
-        """Click a NodeBadge inside a message bubble (tests popover lifecycle)."""
+        """Toggle a NodeBadge popover (tests popover lifecycle)."""
         if self._window is None:
             return
         messages = self._window._stack.get_child_by_name("messages")
@@ -713,13 +713,14 @@ class MonkeyApp(Adw.Application):
 
         badges = [b for b in _find_children(message_box, NodeBadge) if b.get_realized()]
         if badges:
-            # Dismiss any existing popover before clicking a new badge
+            # Dismiss any other visible badge popovers first
             for b in badges:
-                pop = getattr(b, "_popover", None)
+                pop = b.get_popover()
                 if pop is not None and pop.get_visible():
-                    pop.popdown()
+                    b.popdown()
             badge = random.choice(badges)
-            _click_button(badge)
+            # Use activate() to go through MenuButton's internal click path
+            badge.activate()
 
     def _action_messages_close_details(self) -> None:
         if self._window is None:
@@ -950,14 +951,43 @@ class MonkeyApp(Adw.Application):
     # ===================================================================
 
     def _action_rapid_switch(self) -> None:
-        """Rapidly switch views 3 times back-to-back."""
+        """Rapidly switch views 3 times back-to-back.
+
+        Uses NONE transition for the entire batch and dismisses any
+        visible popovers first to avoid gdk_surface_thaw_updates.
+        """
         if self._window is None:
             return
+        # Dismiss any open popovers that may have animations in-flight
+        self._dismiss_all_popovers()
+        stack = self._window._stack
+        saved = stack.get_transition_type()
+        stack.set_transition_type(Gtk.StackTransitionType.NONE)
         for _ in range(3):
             page = random.choice(VIEW_PAGES)
-            self._window._switch_to_page(page)
+            stack.set_visible_child_name(page)
             for name, btn in self._window._nav_buttons.items():
                 btn.set_active(name == page)
+        stack.set_transition_type(saved)
+        # Let the view settle after rapid switching
+        while GLib.MainContext.default().pending():
+            GLib.MainContext.default().iteration(False)
+
+    def _dismiss_all_popovers(self) -> None:
+        """Dismiss any visible popovers in the current view."""
+        if self._window is None:
+            return
+        current = self._window._stack.get_visible_child()
+        if current is None:
+            return
+        for popover in _find_children(current, Gtk.Popover):
+            if popover.get_visible():
+                popover.popdown()
+        # Also check MenuButton popovers (not in widget tree when hidden)
+        for mb in _find_children(current, Gtk.MenuButton):
+            pop = mb.get_popover()
+            if pop is not None and pop.get_visible():
+                pop.popdown()
 
     def _action_resize_window(self) -> None:
         if self._window is None:

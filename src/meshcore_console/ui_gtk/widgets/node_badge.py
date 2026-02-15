@@ -34,12 +34,15 @@ def find_peer_for_hop(peers: list[Peer], hop: str) -> Peer | None:
     return None
 
 
-class NodeBadge(Gtk.Button):
+class NodeBadge(Gtk.MenuButton):
     """Clickable node identifier badge with hover tooltip and click popover.
+
+    Uses Gtk.MenuButton for native popover lifecycle management, which
+    properly handles popup/popdown and cleanup when the widget is removed
+    from the tree.
 
     - Left click: opens popover with node details.
     - Right click: navigates to the Peers tab with the node selected.
-    - Hover: tooltip shows the node's display name.
 
     Usage::
 
@@ -62,7 +65,6 @@ class NodeBadge(Gtk.Button):
         self._peer = peer
         self._prefix = prefix
         self._display_name = display_name
-        self._popover: Gtk.Popover | None = None
 
         # Inner badge label
         label = Gtk.Label(label=prefix)
@@ -73,11 +75,9 @@ class NodeBadge(Gtk.Button):
             label.add_css_class("node-prefix-self")
         self.set_child(label)
 
-        # Left click → toggle popover (created lazily)
-        self.connect("clicked", self._on_clicked)
-
-        # Clean up the manually-parented popover when removed from tree
-        self.connect("unrealize", self._on_unrealize)
+        # Lazily create popover on first activation to avoid creating
+        # hundreds of popovers for badges that are never clicked.
+        self.connect("notify::active", self._on_activated)
 
         # Right click → navigate to Peers tab
         if peer is not None:
@@ -86,35 +86,24 @@ class NodeBadge(Gtk.Button):
             right_click.connect("released", self._on_right_click)
             self.add_controller(right_click)
 
-    def _on_unrealize(self, _widget: Gtk.Widget) -> None:
-        if self._popover is not None:
-            if self._popover.get_visible():
-                self._popover.popdown()
-            self._popover.unparent()
-            self._popover = None
+    def _on_activated(self, _widget: Gtk.Widget, _pspec: object) -> None:
+        """Lazily create the popover on first activation.
 
-    def _ensure_popover(self) -> Gtk.Popover:
-        if self._popover is None:
-            self._popover = Gtk.Popover.new()
-            self._popover.set_parent(self)
-            self._popover.set_child(
-                self._build_popover(self._prefix, self._display_name, self._peer)
-            )
-        return self._popover
-
-    def _on_clicked(self, _button: Gtk.Button) -> None:
-        popover = self._ensure_popover()
-        if popover.get_visible():
-            popover.popdown()
-        else:
-            popover.popup()
+        Only sets the popover — the MenuButton handles showing it.
+        """
+        if not self.get_active() or self.get_popover() is not None:
+            return
+        popover = Gtk.Popover.new()
+        popover.set_child(self._build_popover(self._prefix, self._display_name, self._peer))
+        self.set_popover(popover)
 
     def _on_right_click(
         self, gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
     ) -> None:
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-        if self._popover is not None:
-            self._popover.popdown()
+        popover = self.get_popover()
+        if popover is not None and popover.get_visible():
+            popover.popdown()
         self._navigate_to_peer()
 
     def _navigate_to_peer(self) -> None:

@@ -363,7 +363,11 @@ class SettingsView(Gtk.Box):
         preset = self._preset.get_active_id() or "custom"
         if preset == "custom":
             return
-        current = self._collect_settings(allow_partial=True)
+        try:
+            current = self._collect_settings(allow_partial=True)
+        except ValueError:
+            # Fields contain invalid text; fall back to persisted settings
+            current = self._service.get_settings()
         updated = apply_preset(current, preset)
         self._set_entry_float("frequency", updated.frequency / 1_000_000)
         self._set_entry_float("bandwidth", updated.bandwidth / 1_000)

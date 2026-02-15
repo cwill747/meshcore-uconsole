@@ -158,6 +158,14 @@ class MainWindow(Adw.ApplicationWindow):
         transition is already in-flight to avoid a GTK4 freeze-count
         underflow (``gdk_surface_thaw_updates`` assertion).
         """
+        # Dismiss any active popover on the current view to avoid
+        # surface freeze-count conflicts with the stack crossfade.
+        focus = self.get_focus()
+        if focus is not None:
+            popover = focus.get_ancestor(Gtk.Popover)
+            if popover is not None and popover.get_visible():
+                popover.popdown()
+
         if self._stack.get_transition_running():
             saved = self._stack.get_transition_type()
             self._stack.set_transition_type(Gtk.StackTransitionType.NONE)
