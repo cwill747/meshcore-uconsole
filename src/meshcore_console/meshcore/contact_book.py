@@ -12,12 +12,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-@dataclass(slots=True)
+@dataclass
 class Contact:
-    """Single contact entry compatible with pyMC_core handler expectations."""
+    """Single contact entry compatible with pyMC_core handler expectations.
+
+    Note: slots=False is intentional — pyMC_core sets dynamic attributes
+    (e.g. out_path) on contacts when processing adverts.
+    """
 
     name: str
     public_key: str  # 64-char hex string
+    out_path: list | None = None  # Routing path set by pyMC_core on advert receipt
 
 
 class ContactBook:
