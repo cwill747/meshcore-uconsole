@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import TYPE_CHECKING, cast
 
@@ -14,6 +15,8 @@ from gi.repository import GLib, Gtk, Pango
 
 if TYPE_CHECKING:
     from .messages import MessagesView
+
+logger = logging.getLogger(__name__)
 
 try:
     from gi.repository import Shumate
@@ -327,6 +330,7 @@ class MapView(Gtk.Box):
         error = self._service.get_gps_error()
         if error and error not in self._shown_gps_errors:
             self._shown_gps_errors.add(error)
+            logger.warning("GPS error: %s", error)
             self._show_toast(f"GPS: {error}")
 
     def _show_toast(self, message: str) -> None:

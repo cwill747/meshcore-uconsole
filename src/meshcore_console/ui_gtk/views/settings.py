@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -14,6 +16,8 @@ from meshcore_console.meshcore.logging_setup import (
 )
 from meshcore_console.meshcore.settings import MeshcoreSettings, apply_preset
 from meshcore_console.ui_gtk.widgets.qr_dialog import QrCodeDialog
+
+logger = logging.getLogger(__name__)
 
 
 def _abbreviate_key(key: str | None) -> str:
@@ -312,6 +316,7 @@ class SettingsView(Gtk.Box):
             export_logs_to_path(dest)
             self._status_label.set_text(f"Logs exported to {dest}")
         except Exception as exc:  # noqa: BLE001
+            logger.error("Export failed: %s", exc)
             self._status_label.set_text(f"Export failed: {exc}")
 
     def _grid_label(self, text: str) -> Gtk.Label:
@@ -377,9 +382,11 @@ class SettingsView(Gtk.Box):
             self._service.update_settings(settings)
             self._status_label.set_text("Settings saved.")
         except ValueError as exc:
+            logger.warning("Settings validation error: %s", exc)
             self._status_label.set_text(f"Invalid: {exc}")
         except Exception as exc:  # noqa: BLE001
             msg = str(exc) or type(exc).__name__
+            logger.error("Settings save failed: %s", msg)
             self._status_label.set_text(f"Save failed: {msg}")
 
     def _load_from_service(self) -> None:

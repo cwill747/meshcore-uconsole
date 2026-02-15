@@ -88,6 +88,8 @@ class NodeBadge(Gtk.Button):
 
     def _on_unrealize(self, _widget: Gtk.Widget) -> None:
         if self._popover is not None:
+            if self._popover.get_visible():
+                self._popover.popdown()
             self._popover.unparent()
             self._popover = None
 

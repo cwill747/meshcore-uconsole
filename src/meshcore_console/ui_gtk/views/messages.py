@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -12,6 +14,8 @@ from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.time import to_local
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState, MessageBubble
+
+logger = logging.getLogger(__name__)
 
 
 class MessagesView(Gtk.Box):
@@ -435,6 +439,7 @@ class MessagesView(Gtk.Box):
         try:
             self._service.send_message(peer_id=self._selected_channel_id, body=body)
         except Exception as exc:  # noqa: BLE001
+            logger.error("Send failed: %s", exc)
             self._send_status.set_text(f"Send failed: {exc}")
             return
 

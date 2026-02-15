@@ -153,13 +153,26 @@ class MainWindow(Adw.ApplicationWindow):
         if self._service.get_settings().autoconnect:
             GLib.idle_add(self._autoconnect)
 
+    def _switch_to_page(self, page_name: str) -> None:
+        """Switch the stack to *page_name*, skipping crossfade when a
+        transition is already in-flight to avoid a GTK4 freeze-count
+        underflow (``gdk_surface_thaw_updates`` assertion).
+        """
+        if self._stack.get_transition_running():
+            saved = self._stack.get_transition_type()
+            self._stack.set_transition_type(Gtk.StackTransitionType.NONE)
+            self._stack.set_visible_child_name(page_name)
+            self._stack.set_transition_type(saved)
+        else:
+            self._stack.set_visible_child_name(page_name)
+
     def _on_nav_button_toggled(self, button: Gtk.ToggleButton, page_name: str) -> None:
         if button.get_active():
             # Deactivate other nav buttons
             for name, btn in self._nav_buttons.items():
                 if name != page_name:
                     btn.set_active(False)
-            self._stack.set_visible_child_name(page_name)
+            self._switch_to_page(page_name)
         elif all(not btn.get_active() for btn in self._nav_buttons.values()):
             # Don't allow all buttons to be deactivated
             button.set_active(True)
@@ -168,7 +181,7 @@ class MainWindow(Adw.ApplicationWindow):
         # Deactivate all nav buttons when showing settings
         for btn in self._nav_buttons.values():
             btn.set_active(False)
-        self._stack.set_visible_child_name("settings")
+        self._switch_to_page("settings")
 
     def _on_advert_flood(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         popover.popdown()
@@ -188,6 +201,7 @@ class MainWindow(Adw.ApplicationWindow):
 
             def on_done() -> bool:
                 if error:
+                    logger.error("Advert failed: %s", error)
                     self._toast_overlay.add_toast(Adw.Toast.new(f"Advert failed: {error}"))
                 else:
                     self._toast_overlay.add_toast(Adw.Toast.new(f"Sent {route_type} advert"))
@@ -365,6 +379,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _finish_connect_toggle(self, was_disconnect: bool, error: str | None) -> bool:
         self._connect_button.set_sensitive(True)
         if error:
+            logger.error("Connection error: %s", error)
             self._toast_overlay.add_toast(Adw.Toast.new(f"Connection error: {error}"))
         else:
             self._toast_overlay.add_toast(
@@ -422,7 +437,7 @@ class MainWindow(Adw.ApplicationWindow):
         if page is None:
             return False
 
-        self._stack.set_visible_child_name(page)
+        self._switch_to_page(page)
         # Update nav button states
         if page == "settings":
             for btn in self._nav_buttons.values():
