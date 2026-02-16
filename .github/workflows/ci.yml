@@ -132,14 +132,33 @@ jobs:
             found && /^## v[0-9]/ && !/^## ${VERSION}/{exit}
             found{print}
           " CHANGELOG.md)
-          cat > release-notes.md << EOF
+          cat > release-notes.md << 'NOTES_EOF'
           ## Installation
 
+          ### APT Repository (recommended)
+
+          ```bash
+          # Add GPG key
+          curl -fsSL https://cwill747.github.io/meshcore-uconsole/KEY.gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/meshcore.gpg
+
+          # Add repository
+          echo "deb [signed-by=/usr/share/keyrings/meshcore.gpg arch=arm64] https://cwill747.github.io/meshcore-uconsole stable main" \
+            | sudo tee /etc/apt/sources.list.d/meshcore.list
+
+          # Install
+          sudo apt update && sudo apt install meshcore-uconsole
+          ```
+
+          Once added, future updates are available via `sudo apt update && sudo apt upgrade`.
+
+          ### Manual install
+
+          NOTES_EOF
+          cat >> release-notes.md << EOF
           \`\`\`bash
           sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1_arm64.deb
           \`\`\`
-
-          Using \`apt install\` instead of \`dpkg -i\` ensures dependencies are installed automatically.
 
           EOF
           echo "$NOTES" >> release-notes.md
@@ -149,3 +168,71 @@ jobs:
         with:
           files: build/*.deb
           body_path: release-notes.md
+
+  publish-apt:
+    name: Publish APT Repository
+    runs-on: ubuntu-latest
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Install APT tools
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils
+
+      - name: Download all .debs from GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p site/pool/main
+          gh release list --repo "${{ github.repository }}" --limit 100 --json tagName --jq '.[].tagName' | while read -r tag; do
+            gh release download "$tag" --repo "${{ github.repository }}" --pattern '*.deb' --dir site/pool/main/ || true
+          done
+          echo "Packages in pool:"
+          ls -la site/pool/main/
+
+      - name: Generate APT metadata
+        run: |
+          cd site
+          mkdir -p dists/stable/main/binary-arm64
+
+          # Generate Packages file
+          dpkg-scanpackages --arch arm64 pool/ > dists/stable/main/binary-arm64/Packages
+          gzip -9c dists/stable/main/binary-arm64/Packages > dists/stable/main/binary-arm64/Packages.gz
+
+          # Generate Release file
+          cd dists/stable
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin="meshcore-uconsole" \
+            -o APT::FTPArchive::Release::Label="meshcore-uconsole" \
+            -o APT::FTPArchive::Release::Suite="stable" \
+            -o APT::FTPArchive::Release::Codename="stable" \
+            -o APT::FTPArchive::Release::Architectures="arm64" \
+            -o APT::FTPArchive::Release::Components="main" \
+            release . > Release
+
+      - name: Import GPG key
+        run: echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+
+      - name: Sign release
+        run: |
+          cd site/dists/stable
+          gpg --batch --yes --armor --detach-sign -o Release.gpg Release
+          gpg --batch --yes --armor --clearsign -o InRelease Release
+
+      - name: Export public key
+        run: gpg --armor --export > site/KEY.gpg
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
