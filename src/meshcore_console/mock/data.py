@@ -161,7 +161,7 @@ def create_mock_packet_events() -> list[dict]:
         return (day - timedelta(seconds=offset_sec)).isoformat()
 
     # Number of "today" packets; the rest are stamped as yesterday
-    TODAY_COUNT = 8
+    TODAY_COUNT = 10
 
     packets = [
         # ADVERT packet - node advertising identity with location
@@ -422,6 +422,58 @@ def create_mock_packet_events() -> list[dict]:
                 "path_len": 0,
                 "path_hops": [],
                 "packet_hash": "REQ000123456",
+            },
+        },
+        # CONTROL packet - discovery request
+        # Payload: 0x80 (discover_req), 0x01 (filter=chat nodes),
+        #   tag=0x0000CAFE (LE), since=0x00000000
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 11,
+                "payload_type_name": "CONTROL",
+                "route_type": 1,
+                "route_type_name": "FLOOD",
+                "sender_name": "Explorer-1",
+                "sender_id": "explorer-0001",
+                "payload_hex": "8001feca000000000000",
+                "control_type": "DISCOVER_REQ",
+                "control_data": {
+                    "tag": 0xCAFE,
+                    "filter": 0x01,
+                    "prefix_only": False,
+                },
+                "rssi": -79,
+                "snr": 5.50,
+                "path_len": 0,
+                "path_hops": [],
+                "packet_hash": "CTL0DISCREQ1",
+            },
+        },
+        # CONTROL packet - discovery response
+        # Payload: 0x91 (discover_resp + node_type=1), 0x14 (SNR=5.0*4=20),
+        #   tag=0x0000CAFE (LE), pub_key (8 bytes prefix)
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 11,
+                "payload_type_name": "CONTROL",
+                "route_type": 1,
+                "route_type_name": "FLOOD",
+                "sender_name": "NL-HILLGM-RPT-01",
+                "sender_id": "a1b2c3d4e5f60001",
+                "payload_hex": "9114feca0000a1b2c3d4e5f60001",
+                "control_type": "DISCOVER_RESP",
+                "control_data": {
+                    "tag": 0xCAFE,
+                    "node_type": 1,
+                    "pub_key": "a1b2c3d4e5f60001",
+                },
+                "rssi": -85,
+                "snr": 4.25,
+                "path_len": 0,
+                "path_hops": [],
+                "packet_hash": "CTL0DISCRES1",
             },
         },
     ]

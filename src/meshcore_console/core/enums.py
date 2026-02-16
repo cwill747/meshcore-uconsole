@@ -32,6 +32,7 @@ class PayloadType(StrEnum):
     PATH = "PATH"
     TRACE = "TRACE"
     MULTIPART = "MULTIPART"
+    CONTROL = "CONTROL"
     RAW = "RAW"
     UNKNOWN = "UNKNOWN"
 
@@ -81,4 +82,5 @@ class AnalyzerFilter(StrEnum):
     ACK = "ACK"  # Simple acknowledgments
     REQ = "REQ"  # Matches REQ and ANON_REQ
     RESPONSE = "RESP"  # Matches RESPONSE
+    CONTROL = "CONTROL"  # Matches CONTROL (discovery)
     PATH = "PATH"  # Path discovery and TRACE

@@ -57,6 +57,89 @@ class PyMCCoreSession:
     def _emit(self, payload: MeshEventDict) -> None:
         self._event_queue.put_nowait(payload)
 
+    def _register_discovery_handler(self) -> None:
+        """Register a handler that responds to incoming discovery requests.
+
+        When another node sends a CONTROL discovery request, we reply with
+        our public key and node type so they can discover us.
+        """
+        from pymc_core.protocol.constants import ADVERT_FLAG_IS_CHAT_NODE
+        from pymc_core.protocol.packet_builder import PacketBuilder
+
+        assert self._node is not None
+        assert self._identity is not None
+
+        dispatcher = self._node.dispatcher
+        control_handler = dispatcher.control_handler
+
+        # Capture identity ref for the closure
+        identity = self._identity
+
+        def _on_discovery_request(request_data: dict) -> None:
+            tag = request_data.get("tag", 0)
+            prefix_only = request_data.get("prefix_only", False)
+            inbound_snr = request_data.get("snr", 0.0)
+
+            # Get our public key
+            get_pk = getattr(identity, "get_shared_public_key", None)
+            pub_key = get_pk() if callable(get_pk) else None
+            if pub_key is None:
+                return
+            if isinstance(pub_key, str):
+                pub_key = bytes.fromhex(pub_key)
+
+            response = PacketBuilder.create_discovery_response(
+                tag=tag,
+                node_type=ADVERT_FLAG_IS_CHAT_NODE,
+                inbound_snr=inbound_snr,
+                pub_key=pub_key,
+                prefix_only=prefix_only,
+            )
+
+            async def _send() -> None:
+                try:
+                    await dispatcher.send_packet(response, wait_for_ack=False)
+                    self._log(f"sent discovery response for tag=0x{tag:08X}")
+                except Exception as exc:
+                    self._log(f"failed to send discovery response: {exc}")
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_send())
+            except RuntimeError:
+                pass  # No running loop — skip
+
+        control_handler.set_request_callback(_on_discovery_request)
+
+    def _register_req_handler(self) -> None:
+        """Register a handler for incoming REQ packets.
+
+        pyMC_core's register_default_handlers() does not register a handler
+        for PAYLOAD_TYPE_REQ (0x00), so incoming requests are silently
+        dropped.  We register ProtocolRequestHandler here and wrap it so
+        that any generated RESPONSE packet is actually transmitted.
+        """
+        from pymc_core.node.handlers.protocol_request import ProtocolRequestHandler
+        from pymc_core.protocol.constants import PAYLOAD_TYPE_REQ
+
+        assert self._node is not None
+        assert self._identity is not None
+
+        req_handler = ProtocolRequestHandler(
+            local_identity=self._identity,
+            contacts=self._contact_book,
+            log_fn=self._log,
+        )
+
+        dispatcher = self._node.dispatcher
+
+        async def _handle_req(pkt: Any) -> None:
+            response_pkt = await req_handler(pkt)
+            if response_pkt is not None:
+                await dispatcher.send_packet(response_pkt, wait_for_ack=False)
+
+        dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req)
+
     async def _call_maybe_async(self, target: Any, name: str) -> None:
         fn = getattr(target, name, None)
         if not callable(fn):
@@ -149,6 +232,9 @@ class PyMCCoreSession:
             logger=self._log,
         )
         attach_dispatcher_callbacks(node=self._node, emit=self._emit, logger=self._log)
+
+        self._register_req_handler()
+        self._register_discovery_handler()
 
         self._log("creating background task for node.start()")
         self._node_task = asyncio.create_task(self._node.start())

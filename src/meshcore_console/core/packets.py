@@ -138,6 +138,9 @@ class ResponseHandler(PacketTypeHandler):
     css_class = "type-response"
 
     def content_summary(self, data: dict) -> str:
+        text = data.get("payload_text")
+        if text:
+            return f"Response: {text[:60]}"
         return "Response"
 
 
@@ -145,9 +148,21 @@ class ReqHandler(PacketTypeHandler):
     name = PayloadType.REQ
     css_class = "type-req"
 
+    # Numeric request type codes → human-readable names
+    _REQ_TYPE_NAMES: dict[int, str] = {
+        0x01: "STATUS",
+        0x02: "KEEP_ALIVE",
+        0x03: "TELEMETRY",
+        0x05: "ACCESS_LIST",
+        0x06: "NEIGHBOURS",
+    }
+
     def content_summary(self, data: dict) -> str:
         req_type = data.get("request_type") or data.get("req_type")
-        if req_type:
+        if req_type is not None:
+            if isinstance(req_type, int):
+                name = self._REQ_TYPE_NAMES.get(req_type, f"0x{req_type:02X}")
+                return f"Request: {name}"
             return f"Request: {req_type}"
         return "Request"
 
@@ -158,9 +173,38 @@ class AnonReqHandler(PacketTypeHandler):
 
     def content_summary(self, data: dict) -> str:
         req_type = data.get("request_type") or data.get("req_type")
-        if req_type:
-            return f"Request: {req_type}"
-        return "Request"
+        if req_type is not None:
+            if isinstance(req_type, int):
+                name = ReqHandler._REQ_TYPE_NAMES.get(req_type, f"0x{req_type:02X}")
+                return f"Anon Request: {name}"
+            return f"Anon Request: {req_type}"
+        return "Anon Request"
+
+
+class ControlHandler(PacketTypeHandler):
+    name = PayloadType.CONTROL
+    css_class = "type-req"
+
+    def content_summary(self, data: dict) -> str:
+        control_type = data.get("control_type")
+        control_data = data.get("control_data") or {}
+        if control_type == "DISCOVER_REQ":
+            filt = control_data.get("filter", 0)
+            return f"Discovery REQ (filter=0x{filt:02X})"
+        if control_type == "DISCOVER_RESP":
+            pub_key = control_data.get("pub_key", "")
+            prefix = pub_key[:8] if pub_key else "?"
+            return f"Discovery RESP from {prefix}"
+        # Fallback: try to parse from payload_hex
+        payload_hex = data.get("payload_hex", "")
+        if payload_hex and len(payload_hex) >= 2:
+            first_byte = int(payload_hex[:2], 16)
+            ctl = first_byte & 0xF0
+            if ctl == 0x80:
+                return "Discovery REQ"
+            if ctl == 0x90:
+                return "Discovery RESP"
+        return "Control"
 
 
 class RawHandler(PacketTypeHandler):
@@ -189,6 +233,7 @@ _ALL_HANDLERS: list[PacketTypeHandler] = [
     ResponseHandler(),
     ReqHandler(),
     AnonReqHandler(),
+    ControlHandler(),
     RawHandler(),
     UnknownHandler(),
 ]
@@ -208,6 +253,7 @@ _NUMERIC_MAP: dict[int, PacketTypeHandler] = {
     8: _BY_NAME["PATH"],
     9: _BY_NAME["TRACE"],
     10: _BY_NAME["MULTIPART"],
+    11: _BY_NAME["CONTROL"],
     15: _BY_NAME["RAW"],
 }
 

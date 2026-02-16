@@ -3,6 +3,8 @@ from __future__ import annotations
 import unicodedata
 from typing import Any
 
+import struct
+
 from meshcore_console.core.packets import is_encrypted_type
 from meshcore_console.core.types import PacketDataDict
 
@@ -249,6 +251,37 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         if not sender_id and advert_info.get("sender_pubkey"):
             sender_id = advert_info["sender_pubkey"][:16]
 
+    # For CONTROL packets, parse discovery request/response fields
+    control_type: str | None = None
+    control_data: dict[str, Any] = {}
+    is_control = payload_type_name == "CONTROL" or payload_type == 11
+    if is_control and payload_bytes_val and len(payload_bytes_val) >= 6:
+        try:
+            first_byte = payload_bytes_val[0]
+            ctl_kind = first_byte & 0xF0
+            if ctl_kind == 0x80:  # CTL_TYPE_NODE_DISCOVER_REQ
+                control_type = "DISCOVER_REQ"
+                prefix_only = bool(first_byte & 0x01)
+                filter_byte = payload_bytes_val[1]
+                tag = struct.unpack("<I", payload_bytes_val[2:6])[0]
+                control_data = {
+                    "tag": tag,
+                    "filter": filter_byte,
+                    "prefix_only": prefix_only,
+                }
+            elif ctl_kind == 0x90:  # CTL_TYPE_NODE_DISCOVER_RESP
+                control_type = "DISCOVER_RESP"
+                node_type = first_byte & 0x0F
+                tag = struct.unpack("<I", payload_bytes_val[2:6])[0]
+                pub_key = payload_bytes_val[6:]
+                control_data = {
+                    "tag": tag,
+                    "node_type": node_type,
+                    "pub_key": pub_key.hex() if pub_key else "",
+                }
+        except Exception:
+            pass
+
     # Extract routing path information
     path_len = getattr(packet, "path_len", 0) or 0
     path_bytes = getattr(packet, "path", None)
@@ -286,5 +319,7 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         "path_len": path_len,
         "path_hops": path_hops,
         "packet_hash": packet_hash,
+        "control_type": control_type,
+        "control_data": control_data,
         "raw": None,
     }
