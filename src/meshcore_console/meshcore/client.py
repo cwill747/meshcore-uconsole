@@ -12,6 +12,7 @@ from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer
 from meshcore_console.core.radio import rssi_to_signal_percent
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.types import MeshEventDict, SendResultDict
+from meshcore_console.meshcore.channel_db import ChannelDatabase
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.db import open_db
 from meshcore_console.meshcore.packet_store import PacketStore
@@ -54,6 +55,7 @@ class MeshcoreClient(MeshcoreService):
         self._messages: list[Message] = self._message_store.get_all()
         self._channels: dict[str, Channel] = self._channel_store.get_all()
         self._peers: dict[str, Peer] = self._peer_store.get_all()
+        self._sync_channel_secrets_to_ui()
         self._settings = self._settings_store.load()
         if node_name != "uconsole-node":
             self._settings.node_name = node_name
@@ -72,6 +74,20 @@ class MeshcoreClient(MeshcoreService):
                 self._pymc_available = False
         else:
             self._pymc_available = True
+
+    def _sync_channel_secrets_to_ui(self) -> None:
+        """Ensure every channel secret has a corresponding UI channel entry."""
+        channel_db = ChannelDatabase(self._db)
+        for row in channel_db.get_channels():
+            channel_id = row["name"].lower()
+            if channel_id not in self._channels:
+                channel = Channel(
+                    channel_id=channel_id,
+                    display_name=f"#{channel_id}",
+                    unread_count=0,
+                )
+                self._channels[channel_id] = channel
+                self._channel_store.add_or_update(channel)
 
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
         """Start a persistent event loop in a background thread if needed."""
