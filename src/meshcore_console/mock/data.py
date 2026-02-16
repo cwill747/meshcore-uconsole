@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import hashlib
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from meshcore_console.core.models import Channel, Message, Peer
@@ -145,12 +146,21 @@ def create_mock_packet_events() -> list[dict]:
         3: TRANSPORT_DIRECT - Direct with transport layer
     """
     now = datetime.now(UTC)
+    yesterday = now - timedelta(days=1)
 
-    return [
+    def _mock_ts(seed: str, day: datetime = now, spread_min: int = 120) -> str:
+        """Deterministic mock timestamp: hash the seed to pick an offset within the day."""
+        h = int(hashlib.md5(seed.encode()).hexdigest(), 16)
+        offset_sec = h % (spread_min * 60)
+        return (day - timedelta(seconds=offset_sec)).isoformat()
+
+    # Number of "today" packets; the rest are stamped as yesterday
+    TODAY_COUNT = 8
+
+    packets = [
         # ADVERT packet - node advertising identity with location
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 4,
                 "payload_type_name": "ADVERT",
@@ -173,7 +183,6 @@ def create_mock_packet_events() -> list[dict]:
         # GRP_TXT packet - group/channel message
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 5,
                 "payload_type_name": "GRP_TXT",
@@ -194,7 +203,6 @@ def create_mock_packet_events() -> list[dict]:
         # TXT_MSG packet - direct encrypted text message
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 2,
                 "payload_type_name": "TXT_MSG",
@@ -214,7 +222,6 @@ def create_mock_packet_events() -> list[dict]:
         # RESPONSE packet - acknowledgment with payload
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 1,
                 "payload_type_name": "RESPONSE",
@@ -234,7 +241,6 @@ def create_mock_packet_events() -> list[dict]:
         # ACK packet - simple acknowledgment
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 3,
                 "payload_type_name": "ACK",
@@ -255,7 +261,6 @@ def create_mock_packet_events() -> list[dict]:
         # Another GRP_TXT - channel activity
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 5,
                 "payload_type_name": "GRP_TXT",
@@ -276,7 +281,6 @@ def create_mock_packet_events() -> list[dict]:
         # ADVERT from mobile node
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 4,
                 "payload_type_name": "ADVERT",
@@ -296,10 +300,30 @@ def create_mock_packet_events() -> list[dict]:
                 "packet_hash": "CHARLIE12345",
             },
         },
+        # GRP_DATA packet - group binary data
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 6,
+                "payload_type_name": "GRP_DATA",
+                "route_type": 1,
+                "route_type_name": "FLOOD",
+                "sender_name": "Sensor Node",
+                "sender_id": "sensor-001",
+                "channel_name": "telemetry",
+                "payload_text": "",
+                "rssi": -90,
+                "snr": 0.50,
+                "payload_hex": "0600telemetry0sensor001data",
+                "path_len": 1,
+                "path_hops": ["relay-001"],
+                "packet_hash": "GRPDATA12345",
+            },
+        },
+        # --- Yesterday's packets (older traffic) ---
         # PATH packet - route discovery
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 8,
                 "payload_type_name": "PATH",
@@ -319,7 +343,6 @@ def create_mock_packet_events() -> list[dict]:
         # TXT_MSG - multi-hop message
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 2,
                 "payload_type_name": "TXT_MSG",
@@ -339,7 +362,6 @@ def create_mock_packet_events() -> list[dict]:
         # GRP_TXT - emergency channel
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 5,
                 "payload_type_name": "GRP_TXT",
@@ -360,7 +382,6 @@ def create_mock_packet_events() -> list[dict]:
         # TRACE packet - network trace/diagnostic
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 9,
                 "payload_type_name": "TRACE",
@@ -380,7 +401,6 @@ def create_mock_packet_events() -> list[dict]:
         # REQ packet - request message
         {
             "type": "packet",
-            "received_at": now.isoformat(),
             "data": {
                 "payload_type": 0,
                 "payload_type_name": "REQ",
@@ -398,25 +418,14 @@ def create_mock_packet_events() -> list[dict]:
                 "packet_hash": "REQ000123456",
             },
         },
-        # GRP_DATA packet - group binary data
-        {
-            "type": "packet",
-            "received_at": now.isoformat(),
-            "data": {
-                "payload_type": 6,
-                "payload_type_name": "GRP_DATA",
-                "route_type": 1,
-                "route_type_name": "FLOOD",
-                "sender_name": "Sensor Node",
-                "sender_id": "sensor-001",
-                "channel_name": "telemetry",
-                "payload_text": "",
-                "rssi": -90,
-                "snr": 0.50,
-                "payload_hex": "0600telemetry0sensor001data",
-                "path_len": 1,
-                "path_hops": ["relay-001"],
-                "packet_hash": "GRPDATA12345",
-            },
-        },
     ]
+
+    # Stamp each packet with a deterministic, spread-out timestamp
+    for i, pkt in enumerate(packets):
+        day = now if i < TODAY_COUNT else yesterday
+        seed = pkt["data"]["packet_hash"]
+        pkt["received_at"] = _mock_ts(seed, day)
+
+    # Sort chronologically (oldest first) so arrival order matches timestamps
+    packets.sort(key=lambda p: p["received_at"])
+    return packets
