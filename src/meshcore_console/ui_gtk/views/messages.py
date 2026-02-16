@@ -13,7 +13,13 @@ from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.time import to_local
-from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState, MessageBubble, PathVisualization
+from meshcore_console.ui_gtk.widgets import (
+    DaySeparator,
+    DetailRow,
+    EmptyState,
+    MessageBubble,
+    PathVisualization,
+)
 from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF, find_peer_for_hop
 
 logger = logging.getLogger(__name__)
@@ -26,6 +32,7 @@ class MessagesView(Gtk.Box):
         self._selected_channel_id = "public"
         self._last_message_count = 0
         self._last_channel_count = 0
+        self._last_message_date: str | None = None
         self._selected_message: Message | None = None
 
         # Main content area (channels + chat)
@@ -58,17 +65,17 @@ class MessagesView(Gtk.Box):
         self._chat_panel.append(self._thread_title)
 
         # Scrolled window for messages
-        scroll = Gtk.ScrolledWindow.new()
-        scroll.set_vexpand(True)
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self._chat_panel.append(scroll)
+        self._scroll = Gtk.ScrolledWindow.new()
+        self._scroll.set_vexpand(True)
+        self._scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self._chat_panel.append(self._scroll)
 
         self._message_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._message_box.set_margin_start(12)
         self._message_box.set_margin_end(12)
         self._message_box.set_margin_top(8)
         self._message_box.set_margin_bottom(8)
-        scroll.set_child(self._message_box)
+        self._scroll.set_child(self._message_box)
 
         # Message details revealer
         self._details_revealer = Gtk.Revealer.new()
@@ -144,15 +151,25 @@ class MessagesView(Gtk.Box):
                             break
                         self._message_box.remove(child)
                 for message in new_messages:
+                    msg_date = to_local(message.created_at).strftime("%Y-%m-%d")
+                    if self._last_message_date and msg_date != self._last_message_date:
+                        self._message_box.append(DaySeparator(msg_date))
+                    self._last_message_date = msg_date
                     self._message_box.append(
                         MessageBubble(message, self._service, self._on_message_clicked)
                     )
                 self._last_message_count = new_count
+                GLib.idle_add(self._scroll_to_bottom)
             elif new_count < self._last_message_count:
                 # Message count decreased (e.g. clear) - full rebuild
                 self._reload_messages()
         self._refresh_compose_state()
         return True
+
+    def _scroll_to_bottom(self) -> bool:
+        adj = self._scroll.get_vadjustment()
+        adj.set_value(adj.get_upper() - adj.get_page_size())
+        return False  # GLib.SOURCE_REMOVE
 
     def _ensure_emoji_chooser(self, btn: Gtk.MenuButton, _pspec: object) -> None:
         """Lazily create the EmojiChooser on first activation."""
@@ -254,13 +271,22 @@ class MessagesView(Gtk.Box):
         self._last_message_count = len(messages)
 
         if not messages:
+            self._last_message_date = None
             self._message_box.append(EmptyState("No messages in this channel yet.", vexpand=True))
             return
 
+        today = GLib.DateTime.new_now_local().format("%Y-%m-%d")
+        prev_date: str | None = None
         for message in messages:
+            msg_date = to_local(message.created_at).strftime("%Y-%m-%d")
+            if msg_date != prev_date and not (prev_date is None and msg_date == today):
+                self._message_box.append(DaySeparator(msg_date))
+            prev_date = msg_date
             self._message_box.append(
                 MessageBubble(message, self._service, self._on_message_clicked)
             )
+        self._last_message_date = prev_date
+        GLib.idle_add(self._scroll_to_bottom)
 
     def _on_message_clicked(self, _button: Gtk.Button, message: Message) -> None:
         """Show message details when clicked."""
