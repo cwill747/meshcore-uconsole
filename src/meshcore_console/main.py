@@ -11,10 +11,14 @@ def main() -> int:
         prog="meshcore-console",
         description="MeshCore console — GUI and headless CLI",
     )
+    try:
+        _version = importlib.metadata.version("meshcore-uconsole")
+    except importlib.metadata.PackageNotFoundError:
+        _version = "dev"
     parser.add_argument(
         "--version",
         action="version",
-        version=importlib.metadata.version("meshcore-uconsole"),
+        version=_version,
     )
 
     sub = parser.add_subparsers(dest="command")

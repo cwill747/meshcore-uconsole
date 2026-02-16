@@ -400,10 +400,33 @@ class AnalyzerView(Gtk.Box):
         if not matching:
             return
 
-        # Prepend new rows (newest first - matching is already in newest-first order)
-        for record in reversed(matching):
+        # If new records span multiple dates, or bridge a date boundary with
+        # existing rows, do a full rebuild so day separators are inserted.
+        dates = {r.date for r in matching}
+        # Find the first actual packet row (skip DaySeparator rows)
+        idx = 0
+        while True:
+            existing = self._stream.get_row_at_index(idx)
+            if existing is None:
+                break
+            rec = getattr(existing, "_packet_record", None)
+            if rec:
+                dates.add(rec.date)
+                break
+            idx += 1
+        if len(dates) > 1:
+            self._refresh_all()
+            return
+
+        # Single date — fast incremental prepend.  matching is oldest-first
+        # (chronological from event store), so inserting each at the insert
+        # position naturally reverses to newest-first.
+        # Insert after the leading date separator (position 1) if one exists,
+        # otherwise at position 0.
+        insert_pos = 1 if isinstance(self._stream.get_row_at_index(0), DaySeparator) else 0
+        for record in matching:
             row = self._build_stream_row(record)
-            self._stream.insert(row, 0)
+            self._stream.insert(row, insert_pos)
 
         # Trim overflow rows from the bottom
         max_rows = 180
@@ -479,12 +502,13 @@ class AnalyzerView(Gtk.Box):
                 break
             self._stream.remove(row)
 
+        today = GLib.DateTime.new_now_local().format("%Y-%m-%d")
         prev_date: str | None = None
         for idx, packet in enumerate(packets[:180]):
-            # Insert day-change separator when date differs from previous packet.
-            # Packets are newest-first, so a change means we're crossing into
-            # an older day as we go down the list.
-            if prev_date is not None and packet.date != prev_date:
+            # Insert a date header at day-change boundaries and before the
+            # first packet when it's not from today (so the viewer knows
+            # they're looking at historical data).
+            if packet.date != prev_date and not (prev_date is None and packet.date == today):
                 self._stream.append(DaySeparator(packet.date))
             prev_date = packet.date
 
