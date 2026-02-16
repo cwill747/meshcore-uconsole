@@ -8,6 +8,30 @@ import struct
 from meshcore_console.core.packets import is_encrypted_type
 from meshcore_console.core.types import PacketDataDict
 
+
+def repair_utf8(text: str) -> str:
+    """Repair double-encoded UTF-8 strings (mojibake).
+
+    When a UTF-8 string is misinterpreted as Latin-1 and re-encoded to UTF-8,
+    emojis and other multi-byte characters appear as garbled text.  This
+    function detects and reverses that double-encoding.
+
+    Example: "ð\x9f\x98\x80" (double-encoded 😀) → "😀"
+    """
+    if not text:
+        return text
+    try:
+        # If every character fits in Latin-1 AND re-interpreting the bytes as
+        # UTF-8 produces a shorter string, the original was double-encoded.
+        raw = text.encode("latin-1")
+        recovered = raw.decode("utf-8")
+        if recovered != text:
+            return recovered
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
+    return text
+
+
 try:
     from pymc_core.protocol.utils import PAYLOAD_TYPES, ROUTE_TYPES
 except ImportError:
@@ -33,11 +57,11 @@ def _extract_sender_name(packet: Any) -> str | None:
         # Check group_text_data for GRP_TXT
         group_data = decrypted.get("group_text_data", {})
         if group_data.get("sender_name"):
-            return str(group_data["sender_name"])
+            return repair_utf8(str(group_data["sender_name"]))
         # Check text_data for TXT_MSG
         text_data = decrypted.get("text_data", {})
         if text_data.get("sender_name"):
-            return str(text_data["sender_name"])
+            return repair_utf8(str(text_data["sender_name"]))
 
     # Try common sender attribute names
     for attr in ("sender_name", "peer_name", "from_name", "source_name", "name", "contact_name"):
@@ -106,7 +130,7 @@ def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
                 result["advert_lon"] = lon
             name = decoded.get("node_name")
             if name:
-                result["advert_name"] = name
+                result["advert_name"] = repair_utf8(name)
             return result
         except Exception:
             pass  # fall through to manual parser
@@ -157,6 +181,7 @@ def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
             if name_bytes:
                 try:
                     name = name_bytes.decode("utf-8").rstrip("\x00").strip()
+                    name = repair_utf8(name)
                     if name and not any(unicodedata.category(c) == "Cc" for c in name):
                         result["advert_name"] = name
                 except Exception:

@@ -15,6 +15,7 @@ from meshcore_console.core.types import MeshEventDict, SendResultDict
 from meshcore_console.meshcore.channel_db import ChannelDatabase
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.db import open_db
+from meshcore_console.meshcore.packet_codec import repair_utf8
 from meshcore_console.meshcore.packet_store import PacketStore
 from meshcore_console.meshcore.session import PyMCCoreSession
 from meshcore_console.meshcore.settings import MeshcoreSettings, apply_preset
@@ -391,7 +392,7 @@ class MeshcoreClient(MeshcoreService):
                     target = unenriched_grp.popleft()
                     sender = data.get("sender_name") or data.get("peer_name")
                     if sender and not target.get("sender_name"):
-                        target["sender_name"] = str(sender)
+                        target["sender_name"] = repair_utf8(str(sender))
                     channel = data.get("channel_name")
                     if channel:
                         target["channel_name"] = str(channel)
@@ -403,7 +404,7 @@ class MeshcoreClient(MeshcoreService):
                 sender = data.get("sender_name") or data.get("peer_name")
                 if sender and unenriched_txt:
                     target = unenriched_txt.popleft()
-                    target["sender_name"] = str(sender)
+                    target["sender_name"] = repair_utf8(str(sender))
 
     def _enrich_stored_sender_names(self, events: list[MeshEventDict]) -> None:
         """Enrich stored packet events with sender names from the peer registry."""
@@ -466,6 +467,7 @@ class MeshcoreClient(MeshcoreService):
         )
         if not peer_name:
             return
+        peer_name = repair_utf8(str(peer_name))
 
         peer_id = data.get("sender_id") or data.get("peer_id")
         public_key = data.get("sender_pubkey")
@@ -589,7 +591,9 @@ class MeshcoreClient(MeshcoreService):
 
     def _process_message_event(self, data: MeshEventDict, event_type: str = "") -> None:
         """Process an incoming message event."""
-        sender_name = data.get("sender_name") or data.get("peer_name") or "Unknown"
+        sender_name = repair_utf8(
+            str(data.get("sender_name") or data.get("peer_name") or "Unknown")
+        )
         message_text = (
             data.get("payload_text") or data.get("message_text") or data.get("text") or ""
         )
