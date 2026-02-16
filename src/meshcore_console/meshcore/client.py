@@ -320,18 +320,27 @@ class MeshcoreClient(MeshcoreService):
         return lookup
 
     def _enrich_sender_names(self, events: list[MeshEventDict]) -> None:
-        """Enrich packet events with sender names from peer registry and handler events.
+        """Best-effort enrichment of packet events for the analyzer display.
 
-        pymc_core's raw packet callback fires before handler processing, so
-        'packet' events typically lack sender info and GRP_TXT packets lack
-        channel_name (decrypted data not yet populated). Handler events
-        (mesh.channel.message.new, mesh.message.new) follow in the same
-        drain batch with sender and channel data. We correlate them to
-        propagate missing fields back to packet events.
+        pymc_core's raw packet callback fires *before* handler processing, so
+        ``packet`` events often lack sender_name (and GRP_TXT/TXT_MSG lack
+        channel_name / payload_text).  We try two strategies:
+
+        1. Peer-registry lookup — matches sender_id / sender_pubkey to a
+           known peer display name.
+        2. Handler-event correlation — when a handler event
+           (mesh.channel.message.new / mesh.message.new) appears in the same
+           drain batch, we propagate its fields back to the packet event.
+
+        This is best-effort for display only — message routing uses handler
+        events directly (see _process_event_for_peers).
         """
         peer_lookup = self._build_peer_lookup()
 
-        # Queues of unenriched packet data dicts awaiting handler event correlation
+        # Per-batch queues of unenriched packet data dicts.  These are NOT
+        # persistent across batches; if the handler event arrives in a later
+        # batch the packet just stays un-enriched (shows as "(encrypted)" in
+        # the analyzer, which is acceptable).
         unenriched_grp: deque[dict] = deque()
         unenriched_txt: deque[dict] = deque()
 
@@ -342,17 +351,16 @@ class MeshcoreClient(MeshcoreService):
                 continue
 
             if event_type in (EventType.PACKET, EventType.RAW_PACKET):
-                payload_type = data.get("payload_type_name", "")
                 if not data.get("sender_name"):
-                    # Try peer registry lookup first
                     resolved = self._resolve_sender_from_peers(data, peer_lookup)
                     if resolved:
                         data["sender_name"] = resolved
 
                 # Only queue "packet" events (not "raw_packet") for handler
                 # correlation — both are emitted per packet, but we only need
-                # one enriched copy.  raw_packet events are for the analyzer.
+                # one enriched copy.
                 if event_type == EventType.PACKET:
+                    payload_type = data.get("payload_type_name", "")
                     if payload_type == PayloadType.GRP_TXT and not data.get("channel_name"):
                         unenriched_grp.append(data)
                     elif payload_type == PayloadType.TXT_MSG and not data.get("sender_name"):
@@ -420,11 +428,12 @@ class MeshcoreClient(MeshcoreService):
         ):
             self._process_advert_event(data)
 
-        # Check for incoming messages (GRP_TXT, TXT_MSG, or EventService events)
-        if payload_type_name in (PayloadType.GRP_TXT, PayloadType.TXT_MSG) or event_type in (
-            EventType.MESH_CHANNEL_MESSAGE_NEW,
-            EventType.MESH_MESSAGE_NEW,
-        ):
+        # Check for incoming messages.
+        # For encrypted types (GRP_TXT, TXT_MSG) the "packet" event arrives
+        # before decryption — it has no usable text or channel info.  Only the
+        # handler events (mesh.channel.message.new / mesh.message.new) carry
+        # the decrypted content, so we route messages exclusively from those.
+        if event_type in (EventType.MESH_CHANNEL_MESSAGE_NEW, EventType.MESH_MESSAGE_NEW):
             self._process_message_event(data, event_type=event_type)
 
     def _process_advert_event(self, data: MeshEventDict) -> None:
