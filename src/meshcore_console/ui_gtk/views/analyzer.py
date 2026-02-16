@@ -6,6 +6,7 @@ import os
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING, cast
 
 import gi
 
@@ -39,6 +40,7 @@ class PacketRecord:
     path_len: int
     path_hops: list[str]
     packet_hash: str
+    channel_name: str = ""
 
 
 class AnalyzerView(Gtk.Box):
@@ -54,7 +56,7 @@ class AnalyzerView(Gtk.Box):
         self._geom_debug = os.environ.get("MESHCORE_UI_GEOM_DEBUG", "0") == "1"
         self._cursor = 0
         self._packets: deque[PacketRecord] = deque(maxlen=400)
-        self._selected_index: int | None = None
+        self._selected_packet: PacketRecord | None = None
         self._paused = False
         self._active_filter = AnalyzerFilter.ALL
 
@@ -319,6 +321,7 @@ class AnalyzerView(Gtk.Box):
         path_len = int(data.get("path_len") or 0)
         path_hops = data.get("path_hops") or []
         packet_hash = str(data.get("packet_hash") or "")
+        channel_name = str(data.get("channel_name") or "")
 
         # Use stored timestamp if available, otherwise current time
         timestamp, date = self._parse_event_timestamp(event)
@@ -338,6 +341,7 @@ class AnalyzerView(Gtk.Box):
             path_len=path_len,
             path_hops=path_hops,
             packet_hash=packet_hash,
+            channel_name=channel_name,
         )
 
     @staticmethod
@@ -396,13 +400,9 @@ class AnalyzerView(Gtk.Box):
         if not matching:
             return
 
-        # Shift selected index to account for new rows at the top
-        if self._selected_index is not None:
-            self._selected_index += len(matching)
-
         # Prepend new rows (newest first - matching is already in newest-first order)
         for record in reversed(matching):
-            row = self._build_stream_row(record, 0)
+            row = self._build_stream_row(record)
             self._stream.insert(row, 0)
 
         # Trim overflow rows from the bottom
@@ -415,10 +415,10 @@ class AnalyzerView(Gtk.Box):
             self._stream.remove(overflow)
             idx = max_rows  # re-check same index after removal
 
-    def _build_stream_row(self, packet: PacketRecord, idx: int) -> Gtk.ListBoxRow:
+    def _build_stream_row(self, packet: PacketRecord) -> Gtk.ListBoxRow:
         """Create a single ListBoxRow for a packet record."""
         row = Gtk.ListBoxRow.new()
-        setattr(row, "packet_index", idx)
+        setattr(row, "_packet_record", packet)
         row.add_css_class(f"row-{self._type_class(packet.packet_type)}")
 
         line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -488,27 +488,37 @@ class AnalyzerView(Gtk.Box):
                 self._stream.append(DaySeparator(packet.date))
             prev_date = packet.date
 
-            row = self._build_stream_row(packet, idx)
+            row = self._build_stream_row(packet)
             self._stream.append(row)
 
-        if self._selected_index is None:
+        if self._selected_packet is None:
             self._stream.unselect_all()
             return
-        if self._selected_index >= len(packets):
-            self._selected_index = None
+
+        # Re-select the previously selected packet by matching packet_id
+        found = False
+        idx = 0
+        while True:
+            row = self._stream.get_row_at_index(idx)
+            if row is None:
+                break
+            rec = getattr(row, "_packet_record", None)
+            if rec is not None and rec.packet_id == self._selected_packet.packet_id:
+                self._stream.select_row(row)
+                found = True
+                break
+            idx += 1
+        if not found:
+            self._selected_packet = None
             self._stream.unselect_all()
             self._details_revealer.set_reveal_child(False)
-            return
-        selected = self._stream.get_row_at_index(self._selected_index)
-        if selected is not None:
-            self._stream.select_row(selected)
 
     def _on_packet_selected(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:
-            self._selected_index = None
+            self._selected_packet = None
             self._details_revealer.set_reveal_child(False)
             return
-        self._selected_index = row.get_index()
+        self._selected_packet = getattr(row, "_packet_record", None)
         self._refresh_details()
         self._details_revealer.set_reveal_child(True)
 
@@ -519,12 +529,11 @@ class AnalyzerView(Gtk.Box):
                 break
             self._details.remove(child)
 
-        packets = self._filtered_packets()
-        if self._selected_index is None or not packets:
+        if self._selected_packet is None:
             self._details_revealer.set_reveal_child(False)
             return
 
-        packet = packets[min(self._selected_index, len(packets) - 1)]
+        packet = self._selected_packet
 
         title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         title = Gtk.Label(label="Packet Details")
@@ -555,10 +564,48 @@ class AnalyzerView(Gtk.Box):
         self._details.append(self._routing_block(packet))
         self._details.append(self._raw_block(packet))
 
+        # "View in Channel" action for group text/data packets
+        if packet.channel_name and packet.packet_type in ("GRP_TXT", "GRP_DATA"):
+            nav_btn = Gtk.Button()
+            nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            nav_box.append(Gtk.Label(label="View in Channel"))
+            nav_box.append(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+            nav_btn.set_child(nav_box)
+            nav_btn.add_css_class("flat")
+            nav_btn.set_margin_top(4)
+            nav_btn.connect(
+                "clicked", lambda _b, ch=packet.channel_name: self._navigate_to_channel(ch)
+            )
+            self._details.append(nav_btn)
+
     def _on_close_details_clicked(self, _button: Gtk.Button) -> None:
-        self._selected_index = None
+        self._selected_packet = None
         self._stream.unselect_all()
         self._details_revealer.set_reveal_child(False)
+
+    def _navigate_to_channel(self, channel_name: str) -> None:
+        """Navigate to messages view and select the given channel."""
+        root = self.get_root()
+        if root is None:
+            return
+
+        stack = getattr(root, "_stack", None)
+        if stack is None:
+            return
+
+        stack.set_visible_child_name("messages")
+
+        nav_buttons = getattr(root, "_nav_buttons", None)
+        if nav_buttons:
+            for name, btn in nav_buttons.items():
+                btn.set_active(name == "messages")
+
+        messages_widget = stack.get_child_by_name("messages")
+        if messages_widget is not None:
+            if TYPE_CHECKING:
+                from meshcore_console.ui_gtk.views.messages import MessagesView
+            messages_view = cast("MessagesView", messages_widget)
+            messages_view.select_channel(channel_name)
 
     def _decoded_payload_block(self, packet: PacketRecord) -> DetailBlock:
         payload = packet.payload_text if packet.payload_text else "(binary payload)"
