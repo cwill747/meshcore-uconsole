@@ -34,14 +34,25 @@ class AdvertHandler(PacketTypeHandler):
     name = PayloadType.ADVERT
     css_class = "type-advert"
 
+    _ADV_TYPE_NAMES: dict[int, str] = {
+        0: "",
+        1: "chat",
+        2: "repeater",
+        3: "room",
+        4: "sensor",
+    }
+
     def content_summary(self, data: dict) -> str:
         advert_name = data.get("advert_name")
+        advert_type = data.get("advert_type")
+        type_label = self._ADV_TYPE_NAMES.get(advert_type, "") if advert_type else ""
         if advert_name:
             lat = data.get("advert_lat")
             lon = data.get("advert_lon")
+            suffix = f" ({type_label})" if type_label else ""
             if lat is not None and lon is not None:
-                return f"{advert_name} @ {lat:.4f}, {lon:.4f}"
-            return f"Advert: {advert_name}"
+                return f"{advert_name}{suffix} @ {lat:.4f}, {lon:.4f}"
+            return f"Advert: {advert_name}{suffix}"
         return "Advert"
 
 
@@ -72,10 +83,11 @@ class TraceHandler(PacketTypeHandler):
     css_class = "type-path"
 
     def content_summary(self, data: dict) -> str:
-        path_hops = data.get("path_hops") or []
-        if path_hops:
-            return f"Path: {' → '.join(str(h)[:8] for h in path_hops[:5])}"
-        return "Path discovery"
+        snr_values = data.get("trace_snr_values")
+        if snr_values:
+            snr_chain = " → ".join(f"{s:.1f}dB" for s in snr_values[:6])
+            return f"Trace SNR: {snr_chain}"
+        return "Trace"
 
 
 class GrpTxtHandler(PacketTypeHandler):
@@ -128,6 +140,11 @@ class MultipartHandler(PacketTypeHandler):
     css_class = "type-multi"
 
     def content_summary(self, data: dict) -> str:
+        inner_name = data.get("multipart_inner_type_name")
+        remaining = data.get("multipart_remaining")
+        if inner_name is not None and remaining is not None:
+            return f"Multi-{inner_name} ({remaining} remaining)"
+        # Fallback for legacy/mock data
         part = data.get("part_num", data.get("fragment_num", "?"))
         total = data.get("total_parts", data.get("fragment_count", "?"))
         return f"Part {part}/{total}"
@@ -171,14 +188,21 @@ class AnonReqHandler(PacketTypeHandler):
     name = PayloadType.ANON_REQ
     css_class = "type-req"
 
+    # ANON_REQ sub-types are different from REQ sub-types
+    _ANON_TYPE_NAMES: dict[int, str] = {
+        0x01: "REGIONS",
+        0x02: "OWNER_INFO",
+        0x03: "BASIC_INFO",
+    }
+
     def content_summary(self, data: dict) -> str:
-        req_type = data.get("request_type") or data.get("req_type")
-        if req_type is not None:
-            if isinstance(req_type, int):
-                name = ReqHandler._REQ_TYPE_NAMES.get(req_type, f"0x{req_type:02X}")
-                return f"Anon Request: {name}"
-            return f"Anon Request: {req_type}"
-        return "Anon Request"
+        pubkey = data.get("anon_sender_pubkey", "")
+        prefix = pubkey[:8] if pubkey else ""
+        # ANON_REQ sub-type is encrypted, so we usually can't see it.
+        # Show the sender pubkey prefix instead (the key feature of ANON_REQ).
+        if prefix:
+            return f"Anon REQ from {prefix}"
+        return "Anon REQ"
 
 
 class ControlHandler(PacketTypeHandler):

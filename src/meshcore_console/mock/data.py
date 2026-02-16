@@ -161,10 +161,10 @@ def create_mock_packet_events() -> list[dict]:
         return (day - timedelta(seconds=offset_sec)).isoformat()
 
     # Number of "today" packets; the rest are stamped as yesterday
-    TODAY_COUNT = 10
+    TODAY_COUNT = 8
 
     packets = [
-        # ADVERT packet - node advertising identity with location
+        # ADVERT packet - repeater node advertising identity with location
         {
             "type": "packet",
             "data": {
@@ -174,6 +174,7 @@ def create_mock_packet_events() -> list[dict]:
                 "route_type_name": "FLOOD",
                 "sender_name": "NL-HILLGM-RPT-01",
                 "advert_name": "NL-HILLGM-RPT-01",
+                "advert_type": 2,  # repeater
                 "sender_id": "a1b2c3d4e5f60001",
                 "sender_pubkey": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f60001",
                 "advert_lat": 52.3676,
@@ -284,7 +285,7 @@ def create_mock_packet_events() -> list[dict]:
                 "packet_hash": "BOB123456789",
             },
         },
-        # ADVERT from mobile node
+        # ADVERT from mobile chat node
         {
             "type": "packet",
             "data": {
@@ -294,6 +295,7 @@ def create_mock_packet_events() -> list[dict]:
                 "route_type_name": "FLOOD",
                 "sender_name": "Mobile-Charlie",
                 "advert_name": "Mobile-Charlie",
+                "advert_type": 1,  # chat node
                 "sender_id": "charlie-mobile-01",
                 "sender_pubkey": "c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b20002",
                 "advert_lat": 37.8716,
@@ -385,23 +387,64 @@ def create_mock_packet_events() -> list[dict]:
                 "packet_hash": "EMERGENCY001",
             },
         },
-        # TRACE packet - network trace/diagnostic
+        # TRACE packet - network trace with per-hop SNR
         {
             "type": "packet",
             "data": {
                 "payload_type": 9,
                 "payload_type_name": "TRACE",
-                "route_type": 1,
-                "route_type_name": "FLOOD",
+                "route_type": 2,
+                "route_type_name": "DIRECT",
                 "sender_name": "Node Gateway",
                 "sender_id": "gateway-001",
                 "payload_text": "",
                 "rssi": -75,
                 "snr": 6.00,
                 "payload_hex": "0900trace0gateway001relay",
-                "path_len": 2,
-                "path_hops": ["gateway-001", "relay-001"],
+                "path_len": 3,
+                "path_hops": [],
+                "trace_snr_values": [5.25, 3.50, -1.75],
                 "packet_hash": "TRACE0012345",
+            },
+        },
+        # ANON_REQ packet - anonymous login request to repeater
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 7,
+                "payload_type_name": "ANON_REQ",
+                "route_type": 2,
+                "route_type_name": "DIRECT",
+                "sender_name": "",
+                "sender_id": "",
+                "anon_sender_pubkey": "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+                "rssi": -81,
+                "snr": 4.00,
+                "payload_hex": "01d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+                "path_len": 0,
+                "path_hops": [],
+                "packet_hash": "ANONREQ01234",
+            },
+        },
+        # MULTIPART packet - redundant ACK copy
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 10,
+                "payload_type_name": "MULTIPART",
+                "route_type": 2,
+                "route_type_name": "DIRECT",
+                "sender_name": "Alice",
+                "sender_id": "peer-alice-0001",
+                "multipart_remaining": 2,
+                "multipart_inner_type": 3,
+                "multipart_inner_type_name": "ACK",
+                "rssi": -70,
+                "snr": 8.25,
+                "payload_hex": "2300deadbeefcafe",
+                "path_len": 0,
+                "path_hops": [],
+                "packet_hash": "MULTI0012345",
             },
         },
         # REQ packet - request message

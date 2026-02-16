@@ -251,6 +251,37 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         if not sender_id and advert_info.get("sender_pubkey"):
             sender_id = advert_info["sender_pubkey"][:16]
 
+    # For ANON_REQ packets, extract the sender's full public key from cleartext
+    # Wire format: [dest_hash(1)] [sender_pub_key(32)] [MAC+encrypted...]
+    anon_sender_pubkey: str | None = None
+    is_anon_req = payload_type_name == "ANON_REQ" or payload_type == 7
+    if is_anon_req and payload_bytes_val and len(payload_bytes_val) >= 33:
+        try:
+            anon_sender_pubkey = payload_bytes_val[1:33].hex()
+            # Use as sender_id if we don't have one
+            if not sender_id:
+                sender_id = anon_sender_pubkey[:16]
+        except Exception:
+            pass
+
+    # For MULTIPART packets, parse the compound byte
+    # Wire format: [compound(1)] [inner_payload...]
+    # compound = (remaining << 4) | inner_type
+    multipart_remaining: int | None = None
+    multipart_inner_type: int | None = None
+    multipart_inner_type_name: str | None = None
+    is_multipart = payload_type_name == "MULTIPART" or payload_type == 10
+    if is_multipart and payload_bytes_val and len(payload_bytes_val) >= 1:
+        try:
+            compound = payload_bytes_val[0]
+            multipart_remaining = (compound >> 4) & 0x0F
+            multipart_inner_type = compound & 0x0F
+            multipart_inner_type_name = PAYLOAD_TYPES.get(
+                multipart_inner_type, f"0x{multipart_inner_type:02X}"
+            )
+        except Exception:
+            pass
+
     # For CONTROL packets, parse discovery request/response fields
     control_type: str | None = None
     control_data: dict[str, Any] = {}
@@ -290,6 +321,19 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         for i in range(min(path_len, len(path_bytes))):
             path_hops.append(f"{path_bytes[i]:02X}")
 
+    # For TRACE packets, path[] contains per-hop SNR values (int8_t, SNR*4),
+    # NOT node ID hashes like other packet types.
+    trace_snr_values: list[float] = []
+    is_trace = payload_type_name == "TRACE" or payload_type == 9
+    if is_trace and path_bytes and path_len > 0:
+        # Re-interpret path bytes as signed SNR values
+        path_hops = []  # Clear — these aren't hop IDs for TRACE
+        for i in range(min(path_len, len(path_bytes))):
+            raw = path_bytes[i]
+            # Convert from unsigned byte to signed int8_t, then divide by 4
+            signed = raw if raw < 128 else raw - 256
+            trace_snr_values.append(signed / 4.0)
+
     # Get packet hash for deduplication
     packet_hash = None
     try:
@@ -321,5 +365,10 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         "packet_hash": packet_hash,
         "control_type": control_type,
         "control_data": control_data,
+        "anon_sender_pubkey": anon_sender_pubkey,
+        "multipart_remaining": multipart_remaining,
+        "multipart_inner_type": multipart_inner_type,
+        "multipart_inner_type_name": multipart_inner_type_name,
+        "trace_snr_values": trace_snr_values or None,
         "raw": None,
     }
