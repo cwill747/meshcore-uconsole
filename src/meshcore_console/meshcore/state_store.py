@@ -23,8 +23,8 @@ class MessageStore:
     def append(self, message: Message) -> None:
         self._conn.execute(
             "INSERT OR IGNORE INTO messages "
-            "(message_id, sender_id, body, channel_id, created_at, is_outgoing, path_len, snr, rssi) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(message_id, sender_id, body, channel_id, created_at, is_outgoing, path_len, snr, rssi, path_hops) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 message.message_id,
                 message.sender_id,
@@ -35,6 +35,7 @@ class MessageStore:
                 message.path_len,
                 message.snr,
                 message.rssi,
+                json.dumps(message.path_hops) if message.path_hops else None,
             ),
         )
         # Prune oldest messages beyond limit
@@ -53,14 +54,14 @@ class MessageStore:
     def get_all(self) -> list[Message]:
         rows = self._conn.execute(
             "SELECT message_id, sender_id, body, channel_id, created_at, "
-            "is_outgoing, path_len, snr, rssi FROM messages ORDER BY created_at"
+            "is_outgoing, path_len, snr, rssi, path_hops FROM messages ORDER BY created_at"
         ).fetchall()
         return [_row_to_message(r) for r in rows]
 
     def get_for_channel(self, channel_id: str, limit: int = 50) -> list[Message]:
         rows = self._conn.execute(
             "SELECT message_id, sender_id, body, channel_id, created_at, "
-            "is_outgoing, path_len, snr, rssi FROM messages "
+            "is_outgoing, path_len, snr, rssi, path_hops FROM messages "
             "WHERE channel_id = ? ORDER BY created_at",
             (channel_id,),
         ).fetchall()
@@ -195,6 +196,8 @@ def _row_to_message(row: tuple) -> Message:
         created_at = datetime.fromisoformat(created_at)
     else:
         created_at = datetime.now(UTC)
+    path_hops_raw = row[9] if len(row) > 9 else None
+    path_hops = json.loads(path_hops_raw) if isinstance(path_hops_raw, str) else []
     return Message(
         message_id=row[0],
         sender_id=row[1],
@@ -203,6 +206,7 @@ def _row_to_message(row: tuple) -> Message:
         created_at=created_at,
         is_outgoing=bool(row[5]),
         path_len=row[6] or 0,
+        path_hops=path_hops,
         snr=row[7],
         rssi=row[8],
     )

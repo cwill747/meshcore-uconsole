@@ -240,6 +240,7 @@ class MockMeshcoreClient(MeshcoreService):
         if content_key in existing:
             return
 
+        path_hops = data.get("path_hops", [])
         message = Message(
             message_id=str(uuid4()),
             sender_id=sender_name,
@@ -248,6 +249,7 @@ class MockMeshcoreClient(MeshcoreService):
             created_at=datetime.now(UTC),
             is_outgoing=False,
             path_len=int(data.get("path_len") or 0),
+            path_hops=list(path_hops) if path_hops else [],
             snr=float(data["snr"]) if data.get("snr") is not None else None,
             rssi=int(data["rssi"]) if data.get("rssi") is not None else None,
         )

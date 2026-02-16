@@ -72,6 +72,8 @@ MIGRATIONS: list[tuple[str, ...]] = [
     tuple(stmt.strip() for stmt in SCHEMA_V1.split(";") if stmt.strip()),
     # v1 -> v2: add peer_name column to channels for original-case contact names
     ("ALTER TABLE channels ADD COLUMN peer_name TEXT",),
+    # v2 -> v3: add path_hops column to messages for route visualization
+    ("ALTER TABLE messages ADD COLUMN path_hops TEXT",),
 ]
 
 

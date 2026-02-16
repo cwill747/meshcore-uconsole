@@ -580,6 +580,7 @@ class MeshcoreClient(MeshcoreService):
         snr = data.get("snr")
         rssi = data.get("rssi")
         path_len = data.get("path_len") or 0
+        path_hops = data.get("path_hops", [])
         message = Message(
             message_id=msg_id,
             sender_id=sender_name,
@@ -588,6 +589,7 @@ class MeshcoreClient(MeshcoreService):
             created_at=datetime.now(UTC),
             is_outgoing=False,
             path_len=int(path_len) if path_len else 0,
+            path_hops=list(path_hops) if path_hops else [],
             snr=float(snr) if snr is not None else None,
             rssi=int(rssi) if rssi is not None else None,
         )

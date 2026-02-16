@@ -78,6 +78,7 @@ EXPECTED_COLUMNS = {
         "path_len",
         "snr",
         "rssi",
+        "path_hops",
     ],
     "packets": ["id", "received_at", "data"],
 }

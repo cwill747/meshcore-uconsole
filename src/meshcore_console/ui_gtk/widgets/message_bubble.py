@@ -81,7 +81,11 @@ class MessageBubble(Gtk.Box):
         if message.is_outgoing:
             meta_text = local_time
         else:
-            meta_text = f"{message.sender_id}  {local_time}"
+            path_str = ",".join(message.path_hops) if message.path_hops else ""
+            if path_str:
+                meta_text = f"{message.sender_id}  {local_time}  {path_str}"
+            else:
+                meta_text = f"{message.sender_id}  {local_time}"
         meta = Gtk.Label(label=meta_text)
         meta.add_css_class("message-meta")
         meta.set_xalign(1 if message.is_outgoing else 0)

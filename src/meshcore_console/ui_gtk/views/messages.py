@@ -13,7 +13,8 @@ from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.time import to_local
-from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState, MessageBubble
+from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState, MessageBubble, PathVisualization
+from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF, find_peer_for_hop
 
 logger = logging.getLogger(__name__)
 
@@ -316,14 +317,34 @@ class MessagesView(Gtk.Box):
         details_header.set_margin_top(8)
         self._details_box.append(details_header)
 
-        # Hops
+        # Route / Hops
         if message.is_outgoing:
-            hops_text = "Sent"
+            self._details_box.append(DetailRow("Hops:", "Sent"))
+        elif message.path_hops:
+            route_label = Gtk.Label(label="Route:")
+            route_label.add_css_class("detail-label")
+            route_label.set_halign(Gtk.Align.START)
+            self._details_box.append(route_label)
+
+            all_peers = self._service.list_peers()
+            sender_name = message.sender_id
+            sender_peer = find_peer_for_hop(all_peers, sender_name)
+            sender_prefix = (sender_name or "??")[:2].upper()
+
+            path = PathVisualization(
+                hops=message.path_hops,
+                peers=all_peers,
+                arrow="\u2190",
+                start=("Me", "You (this node)", None, STYLE_SELF),
+                end=(sender_prefix, sender_name, sender_peer, STYLE_DEFAULT),
+            )
+            path.set_margin_top(4)
+            self._details_box.append(path)
         elif message.path_len == 0:
-            hops_text = "Direct"
+            self._details_box.append(DetailRow("Hops:", "Direct"))
         else:
             hops_text = f"{message.path_len} hop{'s' if message.path_len != 1 else ''}"
-        self._details_box.append(DetailRow("Hops:", hops_text))
+            self._details_box.append(DetailRow("Hops:", hops_text))
 
         # Time
         time_label = "Sent:" if message.is_outgoing else "Received:"
