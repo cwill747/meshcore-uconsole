@@ -323,10 +323,11 @@ class MeshcoreClient(MeshcoreService):
         """Enrich packet events with sender names from peer registry and handler events.
 
         pymc_core's raw packet callback fires before handler processing, so
-        'packet' events typically lack sender info. Handler events
+        'packet' events typically lack sender info and GRP_TXT packets lack
+        channel_name (decrypted data not yet populated). Handler events
         (mesh.channel.message.new, mesh.message.new) follow in the same
-        drain batch with sender data. We correlate them to propagate sender
-        names back to packet events.
+        drain batch with sender and channel data. We correlate them to
+        propagate missing fields back to packet events.
         """
         peer_lookup = self._build_peer_lookup()
 
@@ -341,24 +342,34 @@ class MeshcoreClient(MeshcoreService):
                 continue
 
             if event_type in (EventType.PACKET, EventType.RAW_PACKET):
+                payload_type = data.get("payload_type_name", "")
                 if not data.get("sender_name"):
                     # Try peer registry lookup first
                     resolved = self._resolve_sender_from_peers(data, peer_lookup)
                     if resolved:
                         data["sender_name"] = resolved
-                    else:
-                        # Queue for handler event correlation
-                        payload_type = data.get("payload_type_name", "")
-                        if payload_type == PayloadType.GRP_TXT:
-                            unenriched_grp.append(data)
-                        elif payload_type == PayloadType.TXT_MSG:
-                            unenriched_txt.append(data)
+
+                # Only queue "packet" events (not "raw_packet") for handler
+                # correlation — both are emitted per packet, but we only need
+                # one enriched copy.  raw_packet events are for the analyzer.
+                if event_type == EventType.PACKET:
+                    if payload_type == PayloadType.GRP_TXT and not data.get("channel_name"):
+                        unenriched_grp.append(data)
+                    elif payload_type == PayloadType.TXT_MSG and not data.get("sender_name"):
+                        unenriched_txt.append(data)
 
             elif event_type == EventType.MESH_CHANNEL_MESSAGE_NEW:
-                sender = data.get("sender_name") or data.get("peer_name")
-                if sender and unenriched_grp:
+                if unenriched_grp:
                     target = unenriched_grp.popleft()
-                    target["sender_name"] = str(sender)
+                    sender = data.get("sender_name") or data.get("peer_name")
+                    if sender and not target.get("sender_name"):
+                        target["sender_name"] = str(sender)
+                    channel = data.get("channel_name")
+                    if channel:
+                        target["channel_name"] = str(channel)
+                    msg_text = data.get("message_text")
+                    if msg_text and not target.get("payload_text"):
+                        target["payload_text"] = str(msg_text)
 
             elif event_type == EventType.MESH_MESSAGE_NEW:
                 sender = data.get("sender_name") or data.get("peer_name")
@@ -392,6 +403,11 @@ class MeshcoreClient(MeshcoreService):
         event_type = event.get("type", "")
         data = event.get("data")
         if not isinstance(data, dict):
+            return
+
+        # raw_packet events are for the analyzer only — skip peer/message processing
+        # to avoid double-processing (each packet produces both "packet" and "raw_packet").
+        if event_type == EventType.RAW_PACKET:
             return
 
         payload_type_name = data.get("payload_type_name", "")
