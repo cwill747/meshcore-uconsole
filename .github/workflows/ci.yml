@@ -132,30 +132,11 @@ jobs:
             found && /^## v[0-9]/ && !/^## ${VERSION}/{exit}
             found{print}
           " CHANGELOG.md)
-          cat > release-notes.md << 'NOTES_EOF'
+          cat > release-notes.md << EOF
           ## Installation
 
-          ### APT Repository (recommended)
+          See [install instructions](https://cwill747.github.io/meshcore-uconsole/) for APT repository setup, or install manually:
 
-          ```bash
-          # Add GPG key
-          curl -fsSL https://cwill747.github.io/meshcore-uconsole/KEY.gpg \
-            | sudo gpg --dearmor -o /usr/share/keyrings/meshcore.gpg
-
-          # Add repository
-          echo "deb [signed-by=/usr/share/keyrings/meshcore.gpg arch=arm64] https://cwill747.github.io/meshcore-uconsole stable main" \
-            | sudo tee /etc/apt/sources.list.d/meshcore.list
-
-          # Install
-          sudo apt update && sudo apt install meshcore-uconsole
-          ```
-
-          Once added, future updates are available via `sudo apt update && sudo apt upgrade`.
-
-          ### Manual install
-
-          NOTES_EOF
-          cat >> release-notes.md << EOF
           \`\`\`bash
           sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1_arm64.deb
           \`\`\`
