@@ -192,7 +192,11 @@ class MeshcoreClient(MeshcoreService):
 
     def ensure_channel(self, channel_id: str, display_name: str | None = None) -> Channel:
         """Ensure a channel exists, creating it if necessary."""
-        is_group = channel_id == "public" or channel_id.startswith("#")
+        is_group = (
+            channel_id == "public"
+            or channel_id.startswith("#")
+            or (display_name is not None and display_name.startswith("#"))
+        )
         # DM channel IDs are always lowercase for consistency
         normalized_id = channel_id if is_group else channel_id.lower()
         if normalized_id in self._channels:
