@@ -12,17 +12,35 @@ the board.
 
 You can run a Mock version of the application on anything that supports Nix, and
 then you can run the real application on the uConsole either by cloning the repo
-and following the below instructions, or grabbing a .deb out of Releases.
+and following the below instructions, or installing from the APT repository.
 
-## Installing from .deb
+## Install on Raspberry Pi
 
-Download the latest `.deb` from [Releases](https://github.com/cameronwp/meshcore-uconsole/releases) and install with:
+### APT Repository (recommended)
+
+```bash
+# Add signing key
+curl -fsSL https://cwill747.github.io/meshcore-uconsole/KEY.gpg \
+  | sudo gpg --dearmor -o /usr/share/keyrings/meshcore.gpg
+
+# Add repository
+echo "deb [signed-by=/usr/share/keyrings/meshcore.gpg arch=arm64] \
+  https://cwill747.github.io/meshcore-uconsole stable main" \
+  | sudo tee /etc/apt/sources.list.d/meshcore.list
+
+# Install
+sudo apt update && sudo apt install meshcore-uconsole
+```
+
+Future updates are available via `sudo apt update && sudo apt upgrade`.
+
+### Manual install
+
+Download the latest `.deb` from [Releases](https://github.com/cwill747/meshcore-uconsole/releases) and install with:
 
 ```bash
 sudo apt install ./meshcore-uconsole_*.deb
 ```
-
-Using `apt install` instead of `dpkg -i` ensures dependencies are installed automatically.
 
 ## Screenshots
 

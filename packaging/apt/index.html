@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>meshcore-uconsole APT Repository</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    max-width: 680px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    line-height: 1.6;
+    color: #e7eef8;
+    background: #0f1419;
+  }
+  h1 { color: #35c29b; margin-bottom: 0.25rem; }
+  p.subtitle { color: #aab9cd; margin-top: 0; }
+  pre {
+    background: #171d24;
+    border: 1px solid #2e3a49;
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+  }
+  code { color: #e7eef8; }
+  a { color: #35c29b; }
+</style>
+</head>
+<body>
+<h1>meshcore-uconsole</h1>
+<p class="subtitle">APT repository for Raspberry Pi (arm64)</p>
+
+<h2>Quick setup</h2>
+<pre><code># Add signing key
+curl -fsSL https://cwill747.github.io/meshcore-uconsole/KEY.gpg \
+  | sudo gpg --dearmor -o /usr/share/keyrings/meshcore.gpg
+
+# Add repository
+echo "deb [signed-by=/usr/share/keyrings/meshcore.gpg arch=arm64] \
+  https://cwill747.github.io/meshcore-uconsole stable main" \
+  | sudo tee /etc/apt/sources.list.d/meshcore.list
+
+# Install
+sudo apt update && sudo apt install meshcore-uconsole</code></pre>
+
+<h2>Updates</h2>
+<pre><code>sudo apt update && sudo apt upgrade</code></pre>
+
+<p>Source code and releases: <a href="https://github.com/cwill747/meshcore-uconsole">github.com/cwill747/meshcore-uconsole</a></p>
+</body>
+</html>
