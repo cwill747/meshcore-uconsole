@@ -217,13 +217,16 @@ jobs:
             release . > Release
 
       - name: Import GPG key
-        run: echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+        run: |
+          echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
 
       - name: Sign release
         run: |
           cd site/dists/stable
-          gpg --batch --yes --armor --detach-sign -o Release.gpg Release
-          gpg --batch --yes --armor --clearsign -o InRelease Release
+          gpg --batch --yes --pinentry-mode loopback --armor --detach-sign -o Release.gpg Release
+          gpg --batch --yes --pinentry-mode loopback --armor --clearsign -o InRelease Release
 
       - name: Export public key
         run: gpg --armor --export > site/KEY.gpg
