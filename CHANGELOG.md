@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.3.1 (2026-02-15)
+
+### Fix
+
+- Day separator was not showing
+- Details box shows details for wrong packet
+
 ## v1.3.0 (2026-02-15)
 
 ### Feat
