@@ -36,6 +36,7 @@ class Message:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     is_outgoing: bool = False
     path_len: int = 0
+    path_hops: list[str] = field(default_factory=list)
     snr: float | None = None
     rssi: int | None = None
 
