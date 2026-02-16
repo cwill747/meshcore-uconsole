@@ -40,14 +40,29 @@ class MessagesView(Gtk.Box):
         split.set_vexpand(True)
         self.append(split)
 
+        channel_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        channel_panel.set_size_request(180, -1)
+
         self._channel_list = Gtk.ListBox.new()
         self._channel_list.add_css_class("panel-card")
         self._channel_list.add_css_class("channel-list")
         self._channel_list.add_css_class("side-list")
         self._channel_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self._channel_list.connect("row-selected", self._on_channel_selected)
-        self._channel_list.set_size_request(180, -1)
-        split.append(self._channel_list)
+        self._channel_list.set_vexpand(True)
+        channel_panel.append(self._channel_list)
+
+        add_channel_btn = Gtk.Button.new()
+        add_channel_btn.set_child(Gtk.Label(label="+ Add Channel"))
+        add_channel_btn.add_css_class("flat")
+        add_channel_btn.set_margin_start(4)
+        add_channel_btn.set_margin_end(4)
+        add_channel_btn.set_margin_top(4)
+        add_channel_btn.set_margin_bottom(4)
+        add_channel_btn.connect("clicked", self._on_add_channel_clicked)
+        channel_panel.append(add_channel_btn)
+
+        split.append(channel_panel)
 
         # Chat area with scrolling
         self._chat_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -466,6 +481,50 @@ class MessagesView(Gtk.Box):
             if self._selected_channel_id == channel_id:
                 self._selected_channel_id = "public"
             self._reload_channels()
+
+    def _on_add_channel_clicked(self, _button: Gtk.Button) -> None:
+        """Show a dialog to add a new hashtag channel by name."""
+        dialog = Adw.AlertDialog.new("Add Channel", None)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("add", "Add")
+        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("add")
+        dialog.set_close_response("cancel")
+
+        entry = Gtk.Entry.new()
+        entry.set_placeholder_text("channel-name")
+
+        prefix = Gtk.Label(label="#")
+        prefix.add_css_class("panel-muted")
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        row.set_margin_start(12)
+        row.set_margin_end(12)
+        row.set_margin_top(8)
+        row.set_margin_bottom(8)
+        row.append(prefix)
+        row.append(entry)
+        entry.set_hexpand(True)
+        entry.connect("activate", lambda _e: dialog.response("add"))
+
+        dialog.set_extra_child(row)
+        dialog.connect("response", self._on_add_channel_response, entry)
+        dialog.present(self.get_root())
+        entry.grab_focus()
+
+    def _on_add_channel_response(
+        self, _dialog: Adw.AlertDialog, response: str, entry: Gtk.Entry
+    ) -> None:
+        if response != "add":
+            return
+        raw = entry.get_text().strip().lstrip("#").strip()
+        if not raw:
+            return
+        channel_id = raw.lower()
+        display_name = f"#{channel_id}"
+        self._service.ensure_channel(channel_id, display_name)
+        self._selected_channel_id = channel_id
+        self._reload_channels()
 
     def _get_channel_display_name(self, channel_id: str) -> str:
         """Return the display name for a channel, falling back to channel_id."""
