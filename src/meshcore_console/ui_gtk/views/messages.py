@@ -12,6 +12,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.core.time import to_local
 from meshcore_console.ui_gtk.widgets import (
     DaySeparator,
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class MessagesView(Gtk.Box):
-    def __init__(self, service: MeshcoreService) -> None:
+    def __init__(self, service: MeshcoreService, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._service = service
         self._selected_channel_id = "public"
@@ -42,7 +43,7 @@ class MessagesView(Gtk.Box):
         self.append(split)
 
         channel_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        channel_panel.set_size_request(160, -1)
+        channel_panel.set_size_request(layout.messages_channel_width, -1)
 
         self._channel_list = Gtk.ListBox.new()
         self._channel_list.add_css_class("panel-card")

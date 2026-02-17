@@ -25,7 +25,9 @@ class DetailBlock(Gtk.Box):
 
     WRAP_WIDTH = 24
 
-    def __init__(self, title: str, value: str | None = None) -> None:
+    def __init__(
+        self, title: str, value: str | None = None, *, wrap_chars: int = WRAP_WIDTH
+    ) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         self.add_css_class("analyzer-detail-block")
 
@@ -34,8 +36,10 @@ class DetailBlock(Gtk.Box):
         header.set_halign(Gtk.Align.START)
         self.append(header)
 
+        self._wrap_chars = wrap_chars
+
         if value is not None:
-            wrapped = self._wrap_text(value) if len(value) > self.WRAP_WIDTH else value
+            wrapped = self._wrap_text(value, wrap_chars) if len(value) > wrap_chars else value
             body = Gtk.Label(label=wrapped)
             body.set_halign(Gtk.Align.START)
             body.set_xalign(0)

@@ -19,6 +19,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk
 from gi.repository import Pango
 
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.ui_gtk.views.analyzer import AnalyzerView
 from meshcore_console.ui_gtk.views.map import MapView
@@ -115,15 +116,18 @@ class MainWindow(Adw.ApplicationWindow):
         self._advert_btn.set_popover(advert_popover)
         header_bar.pack_end(self._advert_btn)
 
+        # Compute proportional layout from target screen width
+        layout = Layout(content_width=self._target_width - 16)
+
         # Stack with views (no sidebar)
         self._stack = Gtk.Stack.new()
         self._stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self._stack.set_hexpand(True)
         self._stack.set_vexpand(True)
-        self._stack.add_named(AnalyzerView(service, self._event_store), "analyzer")
-        self._stack.add_named(PeersView(service), "peers")
-        self._stack.add_named(MessagesView(service), "messages")
-        self._stack.add_named(MapView(service), "map")
+        self._stack.add_named(AnalyzerView(service, self._event_store, layout), "analyzer")
+        self._stack.add_named(PeersView(service, layout), "peers")
+        self._stack.add_named(MessagesView(service, layout), "messages")
+        self._stack.add_named(MapView(service, layout), "map")
         self._stack.add_named(SettingsView(service), "settings")
         self._stack.set_visible_child_name("analyzer")
 

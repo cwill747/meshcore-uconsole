@@ -9,14 +9,14 @@ from gi.repository import Gtk
 
 
 class StatusCard(Gtk.Box):
-    def __init__(self, title: str, value: str) -> None:
+    def __init__(self, title: str, value: str, *, min_width: int = 190) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add_css_class("metric-card")
         self.set_margin_top(6)
         self.set_margin_bottom(6)
         self.set_margin_start(6)
         self.set_margin_end(6)
-        self.set_size_request(190, -1)
+        self.set_size_request(min_width, -1)
 
         title_label = Gtk.Label.new(title)
         title_label.add_css_class("metric-title")

@@ -29,6 +29,7 @@ except ImportError:
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.core.time import to_local
 from meshcore_console.platform.mbtiles import MBTilesReader, find_mbtiles_files
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
@@ -42,9 +43,10 @@ OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 class MapView(Gtk.Box):
     """Map view with peer markers and details panel."""
 
-    def __init__(self, service: MeshcoreService) -> None:
+    def __init__(self, service: MeshcoreService, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self._service = service
+        self._layout = layout
         self._selected_peer: Peer | None = None
         self._peer_markers: dict[str, object] = {}  # peer_id -> marker
         self._device_marker: object | None = None
@@ -142,7 +144,7 @@ class MapView(Gtk.Box):
         self._details_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self._details_panel.add_css_class("panel-card")
         self._details_panel.add_css_class("map-details-panel")
-        self._details_panel.set_size_request(260, -1)
+        self._details_panel.set_size_request(self._layout.map_details_width, -1)
         self._details_panel.set_visible(False)
         self.append(self._details_panel)
 

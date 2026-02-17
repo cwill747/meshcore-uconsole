@@ -19,6 +19,7 @@ from gi.repository import GLib, Gtk, Pango
 from meshcore_console.core.enums import AnalyzerFilter, EventType
 from meshcore_console.core.packets import get_handler
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.ui_gtk.widgets import DaySeparator, DetailBlock, PathVisualization
 from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF
@@ -44,15 +45,11 @@ class PacketRecord:
 
 
 class AnalyzerView(Gtk.Box):
-    COL_TIME = 90
-    COL_TYPE = 80
-    COL_NODE = 120
-    COL_SIGNAL = 95  # Signal column is fixed, content expands
-
-    def __init__(self, service: MeshcoreService, event_store: UiEventStore) -> None:
+    def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._service = service
         self._event_store = event_store
+        self._layout = layout
         self._geom_debug = os.environ.get("MESHCORE_UI_GEOM_DEBUG", "0") == "1"
         self._cursor = 0
         self._packets: deque[PacketRecord] = deque(maxlen=400)
@@ -105,14 +102,14 @@ class AnalyzerView(Gtk.Box):
         # Align with stream rows: panel-card padding (14px) + row border (3px) + row margin (4px)
         header.set_margin_start(21)
         header.set_margin_end(18)
-        header.append(self._header_label("TIME", self.COL_TIME))
-        header.append(self._header_label("TYPE", self.COL_TYPE))
-        header.append(self._header_label("NODE", self.COL_NODE))
+        header.append(self._header_label("TIME", self._layout.analyzer_col_time))
+        header.append(self._header_label("TYPE", self._layout.analyzer_col_type))
+        header.append(self._header_label("NODE", self._layout.analyzer_col_node))
         # Content header expands to fill space
         content_header = self._header_label("CONTENT", -1)
         content_header.set_hexpand(True)
         header.append(content_header)
-        header.append(self._header_label("SIGNAL", self.COL_SIGNAL))
+        header.append(self._header_label("SIGNAL", self._layout.analyzer_col_signal))
         center.append(header)
 
         # Wrap stream in ScrolledWindow to prevent infinite expansion
@@ -143,7 +140,7 @@ class AnalyzerView(Gtk.Box):
         self._details.add_css_class("panel-card")
         self._details.add_css_class("analyzer-details")
         self._details.add_css_class("analyzer-drawer")
-        self._details.set_size_request(220, -1)
+        self._details.set_size_request(self._layout.analyzer_details_width, -1)
         self._details_revealer.set_child(self._details)
 
         GLib.timeout_add(1500, self._poll_events)
@@ -454,14 +451,14 @@ class AnalyzerView(Gtk.Box):
         time_label = Gtk.Label(label=packet.timestamp[:11])
         time_label.add_css_class("panel-muted")
         time_label.set_xalign(0)
-        time_label.set_size_request(self.COL_TIME, -1)
+        time_label.set_size_request(self._layout.analyzer_col_time, -1)
         time_label.set_single_line_mode(True)
         line.append(time_label)
 
         type_label = Gtk.Label(label=packet.packet_type)
         type_label.add_css_class("packet-type")
         type_label.add_css_class(self._type_class(packet.packet_type))
-        type_label.set_size_request(self.COL_TYPE, -1)
+        type_label.set_size_request(self._layout.analyzer_col_type, -1)
         type_label.set_ellipsize(Pango.EllipsizeMode.END)
         type_label.set_xalign(0)
         type_label.set_single_line_mode(True)
@@ -469,7 +466,7 @@ class AnalyzerView(Gtk.Box):
 
         node_label = Gtk.Label(label=packet.node)
         node_label.set_xalign(0)
-        node_label.set_size_request(self.COL_NODE, -1)
+        node_label.set_size_request(self._layout.analyzer_col_node, -1)
         node_label.set_single_line_mode(True)
         node_label.set_ellipsize(Pango.EllipsizeMode.END)
         node_label.set_max_width_chars(14)
@@ -487,7 +484,7 @@ class AnalyzerView(Gtk.Box):
         sig_label = Gtk.Label(label=f"{packet.rssi} / {packet.snr:.2f}")
         sig_label.add_css_class("analyzer-rssi")
         sig_label.set_xalign(0)
-        sig_label.set_size_request(self.COL_SIGNAL, -1)
+        sig_label.set_size_request(self._layout.analyzer_col_signal, -1)
         sig_label.set_single_line_mode(True)
         line.append(sig_label)
 
@@ -581,9 +578,14 @@ class AnalyzerView(Gtk.Box):
         subtitle.set_max_width_chars(28)
         self._details.append(subtitle)
 
-        self._details.append(DetailBlock("Timestamp", packet.timestamp))
+        wrap = self._layout.detail_block_wrap_chars
+        self._details.append(DetailBlock("Timestamp", packet.timestamp, wrap_chars=wrap))
         self._details.append(
-            DetailBlock("Radio Signal", f"RSSI {packet.rssi} dBm   SNR {packet.snr:.2f} dB")
+            DetailBlock(
+                "Radio Signal",
+                f"RSSI {packet.rssi} dBm   SNR {packet.snr:.2f} dB",
+                wrap_chars=wrap,
+            )
         )
         self._details.append(self._decoded_payload_block(packet))
         self._details.append(self._routing_block(packet))
@@ -634,10 +636,12 @@ class AnalyzerView(Gtk.Box):
 
     def _decoded_payload_block(self, packet: PacketRecord) -> DetailBlock:
         payload = packet.payload_text if packet.payload_text else "(binary payload)"
-        return DetailBlock("Decoded Payload", payload)
+        return DetailBlock(
+            "Decoded Payload", payload, wrap_chars=self._layout.detail_block_wrap_chars
+        )
 
     def _routing_block(self, packet: PacketRecord) -> DetailBlock:
-        block = DetailBlock("Routing")
+        block = DetailBlock("Routing", wrap_chars=self._layout.detail_block_wrap_chars)
 
         # Show route type and hop count
         if packet.path_len == 0:
@@ -682,8 +686,9 @@ class AnalyzerView(Gtk.Box):
 
     def _raw_block(self, packet: PacketRecord) -> DetailBlock:
         raw_display = packet.raw_hex if packet.raw_hex else "(no raw data)"
-        block = DetailBlock("Raw Packet")
-        formatted = DetailBlock._wrap_text(raw_display)
+        wrap = self._layout.detail_block_wrap_chars
+        block = DetailBlock("Raw Packet", wrap_chars=wrap)
+        formatted = DetailBlock._wrap_text(raw_display, wrap)
         raw = Gtk.Label(label=formatted)
         raw.add_css_class("analyzer-raw")
         raw.set_halign(Gtk.Align.START)
