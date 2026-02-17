@@ -138,6 +138,7 @@ class MainWindow(Adw.ApplicationWindow):
         content_pane.add_css_class("content-pane")
         content_pane.set_hexpand(True)
         content_pane.set_vexpand(True)
+
         content_pane.append(self._stack)
 
         page = Adw.ToolbarView.new()
@@ -245,11 +246,14 @@ class MainWindow(Adw.ApplicationWindow):
                     geometry = monitor.get_geometry()
                     screen_w, screen_h = geometry.width, geometry.height
                     logger.debug("MainWindow: screen geometry %dx%d", screen_w, screen_h)
-                    # On small screens (like uconsole 1280x720), maximize to fit
+                    # On small screens (like uconsole 1280x720), maximize to fit.
+                    # Cap at 1280x720 — some compositors report a larger logical
+                    # geometry than the physical display which causes overflow.
                     if screen_h <= 720:
+                        self._target_width = min(screen_w, 1280)
+                        self._target_height = min(screen_h, 720)
+                        self.set_default_size(self._target_width, self._target_height)
                         self.maximize()
-                        self._target_width = screen_w
-                        self._target_height = screen_h
                         return
                     width = min(width, screen_w)
                     height = min(height, screen_h - 100)  # Reserve for panels
@@ -301,13 +305,11 @@ class MainWindow(Adw.ApplicationWindow):
             visible = self._stack.get_visible_child_name()
             print(f"[ui-geom] window={win_w}x{win_h} visible={visible}")
             print(f"[ui-geom] stack={self._stack.get_width()}x{self._stack.get_height()}")
-            analyzer = self._stack.get_child_by_name("analyzer")
-            if analyzer is not None:
-                min_w, nat_w, _min_b, _nat_b = analyzer.measure(Gtk.Orientation.HORIZONTAL, -1)
-                print(
-                    f"[ui-geom] analyzer={analyzer.get_width()}x{analyzer.get_height()} "
-                    f"pref={min_w}/{nat_w}"
-                )
+            for name in ("analyzer", "peers", "messages", "map", "settings"):
+                child = self._stack.get_child_by_name(name)
+                if child is not None:
+                    min_w, nat_w, _min_b, _nat_b = child.measure(Gtk.Orientation.HORIZONTAL, -1)
+                    print(f"[ui-geom] {name} pref={min_w}/{nat_w}")
             if win_w != self._last_window_width or win_h != self._last_window_height:
                 self._debug_display_state("window-size-changed")
                 self._last_window_width = win_w

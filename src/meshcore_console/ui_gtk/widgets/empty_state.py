@@ -28,6 +28,8 @@ class EmptyState(Gtk.Box):
         self._label.add_css_class("panel-muted")
         self._label.set_halign(Gtk.Align.CENTER)
         self._label.set_valign(Gtk.Align.CENTER)
+        self._label.set_wrap(True)
+        self._label.set_max_width_chars(40)
         self._label.set_margin_top(24)
         self._label.set_margin_bottom(24)
         self.append(self._label)

@@ -74,7 +74,7 @@ class MessageBubble(Gtk.Box):
         body_label = Gtk.Label()
         body_label.set_markup(markup)
         body_label.set_wrap(True)
-        body_label.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        body_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         body_label.set_max_width_chars(50)
         body_label.set_xalign(0)
         body_label.add_css_class("message-body")

@@ -91,6 +91,7 @@ def create_mock_peers() -> dict[str, Peer]:
 
 def create_mock_messages() -> list[Message]:
     """Create mock messages for testing."""
+    now = datetime.now(UTC)
     return [
         Message(
             message_id=str(uuid4()),
@@ -99,6 +100,7 @@ def create_mock_messages() -> list[Message]:
             channel_id="test",
             path_len=2,
             path_hops=["B7", "C2"],
+            created_at=now - timedelta(minutes=30),
         ),
         Message(
             message_id=str(uuid4()),
@@ -107,6 +109,7 @@ def create_mock_messages() -> list[Message]:
             channel_id="public",
             path_len=2,
             path_hops=["relay-001", "relay-002"],
+            created_at=now - timedelta(minutes=25),
         ),
         Message(
             message_id=str(uuid4()),
@@ -115,6 +118,63 @@ def create_mock_messages() -> list[Message]:
             channel_id="ops",
             path_len=1,
             path_hops=["relay-002"],
+            created_at=now - timedelta(minutes=20),
+        ),
+        # Long messages to test wrapping behavior
+        Message(
+            message_id=str(uuid4()),
+            sender_id="\U0001f43b Alice",
+            body=(
+                "Hey everyone, I just finished setting up the new repeater node on Twin Peaks. "
+                "Signal coverage should be significantly improved for the southern part of the city. "
+                "Let me know if you notice any difference in link quality from your end."
+            ),
+            channel_id="public",
+            path_len=1,
+            path_hops=["relay-001"],
+            created_at=now - timedelta(minutes=15),
+        ),
+        Message(
+            message_id=str(uuid4()),
+            sender_id="__self__",
+            body=(
+                "Nice work! I can already see the SNR improving on my side. "
+                "The path through Relay A is showing 8.5dB now compared to 3.2dB earlier. "
+                "This is a huge improvement for our mesh coverage."
+            ),
+            channel_id="public",
+            is_outgoing=True,
+            created_at=now - timedelta(minutes=12),
+        ),
+        Message(
+            message_id=str(uuid4()),
+            sender_id="\U0001f680 Bob",
+            body=(
+                "Confirmed from my end too. Also FYI the firmware update for the SX1262 "
+                "modules is available at https://example.com/firmware/v2.4.1/sx1262-update-package-latest.bin "
+                "if anyone needs it. Make sure to backup your config before flashing."
+            ),
+            channel_id="public",
+            path_len=2,
+            path_hops=["relay-001", "relay-002"],
+            created_at=now - timedelta(minutes=10),
+        ),
+        Message(
+            message_id=str(uuid4()),
+            sender_id="\U0001f43b Alice",
+            body="Short msg",
+            channel_id="test",
+            path_len=0,
+            path_hops=[],
+            created_at=now - timedelta(minutes=5),
+        ),
+        Message(
+            message_id=str(uuid4()),
+            sender_id="__self__",
+            body="Got it, thanks!",
+            channel_id="test",
+            is_outgoing=True,
+            created_at=now - timedelta(minutes=3),
         ),
     ]
 
