@@ -444,11 +444,7 @@ combobox:focus {
 .message-body a {
   color: @mc_accent;
   text-decoration: none;
-}
-
-.message-outgoing .message-body a {
-  color: white;
-  text-decoration: underline;
+  font-weight: 600;
 }
 
 .message-meta {

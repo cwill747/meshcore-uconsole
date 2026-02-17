@@ -198,7 +198,7 @@ def create_mock_packet_events() -> list[dict]:
                 "sender_name": "THD Observer",
                 "sender_id": "f5890d41abcd1234",
                 "channel_name": "public",
-                "payload_text": "@[NL-UTC-CM-Echo] observed at 14:32 UTC",
+                "payload_text": "@[Relay A] observed at 14:32 UTC",
                 "rssi": -95,
                 "snr": -2.50,
                 "payload_hex": "f589d410abcd1234567890abcdef",
