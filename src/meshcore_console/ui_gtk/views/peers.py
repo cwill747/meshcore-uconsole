@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 import gi
@@ -165,8 +166,17 @@ class PeersView(Gtk.Box):
         peers = self._service.list_peers()
         self._last_peer_snapshot = self._peer_snapshot(peers)
 
-        contacts = [p for p in peers if not p.is_repeater]
-        network = [p for p in peers if p.is_repeater]
+        epoch = datetime.min
+        contacts = sorted(
+            (p for p in peers if not p.is_repeater),
+            key=lambda p: p.last_advert_time or epoch,
+            reverse=True,
+        )
+        network = sorted(
+            (p for p in peers if p.is_repeater),
+            key=lambda p: p.last_advert_time or epoch,
+            reverse=True,
+        )
 
         self._populate_list(self._contacts_list, contacts, "No contacts yet")
         self._populate_list(self._network_list, network, "No repeaters yet")
