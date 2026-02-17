@@ -12,6 +12,16 @@ from gi.repository import GLib
 from meshcore_console.core.models import Peer
 
 
+def _escape(text: str) -> str:
+    """Markup-escape *text*, passing ``-1`` so GLib computes byte length itself.
+
+    ``GLib.markup_escape_text(s)`` can auto-fill the length parameter with
+    ``len(s)`` (code-point count), which truncates multi-byte characters
+    like emoji.  Passing ``-1`` avoids this.
+    """
+    return GLib.markup_escape_text(text, -1)
+
+
 def parse_mentions(body: str, peers: list[Peer]) -> str:
     """Return Pango markup with ``@[PeerName]`` mentions wrapped as links.
 
@@ -19,7 +29,7 @@ def parse_mentions(body: str, peers: list[Peer]) -> str:
     pass through as plain escaped text (with brackets intact).
     """
     if not peers or "@" not in body:
-        return GLib.markup_escape_text(body)
+        return _escape(body)
 
     name_lookup: dict[str, Peer] = {p.display_name.lower(): p for p in peers if p.display_name}
 
@@ -32,21 +42,21 @@ def parse_mentions(body: str, peers: list[Peer]) -> str:
                 inner = body[i + 2 : close]
                 peer = name_lookup.get(inner.lower())
                 if peer is not None:
-                    escaped_name = GLib.markup_escape_text(inner)
-                    peer_id = GLib.markup_escape_text(peer.peer_id)
+                    escaped_name = _escape(inner)
+                    peer_id = _escape(peer.peer_id)
                     result.append(f'<a href="mention:{peer_id}">@{escaped_name}</a>')
                     i = close + 1
                     continue
             # No match — emit the '@' and let '[' be picked up as plain text
-            result.append(GLib.markup_escape_text("@"))
+            result.append("@")
             i += 1
         elif body[i] == "@":
-            result.append(GLib.markup_escape_text("@"))
+            result.append("@")
             i += 1
         else:
             start = i
             while i < len(body) and body[i] != "@":
                 i += 1
-            result.append(GLib.markup_escape_text(body[start:i]))
+            result.append(_escape(body[start:i]))
 
     return "".join(result)

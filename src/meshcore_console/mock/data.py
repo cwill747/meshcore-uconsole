@@ -11,13 +11,13 @@ from meshcore_console.core.models import Channel, Message, Peer
 # Mock peer locations (spread around San Francisco Bay Area)
 # Format: (name, peer_id, lat, lon, is_repeater)
 MOCK_PEER_LOCATIONS: list[tuple[str, str, float, float, bool]] = [
-    ("Relay Alpha", "relay-001", 37.7749, -122.4194, True),  # SF downtown
-    ("Relay Beta", "relay-002", 37.8044, -122.2712, True),  # Oakland
-    ("Node Gateway", "gateway-001", 37.5485, -122.0590, True),  # Fremont
-    ("Alice", "peer-alice", 37.7849, -122.4094, False),  # SF north
-    ("Bob", "peer-bob", 37.7649, -122.4294, False),  # SF south
-    ("Charlie", "peer-charlie", 37.8716, -122.2727, False),  # Berkeley
-    ("Diana", "peer-diana", 37.4419, -122.1430, False),  # Palo Alto
+    ("\U0001f4e1 Relay Alpha", "relay-001", 37.7749, -122.4194, True),  # SF downtown
+    ("\U0001f4e1 Relay Beta", "relay-002", 37.8044, -122.2712, True),  # Oakland
+    ("\U0001f310 Node Gateway", "gateway-001", 37.5485, -122.0590, True),  # Fremont
+    ("\U0001f43b Alice", "peer-alice", 37.7849, -122.4094, False),  # SF north
+    ("\U0001f680 Bob", "peer-bob", 37.7649, -122.4294, False),  # SF south
+    ("\u2615 Charlie", "peer-charlie", 37.8716, -122.2727, False),  # Berkeley
+    ("\U0001f308 Diana", "peer-diana", 37.4419, -122.1430, False),  # Palo Alto
 ]
 
 # Mock GPS waypoints: walking around SF Financial District
@@ -50,36 +50,36 @@ def create_mock_peers() -> dict[str, Peer]:
     """Create mock peers for testing (subset of MOCK_PEER_LOCATIONS with full Peer objects)."""
     now = datetime.now(UTC)
     return {
-        "Relay A": Peer(
+        "\U0001f4e1 Relay A": Peer(
             peer_id="relay-001",
-            display_name="Relay A",
+            display_name="\U0001f4e1 Relay A",
             signal_quality=78,
             is_repeater=True,
             latitude=37.7749,
             longitude=-122.4194,
             location_updated=now,
         ),
-        "Backhaul B": Peer(
+        "\U0001f4e1 Backhaul B": Peer(
             peer_id="relay-002",
-            display_name="Backhaul B",
+            display_name="\U0001f4e1 Backhaul B",
             signal_quality=61,
             is_repeater=True,
             latitude=37.8044,
             longitude=-122.2712,
             location_updated=now,
         ),
-        "Alice": Peer(
+        "\U0001f43b Alice": Peer(
             peer_id="peer-alice",
-            display_name="Alice",
+            display_name="\U0001f43b Alice",
             signal_quality=85,
             is_repeater=False,
             latitude=37.7849,
             longitude=-122.4094,
             location_updated=now,
         ),
-        "Bob": Peer(
+        "\U0001f680 Bob": Peer(
             peer_id="peer-bob",
-            display_name="Bob",
+            display_name="\U0001f680 Bob",
             signal_quality=72,
             is_repeater=False,
             latitude=37.7649,
@@ -94,7 +94,7 @@ def create_mock_messages() -> list[Message]:
     return [
         Message(
             message_id=str(uuid4()),
-            sender_id="Relay A",
+            sender_id="\U0001f4e1 Relay A",
             body="Route check complete",
             channel_id="test",
             path_len=2,
@@ -102,7 +102,7 @@ def create_mock_messages() -> list[Message]:
         ),
         Message(
             message_id=str(uuid4()),
-            sender_id="Backhaul B",
+            sender_id="\U0001f4e1 Backhaul B",
             body="Link stable at SF7",
             channel_id="public",
             path_len=2,
@@ -110,7 +110,7 @@ def create_mock_messages() -> list[Message]:
         ),
         Message(
             message_id=str(uuid4()),
-            sender_id="Relay A",
+            sender_id="\U0001f4e1 Relay A",
             body="Forwarding advert burst",
             channel_id="ops",
             path_len=1,
@@ -123,8 +123,8 @@ def create_mock_boot_events() -> list[dict]:
     """Create initial mock events for boot sequence."""
     return [
         {"type": "mock_boot", "data": {"message": "Mock session initialized"}},
-        {"type": "peer_seen", "data": {"peer": "Relay A", "rssi": -66}},
-        {"type": "peer_seen", "data": {"peer": "Backhaul B", "rssi": -71}},
+        {"type": "peer_seen", "data": {"peer": "\U0001f4e1 Relay A", "rssi": -66}},
+        {"type": "peer_seen", "data": {"peer": "\U0001f4e1 Backhaul B", "rssi": -71}},
     ]
 
 
@@ -198,7 +198,7 @@ def create_mock_packet_events() -> list[dict]:
                 "sender_name": "THD Observer",
                 "sender_id": "f5890d41abcd1234",
                 "channel_name": "public",
-                "payload_text": "@[Relay A] observed at 14:32 UTC",
+                "payload_text": "@[\U0001f4e1 Relay A] observed at 14:32 UTC",
                 "rssi": -95,
                 "snr": -2.50,
                 "payload_hex": "f589d410abcd1234567890abcdef",
