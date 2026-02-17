@@ -20,6 +20,7 @@ from meshcore_console.ui_gtk.widgets import (
     MessageBubble,
     PathVisualization,
 )
+from meshcore_console.ui_gtk.widgets.mention import parse_mentions
 from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF, find_peer_for_hop
 
 logger = logging.getLogger(__name__)
@@ -341,14 +342,19 @@ class MessagesView(Gtk.Box):
         header.append(time_label)
         self._details_box.append(header)
 
-        # Message preview
-        preview = Gtk.Label(label=message.body)
+        # Message preview (with @mention markup)
+        peers = self._service.list_peers()
+        markup = parse_mentions(message.body, peers)
+        preview = Gtk.Label()
+        preview.set_markup(markup)
+        preview.add_css_class("message-body")
         preview.add_css_class("panel-muted")
         preview.set_halign(Gtk.Align.START)
         preview.set_wrap(True)
         preview.set_max_width_chars(50)
         preview.set_ellipsize(Pango.EllipsizeMode.END)
         preview.set_lines(2)
+        preview.connect("activate-link", self._on_mention_clicked)
         self._details_box.append(preview)
 
         # Details section
@@ -407,6 +413,29 @@ class MessagesView(Gtk.Box):
         close_btn.set_margin_top(8)
         close_btn.connect("clicked", self._on_close_details)
         self._details_box.append(close_btn)
+
+    def _on_mention_clicked(self, _label: Gtk.Label, uri: str) -> bool:
+        """Handle clicks on @mention links — navigate to the peer."""
+        if not uri.startswith("mention:"):
+            return False
+        peer_id = uri[len("mention:") :]
+        root = self.get_root()
+        if root is None:
+            return True
+        stack = getattr(root, "_stack", None)
+        if stack is None:
+            return True
+        stack.set_visible_child_name("peers")
+        nav_buttons = getattr(root, "_nav_buttons", None)
+        if nav_buttons:
+            for name, btn in nav_buttons.items():
+                btn.set_active(name == "peers")
+        peers_widget = stack.get_child_by_name("peers")
+        if peers_widget is not None:
+            select_fn = getattr(peers_widget, "select_peer", None)
+            if select_fn:
+                select_fn(peer_id)
+        return True
 
     def _on_close_details(self, _button: Gtk.Button) -> None:
         self._details_revealer.set_reveal_child(False)

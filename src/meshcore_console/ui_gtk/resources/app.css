@@ -541,14 +541,11 @@ combobox:focus {
   background: alpha(@mc_accent, 0.1);
 }
 
-/* NodeBadge - reset MenuButton chrome */
+/* NodeBadge container */
 .node-badge {
   padding: 0;
   min-width: 0;
   min-height: 0;
-  border: none;
-  background: none;
-  box-shadow: none;
 }
 
 .node-prefix {
@@ -559,19 +556,21 @@ combobox:focus {
   min-height: 24px;
   padding: 2px;
   border-radius: 4px;
-  background: alpha(#67b5ff, 0.2);
-  color: #67b5ff;
+  background: #3a70c0;
+  color: #d0eaff;
+  border: 1px solid #6098e0;
 }
 
 .node-prefix-repeater {
-  background: alpha(@mc_warn, 0.2);
-  color: @mc_warn;
-  border: 1px solid alpha(@mc_warn, 0.4);
+  background: #a07828;
+  color: #ffe880;
+  border: 1px solid #ccaa44;
 }
 
 .node-prefix-self {
-  background: alpha(@mc_accent, 0.2);
-  color: @mc_accent;
+  background: #30986a;
+  color: #88ffc8;
+  border: 1px solid #50cc90;
 }
 
 .node-popover-name {
