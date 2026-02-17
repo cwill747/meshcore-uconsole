@@ -34,6 +34,7 @@ sudo apt-get install -y \
   dh-virtualenv \
   virtualenv \
   libgpiod-dev \
+  fonts-noto-color-emoji \
   "$LIBGPIOD_PKG"
 
 if ! command -v uv >/dev/null 2>&1; then
