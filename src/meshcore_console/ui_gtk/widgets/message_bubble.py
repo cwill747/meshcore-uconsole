@@ -12,6 +12,7 @@ from gi.repository import Gtk
 
 from meshcore_console.core.models import Message
 from meshcore_console.core.time import to_local
+from meshcore_console.ui_gtk.widgets.mention import parse_mentions
 from meshcore_console.ui_gtk.widgets.node_badge import STYLE_SELF, NodeBadge
 
 if TYPE_CHECKING:
@@ -67,13 +68,17 @@ class MessageBubble(Gtk.Box):
         content.set_margin_top(6)
         content.set_margin_bottom(6)
 
-        # Message body
-        body_label = Gtk.Label(label=message.body)
+        # Message body (with @mention markup)
+        peers = service.list_peers()
+        markup = parse_mentions(message.body, peers)
+        body_label = Gtk.Label()
+        body_label.set_markup(markup)
         body_label.set_wrap(True)
         body_label.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         body_label.set_max_width_chars(40)
         body_label.set_xalign(0)
         body_label.add_css_class("message-body")
+        body_label.connect("activate-link", self._on_mention_clicked)
         content.append(body_label)
 
         # Meta line (sender for incoming, time for all)
@@ -93,6 +98,35 @@ class MessageBubble(Gtk.Box):
 
         bubble.set_child(content)
         bubble.connect("clicked", on_clicked, message)
+
+    def _on_mention_clicked(self, label: Gtk.Label, uri: str) -> bool:
+        """Handle clicks on @mention links — navigate to the peer."""
+        if not uri.startswith("mention:"):
+            return False
+        peer_id = uri[len("mention:") :]
+
+        root = self.get_root()
+        if root is None:
+            return True
+
+        stack = getattr(root, "_stack", None)
+        if stack is None:
+            return True
+
+        stack.set_visible_child_name("peers")
+
+        nav_buttons = getattr(root, "_nav_buttons", None)
+        if nav_buttons:
+            for name, btn in nav_buttons.items():
+                btn.set_active(name == "peers")
+
+        peers_widget = stack.get_child_by_name("peers")
+        if peers_widget is not None:
+            select_fn = getattr(peers_widget, "select_peer", None)
+            if select_fn:
+                select_fn(peer_id)
+
+        return True  # Prevent default link handler
 
     @staticmethod
     def _make_sender_badge(message: Message, service: MeshcoreService) -> NodeBadge:

@@ -441,6 +441,16 @@ combobox:focus {
   font-size: 14px;
 }
 
+.message-body a {
+  color: @mc_accent;
+  text-decoration: none;
+}
+
+.message-outgoing .message-body a {
+  color: white;
+  text-decoration: underline;
+}
+
 .message-meta {
   font-size: 12px;
   color: alpha(currentColor, 0.7);
