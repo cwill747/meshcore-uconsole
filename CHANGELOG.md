@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.5.0 (2026-02-17)
+
+### Feat
+
+- Dynamic scaling
+- Add mentions
+- Add more packet handling to analyzer
+- Add hashtag-channel adding from UI
+- Add CONTROL packet handling
+
+### Fix
+
+- Fix main width again and wraparound message text
+- Update sizing method with larger fonts
+- Slight width overflow
+- Message wordwrap
+- Sort peers reverse-chronilocallcally
+- Rely on font with emojis on Pi
+- Multibyte unicode not displaying correctly
+- Mentions are always bracket-wrapped
+- Potentially fix emoji / UTF8 node names
+- Add channel to channel list after import
+
 ## v1.4.0 (2026-02-16)
 
 ### Feat
