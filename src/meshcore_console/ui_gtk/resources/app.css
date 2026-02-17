@@ -99,7 +99,7 @@ combobox:focus {
 .content-pane {
   background: linear-gradient(180deg, shade(@mc_bg, 1.1), @mc_bg);
   padding: 8px;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .section-title {
@@ -133,7 +133,7 @@ combobox:focus {
 }
 
 .metric-value {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
 }
 
@@ -247,7 +247,7 @@ combobox:focus {
 
 .analyzer-stream label {
   font-family: "SF Mono", "Menlo", "Monaco", monospace;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .analyzer-day-separator {
@@ -263,7 +263,7 @@ combobox:focus {
 
 .day-separator-label {
   font-family: "SF Mono", "Menlo", "Monaco", monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: @mc_text_muted;
   letter-spacing: 1px;
 }
@@ -383,7 +383,7 @@ combobox:focus {
   border-radius: 4px;
   background: alpha(@mc_accent, 0.15);
   font-family: "SF Mono", "Menlo", "Monaco", monospace;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .path-repeater {
@@ -393,7 +393,7 @@ combobox:focus {
 
 .analyzer-raw {
   font-family: "SF Mono", "Menlo", "Monaco", monospace;
-  font-size: 14px;
+  font-size: 16px;
   color: #d6e1f0;
 }
 
@@ -438,7 +438,7 @@ combobox:focus {
 }
 
 .message-body {
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .message-body a {
@@ -448,7 +448,7 @@ combobox:focus {
 }
 
 .message-meta {
-  font-size: 12px;
+  font-size: 14px;
   color: alpha(currentColor, 0.7);
 }
 
@@ -464,24 +464,24 @@ combobox:focus {
 
 .message-detail-sender {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .message-detail-header {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 15px;
   color: @mc_text_muted;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .channel-list {
-  min-width: 160px;
+  min-width: 140px;
 }
 
 /* Map view styles */
 .map-marker-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: @mc_text;
   background: alpha(@mc_surface, 0.85);
@@ -550,7 +550,7 @@ combobox:focus {
 
 .node-prefix {
   font-family: "SF Mono", "Menlo", "Monaco", monospace;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   min-width: 24px;
   min-height: 24px;
@@ -575,15 +575,15 @@ combobox:focus {
 
 .node-popover-name {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .peer-meta {
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .peer-signal {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 4px;

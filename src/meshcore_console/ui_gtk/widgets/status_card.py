@@ -16,7 +16,7 @@ class StatusCard(Gtk.Box):
         self.set_margin_bottom(6)
         self.set_margin_start(6)
         self.set_margin_end(6)
-        self.set_size_request(210, -1)
+        self.set_size_request(190, -1)
 
         title_label = Gtk.Label.new(title)
         title_label.add_css_class("metric-title")

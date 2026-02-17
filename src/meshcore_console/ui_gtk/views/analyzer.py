@@ -44,10 +44,10 @@ class PacketRecord:
 
 
 class AnalyzerView(Gtk.Box):
-    COL_TIME = 95
-    COL_TYPE = 90
-    COL_NODE = 140
-    COL_SIGNAL = 100  # Signal column is fixed, content expands
+    COL_TIME = 90
+    COL_TYPE = 80
+    COL_NODE = 120
+    COL_SIGNAL = 95  # Signal column is fixed, content expands
 
     def __init__(self, service: MeshcoreService, event_store: UiEventStore) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -472,7 +472,7 @@ class AnalyzerView(Gtk.Box):
         node_label.set_size_request(self.COL_NODE, -1)
         node_label.set_single_line_mode(True)
         node_label.set_ellipsize(Pango.EllipsizeMode.END)
-        node_label.set_max_width_chars(18)
+        node_label.set_max_width_chars(14)
         line.append(node_label)
 
         content_label = Gtk.Label(label=packet.content)

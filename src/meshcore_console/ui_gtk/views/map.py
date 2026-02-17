@@ -142,7 +142,7 @@ class MapView(Gtk.Box):
         self._details_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self._details_panel.add_css_class("panel-card")
         self._details_panel.add_css_class("map-details-panel")
-        self._details_panel.set_size_request(280, -1)
+        self._details_panel.set_size_request(260, -1)
         self._details_panel.set_visible(False)
         self.append(self._details_panel)
 

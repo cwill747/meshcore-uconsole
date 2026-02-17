@@ -53,7 +53,7 @@ class PeersView(Gtk.Box):
         # Column 1: Contacts
         contacts_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         contacts_column.add_css_class("panel-card")
-        contacts_column.set_size_request(380, -1)
+        contacts_column.set_size_request(340, -1)
 
         contacts_header = Gtk.Label(label="Contacts")
         contacts_header.add_css_class("panel-title")
@@ -79,7 +79,7 @@ class PeersView(Gtk.Box):
         # Column 2: Repeaters/Network
         network_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         network_column.add_css_class("panel-card")
-        network_column.set_size_request(380, -1)
+        network_column.set_size_request(340, -1)
 
         network_header = Gtk.Label(label="Repeaters")
         network_header.add_css_class("panel-title")

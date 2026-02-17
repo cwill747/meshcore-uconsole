@@ -42,7 +42,7 @@ class MessagesView(Gtk.Box):
         self.append(split)
 
         channel_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        channel_panel.set_size_request(180, -1)
+        channel_panel.set_size_request(160, -1)
 
         self._channel_list = Gtk.ListBox.new()
         self._channel_list.add_css_class("panel-card")
