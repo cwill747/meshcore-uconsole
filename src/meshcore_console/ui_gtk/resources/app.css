@@ -233,6 +233,8 @@ combobox:focus {
 
 .analyzer-stream-header {
   /* Alignment handled via margins in code */
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 16px;
 }
 
 .analyzer-stream row {

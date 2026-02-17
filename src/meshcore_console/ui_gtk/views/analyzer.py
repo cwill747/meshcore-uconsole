@@ -45,6 +45,12 @@ class PacketRecord:
 
 
 class AnalyzerView(Gtk.Box):
+    # Column widths in characters -- sized to fit content at any monospace font.
+    COL_TIME_CHARS = 11  # HH:MM:SS.mm
+    COL_TYPE_CHARS = 8  # RESPONSE (longest common)
+    COL_NODE_CHARS = 14  # display name cap
+    COL_SIGNAL_CHARS = 14  # -112 / -9.00 + padding
+
     def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._service = service
@@ -102,14 +108,14 @@ class AnalyzerView(Gtk.Box):
         # Align with stream rows: panel-card padding (14px) + row border (3px) + row margin (4px)
         header.set_margin_start(21)
         header.set_margin_end(18)
-        header.append(self._header_label("TIME", self._layout.analyzer_col_time))
-        header.append(self._header_label("TYPE", self._layout.analyzer_col_type))
-        header.append(self._header_label("NODE", self._layout.analyzer_col_node))
-        # Content header expands to fill space
+        header.append(self._header_label("TIME", self.COL_TIME_CHARS))
+        header.append(self._header_label("TYPE", self.COL_TYPE_CHARS))
+        header.append(self._header_label("NODE", self.COL_NODE_CHARS))
+        # Content header expands to fill remaining space
         content_header = self._header_label("CONTENT", -1)
         content_header.set_hexpand(True)
         header.append(content_header)
-        header.append(self._header_label("SIGNAL", self._layout.analyzer_col_signal))
+        header.append(self._header_label("SIGNAL", self.COL_SIGNAL_CHARS))
         center.append(header)
 
         # Wrap stream in ScrolledWindow to prevent infinite expansion
@@ -451,34 +457,33 @@ class AnalyzerView(Gtk.Box):
         time_label = Gtk.Label(label=packet.timestamp[:11])
         time_label.add_css_class("panel-muted")
         time_label.set_xalign(0)
-        time_label.set_size_request(self._layout.analyzer_col_time, -1)
+        time_label.set_width_chars(self.COL_TIME_CHARS)
+        time_label.set_max_width_chars(self.COL_TIME_CHARS)
         time_label.set_single_line_mode(True)
         time_label.set_ellipsize(Pango.EllipsizeMode.END)
-        time_label.set_max_width_chars(11)
         line.append(time_label)
 
         type_label = Gtk.Label(label=packet.packet_type)
         type_label.add_css_class("packet-type")
         type_label.add_css_class(self._type_class(packet.packet_type))
-        type_label.set_size_request(self._layout.analyzer_col_type, -1)
-        type_label.set_ellipsize(Pango.EllipsizeMode.END)
-        type_label.set_max_width_chars(8)
         type_label.set_xalign(0)
+        type_label.set_width_chars(self.COL_TYPE_CHARS)
+        type_label.set_max_width_chars(self.COL_TYPE_CHARS)
         type_label.set_single_line_mode(True)
+        type_label.set_ellipsize(Pango.EllipsizeMode.END)
         line.append(type_label)
 
         node_label = Gtk.Label(label=packet.node)
         node_label.set_xalign(0)
-        node_label.set_size_request(self._layout.analyzer_col_node, -1)
+        node_label.set_width_chars(self.COL_NODE_CHARS)
+        node_label.set_max_width_chars(self.COL_NODE_CHARS)
         node_label.set_single_line_mode(True)
         node_label.set_ellipsize(Pango.EllipsizeMode.END)
-        node_label.set_max_width_chars(14)
         line.append(node_label)
 
         content_label = Gtk.Label(label=packet.content)
         content_label.add_css_class("panel-muted")
         content_label.set_xalign(0)
-        content_label.set_size_request(self._layout.analyzer_col_content, -1)
         content_label.set_hexpand(True)
         content_label.set_single_line_mode(True)
         content_label.set_ellipsize(Pango.EllipsizeMode.END)
@@ -487,10 +492,10 @@ class AnalyzerView(Gtk.Box):
         sig_label = Gtk.Label(label=f"{packet.rssi} / {packet.snr:.2f}")
         sig_label.add_css_class("analyzer-rssi")
         sig_label.set_xalign(0)
-        sig_label.set_size_request(self._layout.analyzer_col_signal, -1)
+        sig_label.set_width_chars(self.COL_SIGNAL_CHARS)
+        sig_label.set_max_width_chars(self.COL_SIGNAL_CHARS)
         sig_label.set_single_line_mode(True)
         sig_label.set_ellipsize(Pango.EllipsizeMode.END)
-        sig_label.set_max_width_chars(14)
         line.append(sig_label)
 
         row.set_child(line)
@@ -708,12 +713,14 @@ class AnalyzerView(Gtk.Box):
         return get_handler(packet_type).css_class
 
     @staticmethod
-    def _header_label(text: str, width: int) -> Gtk.Label:
+    def _header_label(text: str, chars: int) -> Gtk.Label:
         label = Gtk.Label(label=text)
         label.add_css_class("panel-muted")
         label.set_xalign(0)
         label.set_halign(Gtk.Align.START)
-        label.set_size_request(width, -1)
+        if chars > 0:
+            label.set_width_chars(chars)
+            label.set_max_width_chars(chars)
         label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_single_line_mode(True)
         return label
