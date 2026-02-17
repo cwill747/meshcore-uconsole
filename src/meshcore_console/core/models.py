@@ -25,6 +25,7 @@ class Peer:
     latitude: float | None = None
     longitude: float | None = None
     location_updated: datetime | None = None
+    is_favorite: bool = False
 
 
 @dataclass(slots=True)

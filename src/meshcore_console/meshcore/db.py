@@ -74,6 +74,8 @@ MIGRATIONS: list[tuple[str, ...]] = [
     ("ALTER TABLE channels ADD COLUMN peer_name TEXT",),
     # v2 -> v3: add path_hops column to messages for route visualization
     ("ALTER TABLE messages ADD COLUMN path_hops TEXT",),
+    # v3 -> v4: add is_favorite column to peers for user-pinned contacts/repeaters
+    ("ALTER TABLE peers ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0",),
 ]
 
 

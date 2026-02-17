@@ -67,6 +67,7 @@ EXPECTED_COLUMNS = {
         "latitude",
         "longitude",
         "location_updated",
+        "is_favorite",
     ],
     "messages": [
         "message_id",

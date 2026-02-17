@@ -47,6 +47,13 @@ class PeerListRow(Gtk.ListBoxRow):
         body.set_margin_start(10)
         body.set_margin_end(10)
 
+        # Star indicator for favorites
+        if peer.is_favorite:
+            star = Gtk.Label(label="\u2605")
+            star.add_css_class("peer-star")
+            star.set_valign(Gtk.Align.CENTER)
+            body.append(star)
+
         # Node prefix badge (first 2 hex chars of public key)
         prefix_text = (peer.public_key or "")[:2].upper()
         if prefix_text:

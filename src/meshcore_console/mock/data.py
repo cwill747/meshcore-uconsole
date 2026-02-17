@@ -58,6 +58,7 @@ def create_mock_peers() -> dict[str, Peer]:
             latitude=37.7749,
             longitude=-122.4194,
             location_updated=now,
+            is_favorite=True,
         ),
         "\U0001f4e1 Backhaul B": Peer(
             peer_id="relay-002",
@@ -76,6 +77,7 @@ def create_mock_peers() -> dict[str, Peer]:
             latitude=37.7849,
             longitude=-122.4094,
             location_updated=now,
+            is_favorite=True,
         ),
         "\U0001f680 Bob": Peer(
             peer_id="peer-bob",

@@ -72,6 +72,8 @@ class NodeBadge(Gtk.Box):
             label.add_css_class("node-prefix-repeater")
         elif style == STYLE_SELF:
             label.add_css_class("node-prefix-self")
+        if peer is not None and peer.is_favorite:
+            label.add_css_class("node-prefix-favorite")
         self.append(label)
 
         # Accessible label and tooltip

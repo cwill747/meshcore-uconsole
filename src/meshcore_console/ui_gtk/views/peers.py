@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 import gi
@@ -139,7 +138,7 @@ class PeersView(Gtk.Box):
         parts = []
         for p in peers:
             parts.append(
-                f"{p.display_name}:{p.last_advert_time}:{p.signal_quality}:{p.rssi}:{p.snr}"
+                f"{p.display_name}:{p.last_advert_time}:{p.signal_quality}:{p.rssi}:{p.snr}:{p.is_favorite}"
             )
         return "|".join(parts)
 
@@ -167,15 +166,14 @@ class PeersView(Gtk.Box):
         peers = self._service.list_peers()
         self._last_peer_snapshot = self._peer_snapshot(peers)
 
-        epoch = datetime.min
         contacts = sorted(
             (p for p in peers if not p.is_repeater),
-            key=lambda p: p.last_advert_time or epoch,
+            key=lambda p: (p.is_favorite, p.last_advert_time is not None, p.last_advert_time),
             reverse=True,
         )
         network = sorted(
             (p for p in peers if p.is_repeater),
-            key=lambda p: p.last_advert_time or epoch,
+            key=lambda p: (p.is_favorite, p.last_advert_time is not None, p.last_advert_time),
             reverse=True,
         )
 
@@ -319,17 +317,22 @@ class PeersView(Gtk.Box):
         key_label.set_selectable(True)
         self._details_content.append(key_label)
 
-        # === Action buttons (only for contacts) ===
-        if not peer.is_repeater:
-            actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            actions.set_margin_top(16)
+        # === Action buttons ===
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        actions.set_margin_top(16)
 
+        fav_label = "☆ Favorite" if not peer.is_favorite else "★ Unfavorite"
+        fav_btn = Gtk.Button.new_with_label(fav_label)
+        fav_btn.connect("clicked", self._on_toggle_favorite_clicked, peer)
+        actions.append(fav_btn)
+
+        if not peer.is_repeater:
             message_btn = Gtk.Button.new_with_label("Send Message")
             message_btn.add_css_class("suggested-action")
             message_btn.connect("clicked", self._on_send_message_clicked, peer)
             actions.append(message_btn)
 
-            self._details_content.append(actions)
+        self._details_content.append(actions)
 
     def _add_section_header(self, title: str) -> None:
         """Add a section header to the details panel."""
@@ -366,6 +369,12 @@ class PeersView(Gtk.Box):
                     listbox.select_row(row)
                     return
                 index += 1
+
+    def _on_toggle_favorite_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
+        """Toggle the favorite status of a peer."""
+        self._service.set_favorite(peer.peer_id, not peer.is_favorite)
+        peer.is_favorite = not peer.is_favorite
+        self._refresh_peers()
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Navigate to messages view and start a conversation with this peer."""

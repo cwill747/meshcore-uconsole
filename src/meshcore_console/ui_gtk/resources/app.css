@@ -619,3 +619,15 @@ row:focus-visible {
   color: @mc_danger;
   background: alpha(@mc_danger, 0.15);
 }
+
+/* Favorite peer indicators */
+.peer-star {
+  color: @mc_accent;
+  font-size: 14px;
+  margin-right: 2px;
+}
+
+.node-prefix-favorite {
+  box-shadow: 0 0 4px 1px alpha(@mc_accent, 0.6);
+  border-color: @mc_accent;
+}

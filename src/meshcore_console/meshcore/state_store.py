@@ -89,8 +89,8 @@ class PeerStore:
         self._conn.execute(
             "INSERT OR REPLACE INTO peers "
             "(peer_id, display_name, signal_quality, public_key, last_advert_time, "
-            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated, is_favorite) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 peer.peer_id,
                 peer.display_name,
@@ -104,6 +104,7 @@ class PeerStore:
                 peer.latitude,
                 peer.longitude,
                 peer.location_updated.isoformat() if peer.location_updated else None,
+                int(peer.is_favorite),
             ),
         )
         self._conn.commit()
@@ -114,7 +115,7 @@ class PeerStore:
     def get(self, name: str) -> Peer | None:
         row = self._conn.execute(
             "SELECT peer_id, display_name, signal_quality, public_key, last_advert_time, "
-            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated "
+            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated, is_favorite "
             "FROM peers WHERE display_name = ?",
             (name,),
         ).fetchone()
@@ -123,7 +124,7 @@ class PeerStore:
     def get_all(self) -> dict[str, Peer]:
         rows = self._conn.execute(
             "SELECT peer_id, display_name, signal_quality, public_key, last_advert_time, "
-            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated "
+            "last_path, is_repeater, rssi, snr, latitude, longitude, location_updated, is_favorite "
             "FROM peers"
         ).fetchall()
         result: dict[str, Peer] = {}
@@ -131,6 +132,14 @@ class PeerStore:
             peer = _row_to_peer(row)
             result[peer.display_name or peer.peer_id] = peer
         return result
+
+    def set_favorite(self, peer_id: str, favorite: bool) -> None:
+        """Update just the is_favorite flag for a peer."""
+        self._conn.execute(
+            "UPDATE peers SET is_favorite = ? WHERE peer_id = ?",
+            (int(favorite), peer_id),
+        )
+        self._conn.commit()
 
     def __len__(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM peers").fetchone()[0]
@@ -224,6 +233,7 @@ def _row_to_peer(row: tuple) -> Peer:
     location_updated = row[11]
     if isinstance(location_updated, str):
         location_updated = datetime.fromisoformat(location_updated)
+    is_favorite = bool(row[12]) if len(row) > 12 else False
     return Peer(
         peer_id=row[0],
         display_name=row[1],
@@ -237,4 +247,5 @@ def _row_to_peer(row: tuple) -> Peer:
         latitude=row[9],
         longitude=row[10],
         location_updated=location_updated,
+        is_favorite=is_favorite,
     )

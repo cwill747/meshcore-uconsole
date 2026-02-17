@@ -727,6 +727,14 @@ class MeshcoreClient(MeshcoreService):
         """Return True if GPS has acquired a satellite fix."""
         return self._gps_provider.has_fix()
 
+    def set_favorite(self, peer_id: str, favorite: bool) -> None:
+        """Toggle the favorite flag on a peer."""
+        for peer in self._peers.values():
+            if peer.peer_id == peer_id:
+                peer.is_favorite = favorite
+                self._peer_store.set_favorite(peer_id, favorite)
+                return
+
     def get_self_public_key(self) -> str | None:
         """Return this node's public key as a hex string, or None if unavailable."""
         return self._session.get_public_key()

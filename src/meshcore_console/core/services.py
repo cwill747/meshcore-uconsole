@@ -79,6 +79,10 @@ class MeshcoreService(Protocol):
         """Return True if GPS has acquired a satellite fix."""
         ...
 
+    def set_favorite(self, peer_id: str, favorite: bool) -> None:
+        """Toggle the favorite flag on a peer."""
+        ...
+
     def get_self_public_key(self) -> str | None:
         """Return this node's public key as a hex string, or None if unavailable."""
         ...

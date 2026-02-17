@@ -215,6 +215,13 @@ class MockMeshcoreClient(MeshcoreService):
         """Return True if GPS has acquired a fix (always True for mock)."""
         return True
 
+    def set_favorite(self, peer_id: str, favorite: bool) -> None:
+        """Toggle the favorite flag on a peer."""
+        for peer in self._peers.values():
+            if peer.peer_id == peer_id:
+                peer.is_favorite = favorite
+                return
+
     def get_self_public_key(self) -> str | None:
         """Return a mock public key for testing."""
         return "6b547fd13630e0f7a6b167df23b9876543210abcdef0123456789abcdef0a619"
