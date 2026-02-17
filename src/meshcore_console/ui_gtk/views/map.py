@@ -196,11 +196,13 @@ class MapView(Gtk.Box):
 
         zoom_in = Gtk.Button.new_from_icon_name("zoom-in-symbolic")
         zoom_in.add_css_class("map-control-button")
+        zoom_in.update_property([Gtk.AccessibleProperty.LABEL], ["Zoom in"])
         zoom_in.connect("clicked", self._on_zoom_in)
         zoom_box.append(zoom_in)
 
         zoom_out = Gtk.Button.new_from_icon_name("zoom-out-symbolic")
         zoom_out.add_css_class("map-control-button")
+        zoom_out.update_property([Gtk.AccessibleProperty.LABEL], ["Zoom out"])
         zoom_out.connect("clicked", self._on_zoom_out)
         zoom_box.append(zoom_out)
 
@@ -216,6 +218,7 @@ class MapView(Gtk.Box):
         self._center_btn = Gtk.Button.new_from_icon_name("find-location-symbolic")
         self._center_btn.add_css_class("map-control-button")
         self._center_btn.set_tooltip_text("Center on device")
+        self._center_btn.update_property([Gtk.AccessibleProperty.LABEL], ["Center on device"])
         self._center_btn.connect("clicked", self._on_center_device)
         center_box.append(self._center_btn)
 
@@ -582,6 +585,7 @@ class MapView(Gtk.Box):
 
         close_btn = Gtk.Button.new_from_icon_name("window-close-symbolic")
         close_btn.add_css_class("flat")
+        close_btn.update_property([Gtk.AccessibleProperty.LABEL], ["Close details"])
         close_btn.connect("clicked", self._on_close_details)
         close_box.append(close_btn)
 
@@ -604,6 +608,20 @@ class MapView(Gtk.Box):
             if child != self._details_title and child != self._details_content:
                 self._details_panel.remove(child)
             child = next_child
+
+    def close_active_detail(self) -> bool:
+        """Close the details panel if open. Returns True if something was closed."""
+        if hasattr(self, "_details_panel") and self._details_panel.get_visible():
+            self._selected_peer = None
+            self._details_panel.set_visible(False)
+            return True
+        return False
+
+    def get_default_focus(self) -> Gtk.Widget:
+        """Return the widget that should receive focus when this view is shown."""
+        if hasattr(self, "_map"):
+            return self._map
+        return self
 
     def _on_close_details(self, _button: Gtk.Button) -> None:
         """Close the details panel."""

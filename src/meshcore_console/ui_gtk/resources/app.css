@@ -88,12 +88,26 @@ window,
   background: alpha(@mc_accent, 0.1);
 }
 
-.nav-row:focus,
-button:focus,
-entry:focus,
-combobox:focus {
+/* Focus-visible outlines: shown for keyboard nav, not mouse clicks */
+button:focus-visible,
+entry:focus-visible,
+combobox:focus-visible,
+togglebutton:focus-visible,
+switch:focus-visible,
+menubutton:focus-visible,
+row:focus-visible {
   outline: 2px solid alpha(@mc_accent, 0.8);
   outline-offset: 2px;
+}
+
+.message-bubble:focus-visible {
+  outline: 2px solid alpha(@mc_accent, 0.8);
+  outline-offset: 2px;
+  border-radius: 18px;
+}
+
+.analyzer-stream row:focus-visible {
+  background: alpha(@mc_accent, 0.08);
 }
 
 .content-pane {

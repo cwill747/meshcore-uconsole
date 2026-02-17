@@ -341,6 +341,10 @@ class SettingsView(Gtk.Box):
         self._switches[key] = switch
         return switch
 
+    def get_default_focus(self) -> Gtk.Widget:
+        """Return the widget that should receive focus when this view is shown."""
+        return self._entries.get("node_name", self)
+
     def refresh_public_key(self) -> None:
         """Re-read the public key from the service and update the display."""
         public_key = self._service.get_self_public_key()

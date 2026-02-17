@@ -576,6 +576,7 @@ class AnalyzerView(Gtk.Box):
 
         close = Gtk.Button.new_from_icon_name("window-close-symbolic")
         close.add_css_class("flat")
+        close.update_property([Gtk.AccessibleProperty.LABEL], ["Close details"])
         close.connect("clicked", self._on_close_details_clicked)
         title_row.append(close)
         self._details.append(title_row)
@@ -614,6 +615,19 @@ class AnalyzerView(Gtk.Box):
                 "clicked", lambda _b, ch=packet.channel_name: self._navigate_to_channel(ch)
             )
             self._details.append(nav_btn)
+
+    def close_active_detail(self) -> bool:
+        """Close the details panel if open. Returns True if something was closed."""
+        if self._details_revealer.get_reveal_child():
+            self._selected_packet = None
+            self._stream.unselect_all()
+            self._details_revealer.set_reveal_child(False)
+            return True
+        return False
+
+    def get_default_focus(self) -> Gtk.Widget:
+        """Return the widget that should receive focus when this view is shown."""
+        return self._stream
 
     def _on_close_details_clicked(self, _button: Gtk.Button) -> None:
         self._selected_packet = None

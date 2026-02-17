@@ -35,6 +35,11 @@ class PeerListRow(Gtk.ListBoxRow):
         super().__init__()
         self.peer = peer
         self.add_css_class("peer-row")
+        peer_type = "Repeater" if peer.is_repeater else "Contact"
+        self.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            [f"{peer_type}: {peer.display_name}"],
+        )
 
         body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         body.set_margin_top(6)

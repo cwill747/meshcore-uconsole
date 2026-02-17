@@ -96,6 +96,11 @@ class MessagesView(Gtk.Box):
         self._message_box.set_margin_bottom(8)
         self._scroll.set_child(self._message_box)
 
+        # Arrow key navigation between message bubbles
+        msg_key_ctrl = Gtk.EventControllerKey.new()
+        msg_key_ctrl.connect("key-pressed", self._on_message_key)
+        self._scroll.add_controller(msg_key_ctrl)
+
         # Message details revealer
         self._details_revealer = Gtk.Revealer.new()
         self._details_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
@@ -124,6 +129,7 @@ class MessagesView(Gtk.Box):
         emoji_btn = Gtk.MenuButton.new()
         emoji_btn.set_icon_name("face-smile-symbolic")
         emoji_btn.set_tooltip_text("Insert emoji")
+        emoji_btn.update_property([Gtk.AccessibleProperty.LABEL], ["Insert emoji"])
         emoji_btn.add_css_class("flat")
         emoji_btn.connect("notify::active", self._ensure_emoji_chooser)
         self._emoji_btn = emoji_btn
@@ -440,9 +446,79 @@ class MessagesView(Gtk.Box):
                 select_fn(peer_id)
         return True
 
+    def close_active_detail(self) -> bool:
+        """Close the details panel if open. Returns True if something was closed."""
+        if self._details_revealer.get_reveal_child():
+            self._details_revealer.set_reveal_child(False)
+            self._selected_message = None
+            return True
+        return False
+
+    def get_default_focus(self) -> Gtk.Widget:
+        """Return the widget that should receive focus when this view is shown."""
+        return self._entry
+
     def _on_close_details(self, _button: Gtk.Button) -> None:
         self._details_revealer.set_reveal_child(False)
         self._selected_message = None
+
+    def _on_message_key(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+    ) -> bool:
+        """Navigate between message bubbles with Up/Down arrows."""
+        if keyval not in (Gdk.KEY_Up, Gdk.KEY_Down):
+            return False
+
+        # Find the currently focused bubble
+        focus = self.get_root()
+        if focus is not None:
+            focus = focus.get_focus()
+        if focus is None:
+            return False
+
+        # Walk up to the MessageBubble container (the Gtk.Box subclass)
+        current = (
+            focus.get_ancestor(MessageBubble) if not isinstance(focus, MessageBubble) else focus
+        )
+        if current is None:
+            # No bubble focused — focus the first/last one
+            child = (
+                self._message_box.get_last_child()
+                if keyval == Gdk.KEY_Up
+                else self._message_box.get_first_child()
+            )
+            while child is not None:
+                if isinstance(child, MessageBubble):
+                    # Focus the button inside the bubble
+                    btn = child.get_first_child()
+                    while btn is not None:
+                        if isinstance(btn, Gtk.Button):
+                            btn.grab_focus()
+                            return True
+                        btn = btn.get_next_sibling()
+                child = (
+                    child.get_next_sibling() if keyval == Gdk.KEY_Down else child.get_prev_sibling()
+                )
+            return False
+
+        # Move to next/previous bubble
+        sibling = current.get_prev_sibling() if keyval == Gdk.KEY_Up else current.get_next_sibling()
+        while sibling is not None:
+            if isinstance(sibling, MessageBubble):
+                btn = sibling.get_first_child()
+                while btn is not None:
+                    if isinstance(btn, Gtk.Button):
+                        btn.grab_focus()
+                        return True
+                    btn = btn.get_next_sibling()
+            sibling = (
+                sibling.get_prev_sibling() if keyval == Gdk.KEY_Up else sibling.get_next_sibling()
+            )
+        return False
 
     def _on_channel_selected(self, _listbox: Gtk.ListBox, row: Gtk.ListBoxRow | None) -> None:
         if row is None:

@@ -48,7 +48,15 @@ class MessageBubble(Gtk.Box):
         # Create the bubble button
         bubble = Gtk.Button.new()
         bubble.add_css_class("message-bubble")
-        bubble.set_can_focus(False)
+        bubble.set_can_focus(True)
+
+        # Accessible label for screen readers
+        sender = "You" if message.is_outgoing else message.sender_id
+        body_preview = message.body[:80] if len(message.body) > 80 else message.body
+        bubble.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            [f"Message from {sender}: {body_preview}"],
+        )
 
         if message.is_outgoing:
             bubble.add_css_class("message-outgoing")

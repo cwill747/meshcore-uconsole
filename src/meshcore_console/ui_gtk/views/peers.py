@@ -216,6 +216,10 @@ class PeersView(Gtk.Box):
         self._selected_peer = peer
         self._show_peer_details(peer)
 
+    def get_default_focus(self) -> Gtk.Widget:
+        """Return the widget that should receive focus when this view is shown."""
+        return self._contacts_list
+
     def _show_empty_details(self) -> None:
         """Show empty state in details panel."""
         self._details_title.set_text("Peer Details")

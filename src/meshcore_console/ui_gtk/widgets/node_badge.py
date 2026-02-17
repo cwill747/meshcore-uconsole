@@ -74,7 +74,8 @@ class NodeBadge(Gtk.Box):
             label.add_css_class("node-prefix-self")
         self.append(label)
 
-        # Tooltip
+        # Accessible label and tooltip
+        self.update_property([Gtk.AccessibleProperty.LABEL], [f"Node: {display_name}"])
         self.set_tooltip_text(display_name)
 
         # Left click → open popover

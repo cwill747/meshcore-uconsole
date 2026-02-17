@@ -78,9 +78,11 @@ class MainWindow(Adw.ApplicationWindow):
         header_bar.set_title_widget(title_box)
 
         # Right side: status badge, connect button, settings button
-        self._status_badge = StatusPill(
-            "Connected" if status.connected else "Offline",
-            state="ok" if status.connected else "offline",
+        status_text = "Connected" if status.connected else "Offline"
+        self._status_badge = StatusPill(status_text, state="ok" if status.connected else "offline")
+        self._status_badge.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            [f"Connection status: {status_text}"],
         )
         header_bar.pack_end(self._status_badge)
 
@@ -92,6 +94,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         settings_btn = Gtk.Button.new_from_icon_name("emblem-system-symbolic")
         settings_btn.set_tooltip_text("Settings")
+        settings_btn.update_property([Gtk.AccessibleProperty.LABEL], ["Settings"])
         settings_btn.connect("clicked", self._on_settings_clicked)
         header_bar.pack_end(settings_btn)
 
@@ -99,6 +102,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._advert_btn = Gtk.MenuButton.new()
         self._advert_btn.set_icon_name("network-transmit-symbolic")
         self._advert_btn.set_tooltip_text("Send Advert")
+        self._advert_btn.update_property([Gtk.AccessibleProperty.LABEL], ["Send Advert"])
         self._advert_btn.set_sensitive(status.connected)
         advert_popover = Gtk.Popover.new()
         advert_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -186,6 +190,7 @@ class MainWindow(Adw.ApplicationWindow):
                 if name != page_name:
                     btn.set_active(False)
             self._switch_to_page(page_name)
+            self._focus_current_view()
         elif all(not btn.get_active() for btn in self._nav_buttons.values()):
             # Don't allow all buttons to be deactivated
             button.set_active(True)
@@ -195,6 +200,7 @@ class MainWindow(Adw.ApplicationWindow):
         for btn in self._nav_buttons.values():
             btn.set_active(False)
         self._switch_to_page("settings")
+        self._focus_current_view()
 
     def _on_advert_flood(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         popover.popdown()
@@ -404,8 +410,13 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _refresh_connection_state(self) -> None:
         status = self._service.get_status()
-        self._status_badge.set_text("Connected" if status.connected else "Offline")
+        status_text = "Connected" if status.connected else "Offline"
+        self._status_badge.set_text(status_text)
         self._status_badge.set_state("ok" if status.connected else "offline")
+        self._status_badge.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            [f"Connection status: {status_text}"],
+        )
         self._connect_button.set_label("Disconnect" if status.connected else "Connect")
         self._advert_btn.set_sensitive(status.connected)
         self._subtitle.set_text(self._subtitle_text(status.node_id))
@@ -437,6 +448,14 @@ class MainWindow(Adw.ApplicationWindow):
         _keycode: int,
         state: Gdk.ModifierType,
     ) -> bool:
+        # Escape: close active detail panel in the current view
+        if keyval == Gdk.KEY_Escape:
+            view = self._stack.get_visible_child()
+            close_fn = getattr(view, "close_active_detail", None)
+            if close_fn is not None and close_fn():
+                return True
+            return False
+
         if not (state & Gdk.ModifierType.CONTROL_MASK):
             return False
 
@@ -459,7 +478,22 @@ class MainWindow(Adw.ApplicationWindow):
         elif page in self._nav_buttons:
             for name, btn in self._nav_buttons.items():
                 btn.set_active(name == page)
+        self._focus_current_view()
         return True
+
+    def _focus_current_view(self) -> None:
+        """Move focus to the default widget in the current view after transition."""
+
+        def do_focus() -> bool:
+            view = self._stack.get_visible_child()
+            focus_fn = getattr(view, "get_default_focus", None)
+            if focus_fn is not None:
+                target = focus_fn()
+                if target is not None:
+                    target.grab_focus()
+            return False  # GLib.SOURCE_REMOVE
+
+        GLib.idle_add(do_focus)
 
     @staticmethod
     def _subtitle_text(node_id: str) -> str:

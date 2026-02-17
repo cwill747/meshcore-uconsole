@@ -33,6 +33,6 @@ if [[ "${1:-}" == "--mock" ]]; then
 fi
 
 export MESHCORE_MOCK="$mock_mode"
-export GTK_A11Y="${GTK_A11Y:-none}"
+export GTK_A11Y="${GTK_A11Y:-atspi}"
 export PYTHONPATH=src
 exec .venv/bin/python -m meshcore_console.main "$@"
