@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango
 
 from meshcore_console.core.models import Message
 from meshcore_console.core.time import to_local
@@ -75,7 +75,7 @@ class MessageBubble(Gtk.Box):
         body_label.set_markup(markup)
         body_label.set_wrap(True)
         body_label.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        body_label.set_max_width_chars(40)
+        body_label.set_max_width_chars(50)
         body_label.set_xalign(0)
         body_label.add_css_class("message-body")
         body_label.connect("activate-link", self._on_mention_clicked)
@@ -94,6 +94,9 @@ class MessageBubble(Gtk.Box):
         meta = Gtk.Label(label=meta_text)
         meta.add_css_class("message-meta")
         meta.set_xalign(1 if message.is_outgoing else 0)
+        meta.set_wrap(True)
+        meta.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        meta.set_max_width_chars(50)
         content.append(meta)
 
         bubble.set_child(content)

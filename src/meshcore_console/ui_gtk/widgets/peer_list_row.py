@@ -57,7 +57,7 @@ class PeerListRow(Gtk.ListBoxRow):
         name = Gtk.Label(label=peer.display_name)
         name.set_halign(Gtk.Align.START)
         name.set_ellipsize(Pango.EllipsizeMode.END)
-        name.set_max_width_chars(24)
+        name.set_max_width_chars(20)
         text_box.append(name)
 
         # Show last seen time (with date if not today)

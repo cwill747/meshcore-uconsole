@@ -23,7 +23,7 @@ class DetailBlock(Gtk.Box):
         block.set_content(path_widget)
     """
 
-    WRAP_WIDTH = 28
+    WRAP_WIDTH = 24
 
     def __init__(self, title: str, value: str | None = None) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=5)

@@ -83,7 +83,9 @@ class MessagesView(Gtk.Box):
         # Scrolled window for messages
         self._scroll = Gtk.ScrolledWindow.new()
         self._scroll.set_vexpand(True)
+        self._scroll.set_hexpand(True)
         self._scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self._scroll.set_propagate_natural_width(False)
         self._chat_panel.append(self._scroll)
 
         self._message_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -351,7 +353,7 @@ class MessagesView(Gtk.Box):
         preview.add_css_class("panel-muted")
         preview.set_halign(Gtk.Align.START)
         preview.set_wrap(True)
-        preview.set_max_width_chars(50)
+        preview.set_max_width_chars(40)
         preview.set_ellipsize(Pango.EllipsizeMode.END)
         preview.set_lines(2)
         preview.connect("activate-link", self._on_mention_clicked)

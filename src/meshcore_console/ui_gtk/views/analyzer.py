@@ -481,6 +481,7 @@ class AnalyzerView(Gtk.Box):
         content_label.set_hexpand(True)
         content_label.set_single_line_mode(True)
         content_label.set_ellipsize(Pango.EllipsizeMode.END)
+        content_label.set_max_width_chars(50)
         line.append(content_label)
 
         sig_label = Gtk.Label(label=f"{packet.rssi} / {packet.snr:.2f}")
@@ -577,7 +578,7 @@ class AnalyzerView(Gtk.Box):
         subtitle.set_halign(Gtk.Align.START)
         subtitle.set_ellipsize(Pango.EllipsizeMode.END)
         subtitle.set_single_line_mode(True)
-        subtitle.set_max_width_chars(36)
+        subtitle.set_max_width_chars(28)
         self._details.append(subtitle)
 
         self._details.append(DetailBlock("Timestamp", packet.timestamp))
