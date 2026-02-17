@@ -453,6 +453,8 @@ class AnalyzerView(Gtk.Box):
         time_label.set_xalign(0)
         time_label.set_size_request(self._layout.analyzer_col_time, -1)
         time_label.set_single_line_mode(True)
+        time_label.set_ellipsize(Pango.EllipsizeMode.END)
+        time_label.set_max_width_chars(11)
         line.append(time_label)
 
         type_label = Gtk.Label(label=packet.packet_type)
@@ -460,6 +462,7 @@ class AnalyzerView(Gtk.Box):
         type_label.add_css_class(self._type_class(packet.packet_type))
         type_label.set_size_request(self._layout.analyzer_col_type, -1)
         type_label.set_ellipsize(Pango.EllipsizeMode.END)
+        type_label.set_max_width_chars(8)
         type_label.set_xalign(0)
         type_label.set_single_line_mode(True)
         line.append(type_label)
@@ -475,10 +478,10 @@ class AnalyzerView(Gtk.Box):
         content_label = Gtk.Label(label=packet.content)
         content_label.add_css_class("panel-muted")
         content_label.set_xalign(0)
+        content_label.set_size_request(self._layout.analyzer_col_content, -1)
         content_label.set_hexpand(True)
         content_label.set_single_line_mode(True)
         content_label.set_ellipsize(Pango.EllipsizeMode.END)
-        content_label.set_max_width_chars(50)
         line.append(content_label)
 
         sig_label = Gtk.Label(label=f"{packet.rssi} / {packet.snr:.2f}")
@@ -486,6 +489,8 @@ class AnalyzerView(Gtk.Box):
         sig_label.set_xalign(0)
         sig_label.set_size_request(self._layout.analyzer_col_signal, -1)
         sig_label.set_single_line_mode(True)
+        sig_label.set_ellipsize(Pango.EllipsizeMode.END)
+        sig_label.set_max_width_chars(14)
         line.append(sig_label)
 
         row.set_child(line)
