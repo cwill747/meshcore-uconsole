@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.6.0 (2026-02-17)
+
+### Feat
+
+- Add favorite capabilities for peers
+
+### Fix
+
+- Migrate all polling behavior to use glib async
+- Accessibility
+
 ## v1.5.0 (2026-02-17)
 
 ### Feat
