@@ -90,7 +90,27 @@ class MessagesView(Gtk.Box):
         self._scroll.set_hexpand(True)
         self._scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self._scroll.set_propagate_natural_width(False)
-        self._chat_panel.append(self._scroll)
+
+        self._scroll_overlay = Gtk.Overlay.new()
+        self._scroll_overlay.set_child(self._scroll)
+        self._scroll_overlay.set_vexpand(True)
+        self._scroll_overlay.set_hexpand(True)
+        self._chat_panel.append(self._scroll_overlay)
+
+        self._scroll_bottom_btn = Gtk.Button.new_from_icon_name("go-down-symbolic")
+        self._scroll_bottom_btn.add_css_class("scroll-to-bottom-btn")
+        self._scroll_bottom_btn.add_css_class("circular")
+        self._scroll_bottom_btn.set_halign(Gtk.Align.END)
+        self._scroll_bottom_btn.set_valign(Gtk.Align.END)
+        self._scroll_bottom_btn.set_margin_end(16)
+        self._scroll_bottom_btn.set_margin_bottom(16)
+        self._scroll_bottom_btn.set_visible(False)
+        self._scroll_bottom_btn.set_tooltip_text("Jump to latest messages")
+        self._scroll_bottom_btn.connect("clicked", self._on_scroll_to_bottom_clicked)
+        self._scroll_overlay.add_overlay(self._scroll_bottom_btn)
+
+        self._is_at_bottom = True
+        self._scroll.get_vadjustment().connect("value-changed", self._on_scroll_value_changed)
 
         self._message_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._message_box.set_margin_start(12)
@@ -183,7 +203,10 @@ class MessagesView(Gtk.Box):
                         MessageBubble(message, self._service, self._on_message_clicked)
                     )
                 self._last_message_count = new_count
-                GLib.idle_add(self._scroll_to_bottom)
+                if self._is_at_bottom:
+                    GLib.idle_add(self._scroll_to_bottom)
+                    self._service.mark_channel_read(self._selected_channel_id)
+                    self._update_channel_unread_display(self._selected_channel_id, 0)
             elif new_count < self._last_message_count:
                 # Message count decreased (e.g. clear) - full rebuild
                 self._reload_messages()
@@ -194,6 +217,25 @@ class MessagesView(Gtk.Box):
         adj = self._scroll.get_vadjustment()
         adj.set_value(adj.get_upper() - adj.get_page_size())
         return False  # GLib.SOURCE_REMOVE
+
+    def _scroll_to_widget(self, widget: Gtk.Widget) -> bool:
+        allocation = widget.get_allocation()
+        if allocation.height <= 0:
+            return True  # Retry next idle (widget not laid out yet)
+        adj = self._scroll.get_vadjustment()
+        adj.set_value(max(0, allocation.y - 20))
+        return False
+
+    def _on_scroll_value_changed(self, adj: Gtk.Adjustment) -> None:
+        at_bottom = adj.get_value() >= adj.get_upper() - adj.get_page_size() - 50
+        if at_bottom != self._is_at_bottom:
+            self._is_at_bottom = at_bottom
+            self._scroll_bottom_btn.set_visible(not at_bottom)
+
+    def _on_scroll_to_bottom_clicked(self, _button: Gtk.Button) -> None:
+        self._scroll_to_bottom()
+        self._service.mark_channel_read(self._selected_channel_id)
+        self._update_channel_unread_display(self._selected_channel_id, 0)
 
     def _ensure_emoji_chooser(self, btn: Gtk.MenuButton, _pspec: object) -> None:
         """Lazily create the EmojiChooser on first activation."""
@@ -282,6 +324,14 @@ class MessagesView(Gtk.Box):
         self._details_revealer.set_reveal_child(False)
         self._selected_message = None
 
+        # Capture unread count before it gets reset
+        channels = self._service.list_channels()
+        unread_count = 0
+        for ch in channels:
+            if ch.channel_id == self._selected_channel_id:
+                unread_count = ch.unread_count
+                break
+
         messages = self._service.list_messages_for_channel(self._selected_channel_id, limit=100)
         self._last_message_count = len(messages)
 
@@ -290,18 +340,26 @@ class MessagesView(Gtk.Box):
             self._message_box.append(EmptyState("No messages in this channel yet.", vexpand=True))
             return
 
+        first_unread_widget: Gtk.Widget | None = None
+        first_unread_idx = len(messages) - unread_count if 0 < unread_count < len(messages) else -1
+
         today = GLib.DateTime.new_now_local().format("%Y-%m-%d")
         prev_date: str | None = None
-        for message in messages:
+        for idx, message in enumerate(messages):
             msg_date = to_local(message.created_at).strftime("%Y-%m-%d")
             if msg_date != prev_date and not (prev_date is None and msg_date == today):
                 self._message_box.append(DaySeparator(msg_date))
             prev_date = msg_date
-            self._message_box.append(
-                MessageBubble(message, self._service, self._on_message_clicked)
-            )
+            bubble = MessageBubble(message, self._service, self._on_message_clicked)
+            self._message_box.append(bubble)
+            if idx == first_unread_idx:
+                first_unread_widget = bubble
         self._last_message_date = prev_date
-        GLib.idle_add(self._scroll_to_bottom)
+
+        if first_unread_widget is not None:
+            GLib.idle_add(self._scroll_to_widget, first_unread_widget)
+        else:
+            GLib.idle_add(self._scroll_to_bottom)
 
     def _on_message_clicked(self, _button: Gtk.Button, message: Message) -> None:
         """Show message details when clicked."""
@@ -499,6 +557,26 @@ class MessagesView(Gtk.Box):
         self._selected_channel_id = channel_id
         self._update_thread_title(channel_id)
         self._reload_messages()
+        self._service.mark_channel_read(channel_id)
+        self._update_channel_unread_display(channel_id, 0)
+
+    def _update_channel_unread_display(self, channel_id: str, count: int) -> None:
+        """Update the unread label in the sidebar without rebuilding the channel list."""
+        idx = 0
+        row = self._channel_list.get_row_at_index(idx)
+        while row is not None:
+            if getattr(row, "channel_id", None) == channel_id:
+                body = row.get_child()
+                if body is not None:
+                    # The body box has: [title_label, meta_label]
+                    child = body.get_first_child()
+                    if child is not None:
+                        meta = child.get_next_sibling()
+                        if isinstance(meta, Gtk.Label):
+                            meta.set_text(f"{count} unread")
+                return
+            idx += 1
+            row = self._channel_list.get_row_at_index(idx)
 
     def _on_channel_right_click(
         self,
@@ -644,3 +722,5 @@ class MessagesView(Gtk.Box):
         self._reload_channels()
         self._update_thread_title(channel.channel_id)
         self._reload_messages()
+        self._service.mark_channel_read(channel.channel_id)
+        self._update_channel_unread_display(channel.channel_id, 0)

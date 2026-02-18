@@ -422,6 +422,19 @@ row:focus-visible {
   background: alpha(@mc_surface_alt, 0.92);
 }
 
+.scroll-to-bottom-btn {
+  background: alpha(@mc_accent, 0.85);
+  color: white;
+  border: 1px solid alpha(@mc_accent, 0.6);
+  min-width: 40px;
+  min-height: 40px;
+  box-shadow: 0 2px 8px alpha(black, 0.3);
+}
+
+.scroll-to-bottom-btn:hover {
+  background: @mc_accent;
+}
+
 .message-bubble {
   border-radius: 18px;
   border: none;

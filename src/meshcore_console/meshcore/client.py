@@ -228,6 +228,11 @@ class MeshcoreClient(MeshcoreService):
         self._message_store.remove_for_channel(channel_id)
         return True
 
+    def mark_channel_read(self, channel_id: str) -> None:
+        if channel_id in self._channels:
+            self._channels[channel_id].unread_count = 0
+            self._channel_store.reset_unread(channel_id)
+
     def send_message(self, peer_id: str, body: str) -> Message:
         if not self._connected:
             self.connect()

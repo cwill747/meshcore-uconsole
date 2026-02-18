@@ -104,6 +104,10 @@ class MockMeshcoreClient(MeshcoreService):
         self._messages = [m for m in self._messages if m.channel_id != channel_id]
         return True
 
+    def mark_channel_read(self, channel_id: str) -> None:
+        if channel_id in self._channels:
+            self._channels[channel_id].unread_count = 0
+
     def send_message(self, peer_id: str, body: str) -> Message:
         is_group = peer_id == "public" or peer_id.startswith("#")
         channel_id = peer_id if is_group else peer_id.lower()

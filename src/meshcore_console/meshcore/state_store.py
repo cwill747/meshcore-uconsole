@@ -195,6 +195,13 @@ class UIChannelStore:
         )
         self._conn.commit()
 
+    def reset_unread(self, channel_id: str) -> None:
+        self._conn.execute(
+            "UPDATE channels SET unread_count = 0 WHERE channel_id = ?",
+            (channel_id,),
+        )
+        self._conn.commit()
+
     def __len__(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM channels").fetchone()[0]
 
