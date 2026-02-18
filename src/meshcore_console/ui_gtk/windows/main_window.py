@@ -188,6 +188,30 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             self._stack.set_visible_child_name(page_name)
 
+    def navigate_to(self, page_name: str, then: object = None) -> None:
+        """Navigate to *page_name* and optionally call *then* on the target view.
+
+        *then* should be a ``(method_name, arg)`` tuple — e.g.
+        ``("select_peer", peer_id)`` — or ``None`` to just switch pages.
+        """
+        self._switch_to_page(page_name)
+        # Update nav buttons
+        if page_name == "settings":
+            for btn in self._nav_buttons.values():
+                btn.set_active(False)
+        elif page_name in self._nav_buttons:
+            for name, btn in self._nav_buttons.items():
+                btn.set_active(name == page_name)
+        self._focus_current_view()
+        # Call target method if requested
+        if then is not None:
+            method_name, arg = then
+            view = self._stack.get_child_by_name(page_name)
+            if view is not None:
+                fn = getattr(view, method_name, None)
+                if fn is not None:
+                    fn(arg)
+
     def _on_nav_button_toggled(self, button: Gtk.ToggleButton, page_name: str) -> None:
         if button.get_active():
             # Deactivate other nav buttons

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import gi
 
@@ -14,7 +14,7 @@ gi.require_version("Shumate", "1.0")
 from gi.repository import GLib, Gtk, Pango
 
 if TYPE_CHECKING:
-    from .messages import MessagesView
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ except ImportError:
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.helpers import clear_children, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
@@ -592,12 +593,7 @@ class MapView(Gtk.Box):
 
     def _clear_details(self) -> None:
         """Clear the details content area."""
-        # Remove all children except title
-        child = self._details_content.get_first_child()
-        while child is not None:
-            next_child = child.get_next_sibling()
-            self._details_content.remove(child)
-            child = next_child
+        clear_children(self._details_content)
 
         # Also remove close button if present
         child = self._details_panel.get_first_child()
@@ -628,25 +624,4 @@ class MapView(Gtk.Box):
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Navigate to messages view and start a conversation with this peer."""
-        root = self.get_root()
-        if root is None:
-            return
-
-        stack = getattr(root, "_stack", None)
-        if stack is None:
-            return
-
-        # Switch to messages view
-        stack.set_visible_child_name("messages")
-
-        # Update nav buttons
-        nav_buttons = getattr(root, "_nav_buttons", None)
-        if nav_buttons:
-            for name, btn in nav_buttons.items():
-                btn.set_active(name == "messages")
-
-        # Select the peer's channel
-        messages_widget = stack.get_child_by_name("messages")
-        if messages_widget is not None:
-            messages_view = cast("MessagesView", messages_widget)
-            messages_view.select_channel(peer.display_name)
+        navigate(self, "messages", ("select_channel", peer.display_name))

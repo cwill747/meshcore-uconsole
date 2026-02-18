@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango
 
 if TYPE_CHECKING:
-    from .messages import MessagesView
+    pass
 
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.helpers import clear_children, clear_listbox, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
@@ -159,11 +160,7 @@ class PeersView(Gtk.Box):
 
         # Clear existing rows
         for listbox in (self._contacts_list, self._network_list):
-            while True:
-                row = listbox.get_row_at_index(0)
-                if row is None:
-                    break
-                listbox.remove(row)
+            clear_listbox(listbox)
 
         peers = self._service.list_peers()
         self._last_peer_snapshot = self._peer_snapshot(peers)
@@ -230,11 +227,7 @@ class PeersView(Gtk.Box):
 
     def _clear_details(self) -> None:
         """Clear the details content area."""
-        while True:
-            child = self._details_content.get_first_child()
-            if child is None:
-                break
-            self._details_content.remove(child)
+        clear_children(self._details_content)
 
     def _show_peer_details(self, peer: Peer) -> None:
         """Show details for a selected peer."""
@@ -315,7 +308,7 @@ class PeersView(Gtk.Box):
         key_label.add_css_class("analyzer-raw")
         key_label.set_halign(Gtk.Align.START)
         key_label.set_wrap(True)
-        key_label.set_wrap_mode(Gtk.WrapMode.CHAR)
+        key_label.set_wrap_mode(Pango.WrapMode.CHAR)
         key_label.set_selectable(True)
         self._details_content.append(key_label)
 
@@ -380,27 +373,4 @@ class PeersView(Gtk.Box):
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Navigate to messages view and start a conversation with this peer."""
-        # Find the main window and switch to messages view
-        root = self.get_root()
-        if root is None:
-            return
-
-        # Access the stack through the window
-        stack = getattr(root, "_stack", None)
-        if stack is None:
-            return
-
-        # Switch to messages view
-        stack.set_visible_child_name("messages")
-
-        # Update nav buttons if they exist
-        nav_buttons = getattr(root, "_nav_buttons", None)
-        if nav_buttons:
-            for name, btn in nav_buttons.items():
-                btn.set_active(name == "messages")
-
-        # Select the peer's channel in the messages view
-        messages_widget = stack.get_child_by_name("messages")
-        if messages_widget is not None:
-            messages_view = cast("MessagesView", messages_widget)
-            messages_view.select_channel(peer.display_name)
+        navigate(self, "messages", ("select_channel", peer.display_name))
