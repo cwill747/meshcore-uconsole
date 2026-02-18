@@ -13,6 +13,7 @@ from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.ui_gtk.layout import Layout
+from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
 from meshcore_console.ui_gtk.widgets import (
     DaySeparator,
@@ -28,9 +29,10 @@ logger = logging.getLogger(__name__)
 
 
 class MessagesView(Gtk.Box):
-    def __init__(self, service: MeshcoreService, layout: Layout) -> None:
+    def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._service = service
+        self._event_store = event_store
         self._selected_channel_id = "public"
         self._last_message_count = 0
         self._last_channel_count = 0
@@ -155,7 +157,7 @@ class MessagesView(Gtk.Box):
 
         self._reload_channels()
         self._refresh_compose_state()
-        GLib.timeout_add(2000, self._poll_messages)
+        self._event_store.connect("events-available", lambda _store: self._poll_messages())
 
     def _poll_messages(self) -> bool:
         """Check for new messages/channels and refresh if changed."""

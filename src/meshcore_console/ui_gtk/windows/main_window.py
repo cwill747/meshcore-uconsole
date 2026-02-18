@@ -129,9 +129,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._stack.set_hexpand(True)
         self._stack.set_vexpand(True)
         self._stack.add_named(AnalyzerView(service, self._event_store, layout), "analyzer")
-        self._stack.add_named(PeersView(service, layout), "peers")
-        self._stack.add_named(MessagesView(service, layout), "messages")
-        self._stack.add_named(MapView(service, layout), "map")
+        self._stack.add_named(PeersView(service, self._event_store, layout), "peers")
+        self._stack.add_named(MessagesView(service, self._event_store, layout), "messages")
+        self._stack.add_named(MapView(service, self._event_store, layout), "map")
         self._stack.add_named(SettingsView(service), "settings")
         self._stack.set_visible_child_name("analyzer")
 
@@ -155,7 +155,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.set_content(self._toast_overlay)
         self._wire_style_manager()
         self._wire_keyboard_shortcuts()
-        GLib.timeout_add_seconds(1, self._pump_events)
+        # Wire signal-driven event flow: notify → schedule_pump → events-available
+        service.set_event_notify(self._event_store.schedule_pump)
+        self._event_store.pump()  # Drain pre-queued events (e.g. mock boot)
+        self._event_cursor = 0
+        self._event_store.connect("events-available", self._on_events_available)
+        GLib.timeout_add_seconds(30, self._safety_net_pump)
         GLib.idle_add(self._wire_surface_debug)
         if self._geom_debug:
             GLib.timeout_add(600, self._debug_geometry_tick)
@@ -426,14 +431,23 @@ class MainWindow(Adw.ApplicationWindow):
             settings_view = cast("SettingsView", settings_widget)
             settings_view.refresh_public_key()
 
-    def _pump_events(self) -> bool:
-        events = self._event_store.pump(limit=100)
-        # Check for settings_updated event to refresh header
+    def _on_events_available(self, _store: object) -> None:
+        """Handle events-available signal from UiEventStore."""
+        self._event_cursor, events = self._event_store.since(self._event_cursor, limit=200)
         for event in events:
-            if event.get("type") == "settings_updated":
+            etype = event.get("type", "")
+            if etype == "settings_updated":
+                self._refresh_connection_state()
+                break
+            if etype in ("session_connected", "session_disconnected"):
                 self._refresh_connection_state()
                 break
         self._service.flush_stores()
+
+    def _safety_net_pump(self) -> bool:
+        """Low-frequency backup flush + pump in case notify was missed."""
+        self._service.flush_stores()
+        self._event_store.pump()
         return True
 
     def _wire_keyboard_shortcuts(self) -> None:

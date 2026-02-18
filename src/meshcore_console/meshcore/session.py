@@ -7,7 +7,7 @@ import logging
 import queue
 import threading
 import time
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ class PyMCCoreSession:
         self._event_subscriber: EventSubscriberProtocol | None = None
         self._node_task: asyncio.Task[None] | None = None
         self._event_queue: queue.Queue[MeshEventDict] = queue.Queue()
+        self._event_notify: Callable[[], None] | None = None
         self._db = open_db()
         self._channel_db = ChannelDatabase(self._db)
         self._contact_book = ContactBook()
@@ -54,8 +55,16 @@ class PyMCCoreSession:
         if self._logger is not None:
             self._logger(message)
 
+    def set_event_notify(self, notify_fn: Callable[[], None]) -> None:
+        self._event_notify = notify_fn
+
     def _emit(self, payload: MeshEventDict) -> None:
         self._event_queue.put_nowait(payload)
+        if self._event_notify is not None:
+            try:
+                self._event_notify()
+            except Exception:  # noqa: BLE001
+                pass  # Must never crash the radio driver
 
     def _register_discovery_handler(self) -> None:
         """Register a handler that responds to incoming discovery requests.

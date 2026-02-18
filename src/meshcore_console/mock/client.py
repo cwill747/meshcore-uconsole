@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Callable
 from uuid import uuid4
 
 from meshcore_console.core.enums import PayloadType
@@ -30,6 +31,7 @@ class MockMeshcoreClient(MeshcoreService):
         self._session = MockPyMCCoreSession(self._config)
         self._gps_provider = MockGps()
         self._connected = True
+        self._event_notify: Callable[[], None] | None = None
         self._event_buffer: list[dict] = []
         self._event_history: list[dict] = []
 
@@ -277,9 +279,18 @@ class MockMeshcoreClient(MeshcoreService):
         else:
             self._channels[channel_name].unread_count += 1
 
+    def set_event_notify(self, notify_fn: Callable[[], None]) -> None:
+        self._event_notify = notify_fn
+        self._session.set_event_notify(notify_fn)
+
     def _append_event(self, event: dict) -> None:
         self._event_buffer.append(event)
         self._append_history(event)
+        if self._event_notify is not None:
+            try:
+                self._event_notify()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _append_history(self, event: dict) -> None:
         self._event_history.append(event)

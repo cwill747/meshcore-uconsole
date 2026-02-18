@@ -149,7 +149,7 @@ class AnalyzerView(Gtk.Box):
         self._details.set_size_request(self._layout.analyzer_details_width, -1)
         self._details_revealer.set_child(self._details)
 
-        GLib.timeout_add(1500, self._poll_events)
+        self._event_store.connect("events-available", lambda _store: self._poll_events())
         # Load stored packets from persistent storage
         self._load_stored_packets()
         self._refresh_all()
