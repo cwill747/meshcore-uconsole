@@ -15,6 +15,7 @@ from gi.repository import Gtk
 
 from meshcore_console.core.models import Peer
 from meshcore_console.core.time import to_local
+from meshcore_console.ui_gtk.helpers import navigate
 
 STYLE_DEFAULT = "default"  # Blue (contacts, general nodes)
 STYLE_REPEATER = "repeater"  # Amber (repeater/relay hops)
@@ -120,30 +121,7 @@ class NodeBadge(Gtk.Box):
         """Navigate to the Peers tab with this peer selected."""
         if self._peer is None:
             return
-
-        root = self.get_root()
-        if root is None:
-            return
-
-        stack = getattr(root, "_stack", None)
-        if stack is None:
-            return
-
-        # Switch to peers view
-        stack.set_visible_child_name("peers")
-
-        # Update nav buttons
-        nav_buttons = getattr(root, "_nav_buttons", None)
-        if nav_buttons:
-            for name, btn in nav_buttons.items():
-                btn.set_active(name == "peers")
-
-        # Select the peer in the peers view
-        peers_widget = stack.get_child_by_name("peers")
-        if peers_widget is not None:
-            select_fn = getattr(peers_widget, "select_peer", None)
-            if select_fn:
-                select_fn(self._peer.peer_id)
+        navigate(self, "peers", ("select_peer", self._peer.peer_id))
 
     @staticmethod
     def _build_popover(prefix: str, display_name: str, peer: Peer | None) -> Gtk.Widget:

@@ -12,6 +12,7 @@ from gi.repository import Gtk, Pango
 
 from meshcore_console.core.models import Message
 from meshcore_console.core.time import to_local
+from meshcore_console.ui_gtk.helpers import navigate
 from meshcore_console.ui_gtk.widgets.mention import parse_mentions
 from meshcore_console.ui_gtk.widgets.node_badge import STYLE_SELF, NodeBadge
 
@@ -115,28 +116,7 @@ class MessageBubble(Gtk.Box):
         if not uri.startswith("mention:"):
             return False
         peer_id = uri[len("mention:") :]
-
-        root = self.get_root()
-        if root is None:
-            return True
-
-        stack = getattr(root, "_stack", None)
-        if stack is None:
-            return True
-
-        stack.set_visible_child_name("peers")
-
-        nav_buttons = getattr(root, "_nav_buttons", None)
-        if nav_buttons:
-            for name, btn in nav_buttons.items():
-                btn.set_active(name == "peers")
-
-        peers_widget = stack.get_child_by_name("peers")
-        if peers_widget is not None:
-            select_fn = getattr(peers_widget, "select_peer", None)
-            if select_fn:
-                select_fn(peer_id)
-
+        navigate(self, "peers", ("select_peer", peer_id))
         return True  # Prevent default link handler
 
     @staticmethod

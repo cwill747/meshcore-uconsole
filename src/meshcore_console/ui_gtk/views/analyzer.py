@@ -6,7 +6,6 @@ import os
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, cast
 
 import gi
 
@@ -19,6 +18,7 @@ from gi.repository import GLib, Gtk, Pango
 from meshcore_console.core.enums import AnalyzerFilter, EventType
 from meshcore_console.core.packets import get_handler
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.helpers import clear_children, clear_listbox, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.ui_gtk.widgets import DaySeparator, DetailBlock, PathVisualization
@@ -504,11 +504,7 @@ class AnalyzerView(Gtk.Box):
     def _refresh_stream(self) -> None:
         """Full rebuild of stream rows. Used for filter changes and initial load."""
         packets = self._filtered_packets()
-        while True:
-            row = self._stream.get_row_at_index(0)
-            if row is None:
-                break
-            self._stream.remove(row)
+        clear_listbox(self._stream)
 
         today = GLib.DateTime.new_now_local().format("%Y-%m-%d")
         prev_date: str | None = None
@@ -555,11 +551,7 @@ class AnalyzerView(Gtk.Box):
         self._details_revealer.set_reveal_child(True)
 
     def _refresh_details(self) -> None:
-        while True:
-            child = self._details.get_first_child()
-            if child is None:
-                break
-            self._details.remove(child)
+        clear_children(self._details)
 
         if self._selected_packet is None:
             self._details_revealer.set_reveal_child(False)
@@ -636,27 +628,7 @@ class AnalyzerView(Gtk.Box):
 
     def _navigate_to_channel(self, channel_name: str) -> None:
         """Navigate to messages view and select the given channel."""
-        root = self.get_root()
-        if root is None:
-            return
-
-        stack = getattr(root, "_stack", None)
-        if stack is None:
-            return
-
-        stack.set_visible_child_name("messages")
-
-        nav_buttons = getattr(root, "_nav_buttons", None)
-        if nav_buttons:
-            for name, btn in nav_buttons.items():
-                btn.set_active(name == "messages")
-
-        messages_widget = stack.get_child_by_name("messages")
-        if messages_widget is not None:
-            if TYPE_CHECKING:
-                from meshcore_console.ui_gtk.views.messages import MessagesView
-            messages_view = cast("MessagesView", messages_widget)
-            messages_view.select_channel(channel_name)
+        navigate(self, "messages", ("select_channel", channel_name))
 
     def _decoded_payload_block(self, packet: PacketRecord) -> DetailBlock:
         payload = packet.payload_text if packet.payload_text else "(binary payload)"

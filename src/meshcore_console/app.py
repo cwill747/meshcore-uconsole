@@ -7,6 +7,11 @@ from typing import Sequence
 
 from meshcore_console.meshcore.logging_setup import configure_logging, set_stderr_level
 
+# Default to no accessibility backend — the target uConsole/Pi hardware
+# does not run AT-SPI, and GTK4 spams warnings when it's missing.
+# Users can still override via GTK_A11Y=atspi if they need screen-reader support.
+os.environ.setdefault("GTK_A11Y", "none")
+
 import gi
 
 configure_logging()

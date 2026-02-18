@@ -12,6 +12,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.helpers import clear_children, clear_listbox, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
@@ -172,11 +173,7 @@ class MessagesView(Gtk.Box):
                 new_messages = messages[self._last_message_count :]
                 # Remove the "no messages" placeholder if it was showing
                 if self._last_message_count == 0:
-                    while True:
-                        child = self._message_box.get_first_child()
-                        if child is None:
-                            break
-                        self._message_box.remove(child)
+                    clear_children(self._message_box)
                 for message in new_messages:
                     msg_date = to_local(message.created_at).strftime("%Y-%m-%d")
                     if self._last_message_date and msg_date != self._last_message_date:
@@ -226,11 +223,7 @@ class MessagesView(Gtk.Box):
             self._entry.set_placeholder_text("Connect to radio to send messages")
 
     def _reload_channels(self) -> None:
-        while True:
-            row = self._channel_list.get_row_at_index(0)
-            if row is None:
-                break
-            self._channel_list.remove(row)
+        clear_listbox(self._channel_list)
 
         channels = self._service.list_channels()
         self._last_channel_count = len(channels)
@@ -283,12 +276,7 @@ class MessagesView(Gtk.Box):
         self._reload_messages()
 
     def _reload_messages(self) -> None:
-        # Clear existing messages
-        while True:
-            child = self._message_box.get_first_child()
-            if child is None:
-                break
-            self._message_box.remove(child)
+        clear_children(self._message_box)
 
         # Hide details when reloading
         self._details_revealer.set_reveal_child(False)
@@ -329,12 +317,7 @@ class MessagesView(Gtk.Box):
 
     def _show_message_details(self, message: Message) -> None:
         """Populate the details panel for a message."""
-        # Clear existing details
-        while True:
-            child = self._details_box.get_first_child()
-            if child is None:
-                break
-            self._details_box.remove(child)
+        clear_children(self._details_box)
 
         # Separator
         sep = Gtk.Separator.new(Gtk.Orientation.HORIZONTAL)
@@ -430,22 +413,7 @@ class MessagesView(Gtk.Box):
         if not uri.startswith("mention:"):
             return False
         peer_id = uri[len("mention:") :]
-        root = self.get_root()
-        if root is None:
-            return True
-        stack = getattr(root, "_stack", None)
-        if stack is None:
-            return True
-        stack.set_visible_child_name("peers")
-        nav_buttons = getattr(root, "_nav_buttons", None)
-        if nav_buttons:
-            for name, btn in nav_buttons.items():
-                btn.set_active(name == "peers")
-        peers_widget = stack.get_child_by_name("peers")
-        if peers_widget is not None:
-            select_fn = getattr(peers_widget, "select_peer", None)
-            if select_fn:
-                select_fn(peer_id)
+        navigate(self, "peers", ("select_peer", peer_id))
         return True
 
     def close_active_detail(self) -> bool:
