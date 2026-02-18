@@ -29,3 +29,13 @@ def test_poll_events_drains_buffer_and_history_remains() -> None:
 
     history = client.list_recent_events(limit=50)
     assert any(event.get("type") == "message_sent" for event in history)
+
+
+def test_set_event_notify_callback_fires() -> None:
+    client = MockMeshcoreClient()
+
+    called: list[bool] = []
+    client.set_event_notify(lambda: called.append(True))
+
+    client.send_message("peer-001", "hello notify")
+    assert len(called) >= 1

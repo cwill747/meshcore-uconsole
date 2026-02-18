@@ -5,6 +5,7 @@ import logging
 import threading
 from collections import deque
 from datetime import UTC, datetime
+from typing import Callable
 from uuid import uuid4
 
 from meshcore_console.core.enums import EventType, PayloadType
@@ -43,6 +44,7 @@ class MeshcoreClient(MeshcoreService):
         gps_provider: GpsProvider | None = None,
     ) -> None:
         self._connected = False
+        self._event_notify: Callable[[], None] | None = None
         self._event_buffer: list[MeshEventDict] = []
         self._event_history: list[MeshEventDict] = []
         self._db = open_db()
@@ -751,9 +753,18 @@ class MeshcoreClient(MeshcoreService):
         if self._connected:
             self._session.contact_book.add_contact({"name": name, "public_key": public_key})
 
+    def set_event_notify(self, notify_fn: Callable[[], None]) -> None:
+        self._event_notify = notify_fn
+        self._session.set_event_notify(notify_fn)
+
     def _append_event(self, event: MeshEventDict) -> None:
         self._event_buffer.append(event)
         self._append_history(event)
+        if self._event_notify is not None:
+            try:
+                self._event_notify()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _append_history(self, event: MeshEventDict) -> None:
         self._event_history.append(event)
@@ -762,4 +773,7 @@ class MeshcoreClient(MeshcoreService):
 
     def _new_session(self) -> PyMCCoreSession:
         runtime = runtime_config_from_settings(self._settings)
-        return PyMCCoreSession(runtime)
+        session = PyMCCoreSession(runtime)
+        if self._event_notify is not None:
+            session.set_event_notify(self._event_notify)
+        return session

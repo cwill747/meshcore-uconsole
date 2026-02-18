@@ -6,7 +6,7 @@ import asyncio
 import queue
 import random
 from datetime import UTC, datetime
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 from meshcore_console.core.types import MeshEventDict, SendResultDict, SessionStatusDict
 from meshcore_console.meshcore.config import RuntimeRadioConfig
@@ -21,9 +21,20 @@ class MockPyMCCoreSession:
         self.config = config
         self._connected = True
         self._event_queue: queue.Queue[MeshEventDict] = queue.Queue()
+        self._event_notify: Callable[[], None] | None = None
         self._advert_index = 0
         # Queue initial events immediately so packets appear in analyzer
         self._queue_initial_events()
+
+    def set_event_notify(self, notify_fn: Callable[[], None]) -> None:
+        self._event_notify = notify_fn
+
+    def _emit_notify(self) -> None:
+        if self._event_notify is not None:
+            try:
+                self._event_notify()
+            except Exception:  # noqa: BLE001
+                pass
 
     def _queue_initial_events(self) -> None:
         """Queue initial mock events for analyzer demo."""
@@ -51,6 +62,7 @@ class MockPyMCCoreSession:
                 "data": {"node_name": self.config.node_name, "at": datetime.now(UTC).isoformat()},
             }
         )
+        self._emit_notify()
 
     async def send_text(self, peer_name: str, message: str) -> MeshEventDict:
         self._event_queue.put_nowait(
@@ -59,6 +71,7 @@ class MockPyMCCoreSession:
                 "data": {"peer_name": peer_name, "message": message, "ok": True},
             }
         )
+        self._emit_notify()
         return {"ok": True}
 
     async def send_group_text(self, channel_name: str, message: str) -> MeshEventDict:
@@ -69,6 +82,7 @@ class MockPyMCCoreSession:
                 "data": {"channel_name": channel_name, "message": message, "ok": True},
             }
         )
+        self._emit_notify()
         return {"ok": True}
 
     async def send_advert(
@@ -90,6 +104,7 @@ class MockPyMCCoreSession:
             "dispatcher_result": True,
         }
         self._event_queue.put_nowait({"type": "advert_sent", "data": payload})
+        self._emit_notify()
         return {
             "success": True,
             "tx_metadata": payload["tx_metadata"],
@@ -169,6 +184,7 @@ class MockPyMCCoreSession:
             },
         }
         self._event_queue.put_nowait(event)
+        self._emit_notify()
 
     def schedule_mock_advert(self) -> None:
         """Schedule an additional mock advert (for periodic updates)."""

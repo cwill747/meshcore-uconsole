@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
 
 from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer
 from meshcore_console.core.types import MeshEventDict, SendResultDict
@@ -10,6 +10,8 @@ if TYPE_CHECKING:
 
 
 class MeshcoreService(Protocol):
+    def set_event_notify(self, notify_fn: Callable[[], None]) -> None: ...
+
     def connect(self) -> None: ...
 
     def disconnect(self) -> None: ...

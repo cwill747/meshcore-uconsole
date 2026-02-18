@@ -31,3 +31,29 @@ def test_event_store_recent_limit() -> None:
         "peer_seen",
         "mock_boot",
     }
+
+
+def test_pump_emits_events_available_signal() -> None:
+    client = MockMeshcoreClient()
+    store = UiEventStore(client)
+
+    received: list[bool] = []
+    store.connect("events-available", lambda _store: received.append(True))
+
+    store.pump(limit=100)
+    assert len(received) == 1
+
+
+def test_pump_does_not_emit_signal_when_empty() -> None:
+    client = MockMeshcoreClient()
+    store = UiEventStore(client)
+
+    # Drain all initial events
+    store.pump(limit=500)
+
+    received: list[bool] = []
+    store.connect("events-available", lambda _store: received.append(True))
+
+    # Pump again — should have nothing to drain
+    store.pump(limit=100)
+    assert len(received) == 0

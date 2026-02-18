@@ -6,7 +6,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import GLib, Gtk
+from gi.repository import Gtk
 
 if TYPE_CHECKING:
     from .messages import MessagesView
@@ -15,6 +15,7 @@ from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.ui_gtk.layout import Layout
+from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
 from meshcore_console.ui_gtk.widgets import (
     DetailRow,
@@ -44,9 +45,10 @@ def format_coordinates(lat: float | None, lon: float | None) -> str:
 
 
 class PeersView(Gtk.Box):
-    def __init__(self, service: MeshcoreService, layout: Layout) -> None:
+    def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self._service = service
+        self._event_store = event_store
         self._last_peer_snapshot: str = ""
         self._selected_peer: Peer | None = None
 
@@ -130,7 +132,7 @@ class PeersView(Gtk.Box):
 
         self._show_empty_details()
         self._refresh_peers()
-        GLib.timeout_add(2000, self._poll_peers)
+        self._event_store.connect("events-available", lambda _store: self._poll_peers())
 
     @staticmethod
     def _peer_snapshot(peers: list[Peer]) -> str:

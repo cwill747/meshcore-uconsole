@@ -30,6 +30,7 @@ from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.ui_gtk.layout import Layout
+from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
 from meshcore_console.platform.mbtiles import MBTilesReader, find_mbtiles_files
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
@@ -43,9 +44,10 @@ OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 class MapView(Gtk.Box):
     """Map view with peer markers and details panel."""
 
-    def __init__(self, service: MeshcoreService, layout: Layout) -> None:
+    def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self._service = service
+        self._event_store = event_store
         self._layout = layout
         self._selected_peer: Peer | None = None
         self._peer_markers: dict[str, object] = {}  # peer_id -> marker
@@ -61,7 +63,8 @@ class MapView(Gtk.Box):
             return
 
         self._build_map_ui()
-        GLib.timeout_add(2000, self._poll_locations)
+        self._event_store.connect("events-available", self._on_events_available)
+        GLib.timeout_add(2000, self._poll_gps)
 
         # In mock mode, auto-cycle GPS position every 5 seconds
         if self._service.is_mock_mode():
@@ -309,18 +312,8 @@ class MapView(Gtk.Box):
                 name = metadata.get("name", files[0].name)
                 print(f"[MapView] Loaded offline tiles: {name}", file=sys.stderr)
 
-    def _poll_locations(self) -> bool:
-        """Poll for location updates."""
-        # Poll GPS for new data (reads serial port for real GPS)
-        self._service.poll_gps()
-
-        # Check for GPS errors and show toast
-        self._check_gps_status()
-
-        # Update device marker
-        self._update_device_marker()
-
-        # Check if peers changed
+    def _on_events_available(self, _store: object) -> None:
+        """Handle events-available signal — refresh peer markers."""
         peers = self._service.list_peers()
         peers_with_location = [
             p for p in peers if p.latitude is not None and p.longitude is not None
@@ -328,6 +321,11 @@ class MapView(Gtk.Box):
         if len(peers_with_location) != self._last_peer_count:
             self._refresh_markers()
 
+    def _poll_gps(self) -> bool:
+        """Poll GPS for new data (serial port). GLib timeout callback."""
+        self._service.poll_gps()
+        self._check_gps_status()
+        self._update_device_marker()
         return True
 
     def _check_gps_status(self) -> None:
