@@ -472,10 +472,13 @@ class MainWindow(Adw.ApplicationWindow):
             etype = event.get("type", "")
             if etype == "settings_updated":
                 self._refresh_connection_state()
-                break
-            if etype in ("session_connected", "session_disconnected"):
+            elif etype in ("session_connected", "session_disconnected"):
                 self._refresh_connection_state()
-                break
+            elif etype == "radio_error":
+                msg = (event.get("data") or {}).get("message", "Unknown radio error")
+                self._toast_overlay.add_toast(Adw.Toast.new(msg))
+                self._status_badge.set_text("Radio Error")
+                self._status_badge.set_state("warn")
         self._service.flush_stores()
 
     def _safety_net_pump(self) -> bool:

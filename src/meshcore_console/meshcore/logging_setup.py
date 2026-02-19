@@ -14,6 +14,7 @@ import shutil
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Callable
 
 LOG_DIR = Path.home() / ".local" / "state" / "meshcore-uconsole"
 LOG_FILE = LOG_DIR / "app.log"
@@ -105,3 +106,32 @@ def export_logs_to_stdout() -> None:
     for log_file in get_log_files_chronological():
         with log_file.open() as f:
             shutil.copyfileobj(f, sys.stdout)
+
+
+# ---------------------------------------------------------------------------
+# Radio error interception
+# ---------------------------------------------------------------------------
+
+_RADIO_LOGGER_SUBSTRINGS = ("SX1262", "pyMC", "meshcore_console.meshcore.session")
+
+
+class RadioErrorHandler(logging.Handler):
+    """Intercepts WARNING+ log messages from radio-layer loggers."""
+
+    def __init__(self, callback: Callable[[str], None]) -> None:
+        super().__init__(level=logging.WARNING)
+        self._callback = callback
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if any(sub in record.name for sub in _RADIO_LOGGER_SUBSTRINGS):
+            try:
+                self._callback(record.getMessage())
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def install_radio_error_handler(callback: Callable[[str], None]) -> RadioErrorHandler:
+    """Attach a :class:`RadioErrorHandler` to the root logger and return it."""
+    handler = RadioErrorHandler(callback)
+    logging.getLogger().addHandler(handler)
+    return handler

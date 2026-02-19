@@ -60,6 +60,9 @@ class EventType(StrEnum):
     # Settings
     SETTINGS_UPDATED = "settings_updated"
 
+    # Radio health
+    RADIO_ERROR = "radio_error"
+
     # EventService events (mesh.* naming)
     MESH_CONTACT_NEW = "mesh.contact.new"
     MESH_CHANNEL_MESSAGE_NEW = "mesh.channel.message.new"

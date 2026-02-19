@@ -16,6 +16,7 @@ from meshcore_console.core.types import MeshEventDict, SendResultDict
 from meshcore_console.meshcore.channel_db import ChannelDatabase
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.db import open_db
+from meshcore_console.meshcore.logging_setup import install_radio_error_handler
 from meshcore_console.meshcore.packet_codec import repair_utf8
 from meshcore_console.meshcore.packet_store import PacketStore
 from meshcore_console.meshcore.session import PyMCCoreSession
@@ -81,6 +82,8 @@ class MeshcoreClient(MeshcoreService):
                 self._pymc_available = False
         else:
             self._pymc_available = True
+
+        self._radio_error_handler = install_radio_error_handler(self._on_radio_error)
 
     def _sync_channel_secrets_to_ui(self) -> None:
         """Ensure every channel secret has a corresponding UI channel entry."""
@@ -719,6 +722,10 @@ class MeshcoreClient(MeshcoreService):
 
     def get_device_location(self) -> tuple[float, float] | None:
         return self._gps_provider.get_location()
+
+    def _on_radio_error(self, message: str) -> None:
+        """Callback from RadioErrorHandler — emit as a UI event."""
+        self._append_event({"type": EventType.RADIO_ERROR, "data": {"message": message}})
 
     def is_mock_mode(self) -> bool:
         return False
