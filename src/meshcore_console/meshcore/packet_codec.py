@@ -50,19 +50,62 @@ except ImportError:
 
 
 def _extract_sender_name(packet: Any) -> str | None:
-    """Extract sender name from packet.decrypted (the only source on pyMC_core Packet)."""
+    """Try to extract sender/peer name from packet via various attributes."""
+    # First check decrypted data (for GRP_TXT, TXT_MSG, etc.)
     decrypted = getattr(packet, "decrypted", None)
-    if not decrypted:
-        return None
-    # GRP_TXT: sender_name in group_text_data
-    group_data = decrypted.get("group_text_data", {})
-    if group_data.get("sender_name"):
-        return repair_utf8(str(group_data["sender_name"]))
+    if decrypted and isinstance(decrypted, dict):
+        # Check group_text_data for GRP_TXT
+        group_data = decrypted.get("group_text_data", {})
+        if group_data.get("sender_name"):
+            return repair_utf8(str(group_data["sender_name"]))
+        # Check text_data for TXT_MSG
+        text_data = decrypted.get("text_data", {})
+        if text_data.get("sender_name"):
+            return repair_utf8(str(text_data["sender_name"]))
+
+    # Try common sender attribute names
+    for attr in ("sender_name", "peer_name", "from_name", "source_name", "name", "contact_name"):
+        val = getattr(packet, attr, None)
+        if val is not None and str(val).strip():
+            return str(val)
+
+    # Try header-based sender info
+    header = getattr(packet, "header", None)
+    if header is not None:
+        for attr in ("sender_name", "from_name", "source_name", "name"):
+            val = getattr(header, attr, None)
+            if val is not None and str(val).strip():
+                return str(val)
+
+    # Try contact object if present
+    contact = getattr(packet, "contact", None) or getattr(packet, "sender", None)
+    if contact is not None:
+        for attr in ("name", "display_name", "node_name"):
+            val = getattr(contact, attr, None)
+            if val is not None and str(val).strip():
+                return str(val)
+
     return None
 
 
 def _extract_sender_id(packet: Any) -> str | None:
-    """Extract sender ID from packet — not available on pyMC_core Packet directly."""
+    """Try to extract sender ID from packet."""
+    for attr in ("sender_id", "peer_id", "from_id", "source_id", "sender"):
+        val = getattr(packet, attr, None)
+        if val is not None:
+            if isinstance(val, bytes):
+                return val.hex()[:16]
+            return str(val)[:16]
+
+    header = getattr(packet, "header", None)
+    if header is not None:
+        for attr in ("sender_id", "from_id", "source_id", "sender"):
+            val = getattr(header, attr, None)
+            if val is not None:
+                if isinstance(val, bytes):
+                    return val.hex()[:16]
+                return str(val)[:16]
+
     return None
 
 
@@ -89,10 +132,12 @@ def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
             if name:
                 result["advert_name"] = repair_utf8(name)
             return result
-        except ValueError:
-            pass  # malformed advert payload — fall through to manual parser
+        except Exception:
+            pass  # fall through to manual parser
 
     # --- Fallback: manual parser (for mock / no pyMC_core) -------------
+    import struct
+
     result = {}
 
     PUB_KEY_SIZE = 32
@@ -148,20 +193,48 @@ def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
 
 
 def packet_to_dict(packet: Any) -> PacketDataDict:
-    payload_type = packet.get_payload_type()
-    route_type = packet.get_route_type()
-    payload_type_name = PAYLOAD_TYPES.get(payload_type)
-    route_type_name = ROUTE_TYPES.get(route_type)
+    payload_type_name = None
+    route_type = None
+    payload_type = None
+    try:
+        payload_type = packet.get_payload_type()
+    except Exception:
+        payload_type = None
+
+    try:
+        route_type = packet.get_route_type()
+    except Exception:
+        route_type = None
+
+    payload_type_name = PAYLOAD_TYPES.get(payload_type, None) if payload_type is not None else None
+    route_type_name = ROUTE_TYPES.get(route_type, None) if route_type is not None else None
 
     payload_text = None
     payload_hex = None
-    payload_bytes_val = packet.get_payload()
-    if payload_bytes_val:
-        payload_hex = payload_bytes_val.hex()
+    payload_bytes_val: bytes | None = None
+    # Prefer get_payload() which respects payload_len (matches pyMC_core handlers)
+    get_payload = getattr(packet, "get_payload", None)
+    if callable(get_payload):
         try:
-            payload_text = payload_bytes_val.decode("utf-8")
-        except UnicodeDecodeError:
-            payload_text = None
+            payload_bytes_val = get_payload()
+        except Exception:
+            payload_bytes_val = None
+    if payload_bytes_val is None:
+        raw = getattr(packet, "payload", None)
+        if raw is not None:
+            try:
+                payload_bytes_val = bytes(raw)
+            except Exception:
+                pass
+    if payload_bytes_val is not None:
+        try:
+            payload_hex = payload_bytes_val.hex()
+            try:
+                payload_text = payload_bytes_val.decode("utf-8")
+            except Exception:
+                payload_text = None
+        except Exception:
+            payload_hex = None
 
     # Check for decrypted data (GRP_TXT, TXT_MSG have encrypted payloads)
     decrypted = getattr(packet, "decrypted", None) or {}
@@ -208,9 +281,13 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
     anon_sender_pubkey: str | None = None
     is_anon_req = payload_type_name == "ANON_REQ" or payload_type == 7
     if is_anon_req and payload_bytes_val and len(payload_bytes_val) >= 33:
-        anon_sender_pubkey = payload_bytes_val[1:33].hex()
-        if not sender_id:
-            sender_id = anon_sender_pubkey[:16]
+        try:
+            anon_sender_pubkey = payload_bytes_val[1:33].hex()
+            # Use as sender_id if we don't have one
+            if not sender_id:
+                sender_id = anon_sender_pubkey[:16]
+        except Exception:
+            pass
 
     # For MULTIPART packets, parse the compound byte
     # Wire format: [compound(1)] [inner_payload...]
@@ -220,12 +297,15 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
     multipart_inner_type_name: str | None = None
     is_multipart = payload_type_name == "MULTIPART" or payload_type == 10
     if is_multipart and payload_bytes_val and len(payload_bytes_val) >= 1:
-        compound = payload_bytes_val[0]
-        multipart_remaining = (compound >> 4) & 0x0F
-        multipart_inner_type = compound & 0x0F
-        multipart_inner_type_name = PAYLOAD_TYPES.get(
-            multipart_inner_type, f"0x{multipart_inner_type:02X}"
-        )
+        try:
+            compound = payload_bytes_val[0]
+            multipart_remaining = (compound >> 4) & 0x0F
+            multipart_inner_type = compound & 0x0F
+            multipart_inner_type_name = PAYLOAD_TYPES.get(
+                multipart_inner_type, f"0x{multipart_inner_type:02X}"
+            )
+        except Exception:
+            pass
 
     # For CONTROL packets, parse discovery request/response fields
     control_type: str | None = None
@@ -259,8 +339,8 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
             pass
 
     # Extract routing path information
-    path_len = packet.path_len or 0
-    path_bytes = packet.path
+    path_len = getattr(packet, "path_len", 0) or 0
+    path_bytes = getattr(packet, "path", None)
     path_hops: list[str] = []
     if path_bytes and path_len > 0:
         for i in range(min(path_len, len(path_bytes))):
@@ -279,18 +359,22 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
             signed = raw if raw < 128 else raw - 256
             trace_snr_values.append(signed / 4.0)
 
-    raw_length = packet.get_raw_length()
-    packet_hash = packet.get_packet_hash_hex(16)  # First 16 hex chars
+    # Get packet hash for deduplication
+    packet_hash = None
+    try:
+        packet_hash = packet.get_packet_hash_hex(16)  # First 16 hex chars
+    except Exception:
+        pass
 
     return {
         "payload_type": payload_type,
         "payload_type_name": payload_type_name,
         "route_type": route_type,
         "route_type_name": route_type_name,
-        "payload_len": packet.payload_len,
-        "header": packet.header,
-        "snr": packet.snr,
-        "rssi": packet.rssi,
+        "payload_len": getattr(packet, "payload_len", None),
+        "header": getattr(packet, "header", None),
+        "snr": getattr(packet, "snr", None),
+        "rssi": getattr(packet, "rssi", None),
         "payload_text": payload_text,
         "payload_hex": payload_hex,
         "sender_name": sender_name,
@@ -310,7 +394,6 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         "multipart_remaining": multipart_remaining,
         "multipart_inner_type": multipart_inner_type,
         "multipart_inner_type_name": multipart_inner_type_name,
-        "raw_length": raw_length,
         "trace_snr_values": trace_snr_values or None,
         "raw": None,
     }

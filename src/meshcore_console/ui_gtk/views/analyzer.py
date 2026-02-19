@@ -41,10 +41,6 @@ class PacketRecord:
     path_len: int
     path_hops: list[str]
     packet_hash: str
-    payload_type_int: int | None = None
-    raw_length: int | None = None
-    payload_len: int | None = None
-    header_byte: int | None = None
     channel_name: str = ""
 
 
@@ -332,20 +328,6 @@ class AnalyzerView(Gtk.Box):
         packet_hash = str(data.get("packet_hash") or "")
         channel_name = str(data.get("channel_name") or "")
 
-        # Wire-level packet info (for details panel)
-        payload_type_int = data.get("payload_type")
-        if payload_type_int is not None:
-            payload_type_int = int(payload_type_int)
-        raw_length = data.get("raw_length")
-        if raw_length is not None:
-            raw_length = int(raw_length)
-        payload_len = data.get("payload_len")
-        if payload_len is not None:
-            payload_len = int(payload_len)
-        header_byte = data.get("header")
-        if header_byte is not None:
-            header_byte = int(header_byte)
-
         # Use stored timestamp if available, otherwise current time
         timestamp, date = self._parse_event_timestamp(event)
 
@@ -364,10 +346,6 @@ class AnalyzerView(Gtk.Box):
             path_len=path_len,
             path_hops=path_hops,
             packet_hash=packet_hash,
-            payload_type_int=payload_type_int,
-            raw_length=raw_length,
-            payload_len=payload_len,
-            header_byte=header_byte,
             channel_name=channel_name,
         )
 
@@ -620,7 +598,6 @@ class AnalyzerView(Gtk.Box):
                 wrap_chars=wrap,
             )
         )
-        self._details.append(self._packet_info_block(packet))
         self._details.append(self._decoded_payload_block(packet))
         self._details.append(self._routing_block(packet))
         self._details.append(self._raw_block(packet))
@@ -661,35 +638,6 @@ class AnalyzerView(Gtk.Box):
     def _navigate_to_channel(self, channel_name: str) -> None:
         """Navigate to messages view and select the given channel."""
         navigate(self, "messages", ("select_channel", channel_name))
-
-    def _packet_info_block(self, packet: PacketRecord) -> DetailBlock:
-        wrap = self._layout.detail_block_wrap_chars
-        block = DetailBlock("Decoded Packet", wrap_chars=wrap)
-
-        lines: list[str] = []
-        # Payload type name + integer
-        type_str = packet.packet_type
-        if packet.payload_type_int is not None:
-            type_str = f"{packet.packet_type} ({packet.payload_type_int})"
-        lines.append(f"Type: {type_str}")
-
-        # Packet size (total wire bytes)
-        if packet.raw_length is not None:
-            lines.append(f"Size: {packet.raw_length} bytes")
-
-        # Payload length
-        if packet.payload_len is not None:
-            lines.append(f"Payload: {packet.payload_len} bytes")
-
-        # Header byte in hex
-        if packet.header_byte is not None:
-            lines.append(f"Header: 0x{packet.header_byte:02X}")
-
-        info_label = Gtk.Label(label="\n".join(lines))
-        info_label.set_halign(Gtk.Align.START)
-        info_label.set_xalign(0)
-        block.set_content(info_label)
-        return block
 
     def _decoded_payload_block(self, packet: PacketRecord) -> DetailBlock:
         payload = packet.payload_text if packet.payload_text else "(binary payload)"

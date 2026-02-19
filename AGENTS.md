@@ -174,8 +174,6 @@ uv sync
 
 5. **Wayland-specific issues** - Test on actual Pi hardware. Some behaviors differ between XWayland (macOS) and native Wayland.
 
-6. **pyMC_core API calls** - pyMC_core is a known dependency. Call its APIs directly without defensive `getattr`/`hasattr` fallbacks or manual reimplementations. If a pyMC_core method exists (e.g. `packet.get_raw_length()`), call it and let exceptions propagate naturally. Do not duplicate its logic as a fallback — if the API breaks, we want to know immediately, not silently use a stale copy.
-
 ## UI Framework Assessment
 
 GTK4/Libadwaita is appropriate for this use case:
