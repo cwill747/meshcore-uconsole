@@ -153,9 +153,15 @@ class UIChannelStore:
 
     def add_or_update(self, channel: Channel) -> None:
         self._conn.execute(
-            "INSERT OR REPLACE INTO channels (channel_id, display_name, unread_count, peer_name) "
-            "VALUES (?, ?, ?, ?)",
-            (channel.channel_id, channel.display_name, channel.unread_count, channel.peer_name),
+            "INSERT OR REPLACE INTO channels (channel_id, display_name, unread_count, peer_name, kind) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                channel.channel_id,
+                channel.display_name,
+                channel.unread_count,
+                channel.peer_name,
+                channel.kind,
+            ),
         )
         self._conn.commit()
 
@@ -164,22 +170,30 @@ class UIChannelStore:
 
     def get(self, channel_id: str) -> Channel | None:
         row = self._conn.execute(
-            "SELECT channel_id, display_name, unread_count, peer_name FROM channels WHERE channel_id = ?",
+            "SELECT channel_id, display_name, unread_count, peer_name, kind FROM channels WHERE channel_id = ?",
             (channel_id,),
         ).fetchone()
         if row is None:
             return None
         return Channel(
-            channel_id=row[0], display_name=row[1], unread_count=row[2], peer_name=row[3]
+            channel_id=row[0],
+            display_name=row[1],
+            unread_count=row[2],
+            peer_name=row[3],
+            kind=row[4],
         )
 
     def get_all(self) -> dict[str, Channel]:
         rows = self._conn.execute(
-            "SELECT channel_id, display_name, unread_count, peer_name FROM channels"
+            "SELECT channel_id, display_name, unread_count, peer_name, kind FROM channels"
         ).fetchall()
         return {
             row[0]: Channel(
-                channel_id=row[0], display_name=row[1], unread_count=row[2], peer_name=row[3]
+                channel_id=row[0],
+                display_name=row[1],
+                unread_count=row[2],
+                peer_name=row[3],
+                kind=row[4],
             )
             for row in rows
         }
