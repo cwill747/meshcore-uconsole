@@ -51,7 +51,7 @@ except ImportError:
 
 def _extract_sender_name(packet: Any) -> str | None:
     """Extract sender name from packet.decrypted (the only source on pyMC_core Packet)."""
-    decrypted = packet.decrypted
+    decrypted = getattr(packet, "decrypted", None)
     if not decrypted:
         return None
     # GRP_TXT: sender_name in group_text_data
@@ -164,7 +164,7 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
             payload_text = None
 
     # Check for decrypted data (GRP_TXT, TXT_MSG have encrypted payloads)
-    decrypted = packet.decrypted or {}
+    decrypted = getattr(packet, "decrypted", None) or {}
     decrypted_text = None
     channel_name = None
 
