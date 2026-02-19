@@ -52,6 +52,11 @@ class MeshcoreClient(MeshcoreService):
         self._event_notify: Callable[[], None] | None = None
         self._event_buffer: list[MeshEventDict] = []
         self._event_history: list[MeshEventDict] = []
+        # Cross-batch queues for enriching packet events with handler data.
+        # The raw packet callback fires before handler decryption, so these
+        # hold packet data dicts until the corresponding handler event arrives.
+        self._unenriched_grp: deque[dict] = deque(maxlen=20)
+        self._unenriched_txt: deque[dict] = deque(maxlen=20)
         self._db = open_db()
         self._settings_store = settings_store or SettingsStore(self._db)
         self._packet_store = packet_store or PacketStore(self._db)
@@ -89,11 +94,12 @@ class MeshcoreClient(MeshcoreService):
         """Ensure every channel secret has a corresponding UI channel entry."""
         channel_db = ChannelDatabase(self._db)
         for row in channel_db.get_channels():
-            channel_id = row["name"].lower()
+            original_name = row["name"]  # Preserve original case for pyMC_core
+            channel_id = original_name.lower()
             if channel_id not in self._channels:
                 channel = Channel(
                     channel_id=channel_id,
-                    display_name=f"#{channel_id}",
+                    display_name=f"#{original_name}",
                     unread_count=0,
                 )
                 self._channels[channel_id] = channel
@@ -216,6 +222,7 @@ class MeshcoreClient(MeshcoreService):
             display_name=display_name or (f"#{channel_id}" if is_group else channel_id),
             unread_count=0,
             peer_name=channel_id if not is_group else None,
+            kind="group" if is_group else "dm",
         )
         self._channels[normalized_id] = channel
         self._channel_store.add_or_update(channel)
@@ -244,7 +251,13 @@ class MeshcoreClient(MeshcoreService):
         if not self._connected:
             self.connect()
 
-        is_group = peer_id == "public" or peer_id.startswith("#")
+        # Look up existing channel to determine kind; fall back to string heuristic
+        # for channels not yet in the store (e.g. first DM send).
+        existing = self._channels.get(peer_id.lower()) or self._channels.get(peer_id)
+        if existing is not None:
+            is_group = existing.kind == "group"
+        else:
+            is_group = peer_id == "public" or peer_id.startswith("#")
         # DM channel IDs are always lowercase to match _process_message_event
         channel_id = peer_id if is_group else peer_id.lower()
         if channel_id not in self._channels:
@@ -253,16 +266,16 @@ class MeshcoreClient(MeshcoreService):
                 channel_id=channel_id,
                 display_name=display,
                 peer_name=peer_id if not is_group else None,
+                kind="group" if is_group else "dm",
             )
             self._channels[channel_id] = channel
             self._channel_store.add_or_update(channel)
 
-        # Use group text for public/group channels, direct text for peers
         if is_group:
-            # Use "Public" (capitalized) for the public channel to match channel_db
-            channel_name = channel_id.lstrip("#")
-            if channel_name.lower() == "public":
-                channel_name = "Public"
+            # Resolve the original-case channel name for pyMC_core.
+            # display_name is "#ChannelName" — strip the "#" prefix.
+            channel = self._channels[channel_id]
+            channel_name = channel.display_name.lstrip("#")
             self._run_async(self._session.send_group_text(channel_name=channel_name, message=body))
         else:
             # Use the original-case peer name from the channel so pyMC_core
@@ -318,7 +331,6 @@ class MeshcoreClient(MeshcoreService):
                 events.extend(drained)
         except (RuntimeError, OSError) as exc:
             logger.debug("drain_events error: %s", exc)
-
         if self._event_buffer:
             events.extend(self._event_buffer)
             self._event_buffer.clear()
@@ -364,20 +376,15 @@ class MeshcoreClient(MeshcoreService):
         1. Peer-registry lookup — matches sender_id / sender_pubkey to a
            known peer display name.
         2. Handler-event correlation — when a handler event
-           (mesh.channel.message.new / mesh.message.new) appears in the same
-           drain batch, we propagate its fields back to the packet event.
+           (mesh.channel.message.new / mesh.message.new) arrives (possibly in
+           a later poll batch), we propagate its fields back to the packet
+           event.  The unenriched queues persist across batches so the
+           correlation works even when the handler event is drained separately.
 
         This is best-effort for display only — message routing uses handler
         events directly (see _process_event_for_peers).
         """
         peer_lookup = self._build_peer_lookup()
-
-        # Per-batch queues of unenriched packet data dicts.  These are NOT
-        # persistent across batches; if the handler event arrives in a later
-        # batch the packet just stays un-enriched (shows as "(encrypted)" in
-        # the analyzer, which is acceptable).
-        unenriched_grp: deque[dict] = deque()
-        unenriched_txt: deque[dict] = deque()
 
         for event in events:
             event_type = event.get("type", "")
@@ -397,28 +404,41 @@ class MeshcoreClient(MeshcoreService):
                 if event_type == EventType.PACKET:
                     payload_type = data.get("payload_type_name", "")
                     if payload_type == PayloadType.GRP_TXT and not data.get("channel_name"):
-                        unenriched_grp.append(data)
+                        self._unenriched_grp.append(data)
                     elif payload_type == PayloadType.TXT_MSG and not data.get("sender_name"):
-                        unenriched_txt.append(data)
+                        self._unenriched_txt.append(data)
 
             elif event_type == EventType.MESH_CHANNEL_MESSAGE_NEW:
-                if unenriched_grp:
-                    target = unenriched_grp.popleft()
+                if self._unenriched_grp:
+                    target = self._unenriched_grp.popleft()
+                    updates: dict[str, str] = {}
                     sender = data.get("sender_name") or data.get("peer_name")
                     if sender and not target.get("sender_name"):
                         target["sender_name"] = repair_utf8(str(sender))
+                        updates["sender_name"] = target["sender_name"]
                     channel = data.get("channel_name")
                     if channel:
                         target["channel_name"] = str(channel)
+                        updates["channel_name"] = target["channel_name"]
                     msg_text = data.get("message_text")
                     if msg_text and not target.get("payload_text"):
                         target["payload_text"] = str(msg_text)
+                        updates["payload_text"] = target["payload_text"]
+                    if updates:
+                        packet_hash = target.get("packet_hash")
+                        if packet_hash:
+                            self._packet_store.update_by_hash(packet_hash, updates)
 
             elif event_type == EventType.MESH_MESSAGE_NEW:
                 sender = data.get("sender_name") or data.get("peer_name")
-                if sender and unenriched_txt:
-                    target = unenriched_txt.popleft()
+                if sender and self._unenriched_txt:
+                    target = self._unenriched_txt.popleft()
                     target["sender_name"] = repair_utf8(str(sender))
+                    packet_hash = target.get("packet_hash")
+                    if packet_hash:
+                        self._packet_store.update_by_hash(
+                            packet_hash, {"sender_name": target["sender_name"]}
+                        )
 
     def _enrich_stored_sender_names(self, events: list[MeshEventDict]) -> None:
         """Enrich stored packet events with sender names from the peer registry."""
@@ -630,14 +650,12 @@ class MeshcoreClient(MeshcoreService):
         # Preserve the original-case sender name so we can resolve contacts later.
         peer_display_name = sender_name if is_direct else None
 
-        # Avoid duplicate messages using content-based deduplication
+        # Deduplicate by message_id — handles radio retransmissions of the
+        # same packet (pyMC_core derives a deterministic id from the decrypted
+        # timestamp + content hash, so copies of the same packet share an id).
         msg_id = data.get("message_id") or str(uuid4())
-        content_key = f"{sender_name}:{channel_name}:{message_text[:50]}"
         existing_ids = {m.message_id for m in self._messages[-100:]}
-        existing_content = {
-            f"{m.sender_id}:{m.channel_id}:{m.body[:50]}" for m in self._messages[-100:]
-        }
-        if msg_id in existing_ids or content_key in existing_content:
+        if msg_id in existing_ids:
             return
 
         snr = data.get("snr")
@@ -667,6 +685,7 @@ class MeshcoreClient(MeshcoreService):
                 display_name=display,
                 unread_count=1,
                 peer_name=peer_display_name,
+                kind="dm" if is_direct else "group",
             )
             self._channels[channel_name] = channel
             self._channel_store.add_or_update(channel)
