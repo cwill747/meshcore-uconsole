@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.7.0 (2026-02-19)
+
+### Feat
+
+- Analyzer shows decrypted content and route indicators
+- Store channel kind explicitly in Channel model
+- Surface radio hardware errors in StatusPill and toast
+
+### Fix
+
+- Fix private channel messaging and message dedup
+- Need to fall back out of decrypted not existing
+- Add hardware presets
+- Saving settings shouldn't freeze UI
+
 ## v1.6.1 (2026-02-18)
 
 ### Fix
