@@ -24,6 +24,7 @@ class MeshcoreSettings:
     preamble_length: int = 17
 
     # Hardware (SPI/GPIO)
+    hardware_preset: str = "uconsole"
     bus_id: int = 1
     cs_id: int = 0
     cs_pin: int = -1
@@ -64,6 +65,60 @@ def apply_preset(settings: MeshcoreSettings, preset: str) -> MeshcoreSettings:
     values = RADIO_PRESETS.get(preset)
     updated = settings.clone()
     updated.radio_preset = preset
+    if values is None:
+        return updated
+    for key, value in values.items():
+        setattr(updated, key, value)
+    return updated
+
+
+HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
+    "uconsole": {
+        "bus_id": 1,
+        "cs_id": 0,
+        "cs_pin": -1,
+        "reset_pin": 25,
+        "busy_pin": 24,
+        "irq_pin": 26,
+        "txen_pin": -1,
+        "rxen_pin": -1,
+        "is_waveshare": False,
+        "use_dio2_rf": True,
+        "use_dio3_tcxo": True,
+    },
+    "waveshare": {
+        "bus_id": 0,
+        "cs_id": 0,
+        "cs_pin": 21,
+        "reset_pin": 18,
+        "busy_pin": 20,
+        "irq_pin": 16,
+        "txen_pin": 6,
+        "rxen_pin": -1,
+        "is_waveshare": True,
+        "use_dio2_rf": False,
+        "use_dio3_tcxo": False,
+    },
+    "meshadv-mini": {
+        "bus_id": 0,
+        "cs_id": 0,
+        "cs_pin": 8,
+        "reset_pin": 24,
+        "busy_pin": 20,
+        "irq_pin": 16,
+        "txen_pin": -1,
+        "rxen_pin": 12,
+        "is_waveshare": False,
+        "use_dio2_rf": False,
+        "use_dio3_tcxo": False,
+    },
+}
+
+
+def apply_hardware_preset(settings: MeshcoreSettings, preset: str) -> MeshcoreSettings:
+    values = HARDWARE_PRESETS.get(preset)
+    updated = settings.clone()
+    updated.hardware_preset = preset
     if values is None:
         return updated
     for key, value in values.items():

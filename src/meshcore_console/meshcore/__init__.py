@@ -5,7 +5,13 @@ from .config import (
     load_hardware_config_from_env,
     load_runtime_config,
 )
-from .settings import MeshcoreSettings, RADIO_PRESETS, apply_preset
+from .settings import (
+    HARDWARE_PRESETS,
+    RADIO_PRESETS,
+    MeshcoreSettings,
+    apply_hardware_preset,
+    apply_preset,
+)
 from .session import PyMCCoreSession
 
 __all__ = [
@@ -14,7 +20,9 @@ __all__ = [
     "HardwareRadioConfig",
     "RuntimeRadioConfig",
     "MeshcoreSettings",
+    "HARDWARE_PRESETS",
     "RADIO_PRESETS",
+    "apply_hardware_preset",
     "apply_preset",
     "load_hardware_config_from_env",
     "load_runtime_config",

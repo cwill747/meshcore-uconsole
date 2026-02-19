@@ -14,7 +14,11 @@ from meshcore_console.meshcore.logging_setup import (
     export_logs_to_path,
     set_stderr_level,
 )
-from meshcore_console.meshcore.settings import MeshcoreSettings, apply_preset
+from meshcore_console.meshcore.settings import (
+    MeshcoreSettings,
+    apply_hardware_preset,
+    apply_preset,
+)
 from meshcore_console.ui_gtk.widgets.qr_dialog import QrCodeDialog
 
 logger = logging.getLogger(__name__)
@@ -208,6 +212,21 @@ class SettingsView(Gtk.Box):
         title.set_halign(Gtk.Align.START)
         panel.append(title)
 
+        # Hardware preset dropdown
+        preset_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        preset_label = Gtk.Label(label="Board Preset")
+        preset_label.add_css_class("panel-muted")
+        preset_box.append(preset_label)
+        self._hw_preset = Gtk.ComboBoxText.new()
+        self._hw_preset.append("uconsole", "uConsole (AIO)")
+        self._hw_preset.append("waveshare", "Waveshare")
+        self._hw_preset.append("meshadv-mini", "meshadv-mini")
+        self._hw_preset.append("custom", "Custom")
+        self._hw_preset.set_active_id("uconsole")
+        self._hw_preset.connect("changed", self._on_hw_preset_changed)
+        preset_box.append(self._hw_preset)
+        panel.append(preset_box)
+
         subtitle = Gtk.Label(label="SPI and GPIO pin configuration")
         subtitle.add_css_class("panel-muted")
         subtitle.set_halign(Gtk.Align.START)
@@ -384,6 +403,31 @@ class SettingsView(Gtk.Box):
         self._set_entry_int("preamble_length", updated.preamble_length)
         self._set_entry_int("tx_power", updated.tx_power)
 
+    def _on_hw_preset_changed(self, _combo: Gtk.ComboBoxText) -> None:
+        logger.debug("UI: hardware preset changed")
+        preset = self._hw_preset.get_active_id() or "custom"
+        if preset == "custom":
+            return
+        try:
+            current = self._collect_settings(allow_partial=True)
+        except ValueError:
+            current = self._service.get_settings()
+        updated = apply_hardware_preset(current, preset)
+        for key in (
+            "bus_id",
+            "cs_id",
+            "cs_pin",
+            "reset_pin",
+            "busy_pin",
+            "irq_pin",
+            "txen_pin",
+            "rxen_pin",
+        ):
+            self._set_entry_int(key, getattr(updated, key))
+        self._set_switch("is_waveshare", updated.is_waveshare)
+        self._set_switch("use_dio2_rf", updated.use_dio2_rf)
+        self._set_switch("use_dio3_tcxo", updated.use_dio3_tcxo)
+
     def _on_reload(self, _button: Gtk.Button) -> None:
         logger.debug("UI: reload settings button clicked")
         self._load_from_service()
@@ -437,6 +481,7 @@ class SettingsView(Gtk.Box):
         self._set_entry_int("preamble_length", settings.preamble_length)
 
         # Hardware
+        self._hw_preset.set_active_id(settings.hardware_preset)
         for key in (
             "bus_id",
             "cs_id",
@@ -494,7 +539,8 @@ class SettingsView(Gtk.Box):
             if val is not None:
                 setattr(out, key, val)
 
-        # Hardware switches
+        # Hardware
+        out.hardware_preset = self._hw_preset.get_active_id() or "custom"
         out.is_waveshare = self._switches["is_waveshare"].get_active()
         out.use_dio2_rf = self._switches["use_dio2_rf"].get_active()
         out.use_dio3_tcxo = self._switches["use_dio3_tcxo"].get_active()

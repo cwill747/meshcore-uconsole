@@ -1,14 +1,14 @@
 # meshcore-uconsole
 
-A gtk-based native desktop application for interacting with
-[MeshCore](https://meshcore.co.uk/) on the [ClockworkPi
-UConsole](https://www.clockworkpi.com/uconsole) using the [HackerGadgets
-AIO](https://hackergadgets.com/products/uconsole-aio-v2) board, which includes a
-LORA chip.
+A GTK-based native desktop application for interacting with
+[MeshCore](https://meshcore.co.uk/) radios on Raspberry Pi. Supports all
+hardware that [pyMC-core](https://github.com/rightup/pyMC_core) supports,
+including the [HackerGadgets AIO](https://hackergadgets.com/products/uconsole-aio-v2)
+(uConsole), Waveshare LoRa HATs, and meshadv-mini boards. Built-in hardware
+presets let you switch between boards without manually configuring every pin.
 
-Inpsired by [YAMPA](https://github.com/guax/YAMPA), and built on top of the
-great [pyMC-core](https://github.com/rightup/pyMC_core) library to interact with
-the board.
+Inspired by [YAMPA](https://github.com/guax/YAMPA), and built on top of the
+great [pyMC-core](https://github.com/rightup/pyMC_core) library.
 
 You can run a Mock version of the application on anything that supports Nix, and
 then you can run the real application on the uConsole either by cloning the repo
