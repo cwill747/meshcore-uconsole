@@ -201,7 +201,12 @@ def _import_channel(name: str, secret: str) -> int:
     channel_store = UIChannelStore(conn)
     if channel_store.get(channel_id) is None:
         channel_store.add_or_update(
-            Channel(channel_id=channel_id, display_name=f"#{channel_id}", unread_count=0)
+            Channel(
+                channel_id=channel_id,
+                display_name=f"#{name}",
+                unread_count=0,
+                kind="group",
+            )
         )
     conn.close()
     print(json.dumps({"status": "imported", "name": name}))

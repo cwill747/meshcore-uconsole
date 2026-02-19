@@ -88,6 +88,7 @@ class MockMeshcoreClient(MeshcoreService):
             display_name=display_name or (f"#{channel_id}" if is_group else channel_id),
             unread_count=0,
             peer_name=channel_id if not is_group else None,
+            kind="group" if is_group else "dm",
         )
         self._channels[normalized_id] = channel
         return channel
@@ -109,7 +110,11 @@ class MockMeshcoreClient(MeshcoreService):
             self._channels[channel_id].unread_count = 0
 
     def send_message(self, peer_id: str, body: str) -> Message:
-        is_group = peer_id == "public" or peer_id.startswith("#")
+        existing = self._channels.get(peer_id.lower()) or self._channels.get(peer_id)
+        if existing is not None:
+            is_group = existing.kind == "group"
+        else:
+            is_group = peer_id == "public" or peer_id.startswith("#")
         channel_id = peer_id if is_group else peer_id.lower()
         if channel_id not in self._channels:
             display = f"#{channel_id}" if is_group else peer_id
@@ -117,6 +122,7 @@ class MockMeshcoreClient(MeshcoreService):
                 channel_id=channel_id,
                 display_name=display,
                 peer_name=peer_id if not is_group else None,
+                kind="group" if is_group else "dm",
             )
         message = Message(
             message_id=str(uuid4()),
@@ -251,12 +257,6 @@ class MockMeshcoreClient(MeshcoreService):
         else:
             channel_name = (data.get("channel_name") or "public").lower()
 
-        # Deduplicate
-        content_key = f"{sender_name}:{channel_name}:{message_text[:50]}"
-        existing = {f"{m.sender_id}:{m.channel_id}:{m.body[:50]}" for m in self._messages[-100:]}
-        if content_key in existing:
-            return
-
         path_hops = data.get("path_hops", [])
         message = Message(
             message_id=str(uuid4()),
@@ -279,6 +279,7 @@ class MockMeshcoreClient(MeshcoreService):
                 display_name=display,
                 unread_count=1,
                 peer_name=sender_name if is_direct else None,
+                kind="dm" if is_direct else "group",
             )
         else:
             self._channels[channel_name].unread_count += 1
