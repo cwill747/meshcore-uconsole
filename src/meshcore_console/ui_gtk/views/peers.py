@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import gi
@@ -25,6 +26,8 @@ from meshcore_console.ui_gtk.widgets import (
     PeerListRow,
 )
 from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF
+
+logger = logging.getLogger(__name__)
 
 
 def format_public_key(key: str | None) -> str:
@@ -210,6 +213,7 @@ class PeersView(Gtk.Box):
             self._show_empty_details()
             return
 
+        logger.debug("UI: peer selected name=%s id=%s", peer.display_name, peer.peer_id)
         self._selected_peer = peer
         self._show_peer_details(peer)
 
@@ -367,10 +371,14 @@ class PeersView(Gtk.Box):
 
     def _on_toggle_favorite_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Toggle the favorite status of a peer."""
+        logger.debug(
+            "UI: toggle favorite peer=%s currently=%s", peer.display_name, peer.is_favorite
+        )
         self._service.set_favorite(peer.peer_id, not peer.is_favorite)
         peer.is_favorite = not peer.is_favorite
         self._refresh_peers()
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Navigate to messages view and start a conversation with this peer."""
+        logger.debug("UI: send message to peer=%s", peer.display_name)
         navigate(self, "messages", ("select_channel", peer.display_name))

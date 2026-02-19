@@ -233,6 +233,7 @@ class MessagesView(Gtk.Box):
             self._scroll_bottom_btn.set_visible(not at_bottom)
 
     def _on_scroll_to_bottom_clicked(self, _button: Gtk.Button) -> None:
+        logger.debug("UI: scroll to bottom clicked")
         self._scroll_to_bottom()
         self._service.mark_channel_read(self._selected_channel_id)
         self._update_channel_unread_display(self._selected_channel_id, 0)
@@ -248,6 +249,7 @@ class MessagesView(Gtk.Box):
 
     def _on_emoji_picked(self, _chooser: Gtk.EmojiChooser, emoji: str) -> None:
         """Insert the chosen emoji at the cursor position in the entry."""
+        logger.debug("UI: emoji picked: %s", emoji)
         pos = self._entry.get_position()
         self._entry.insert_text(emoji, pos)
         self._entry.set_position(pos + len(emoji))
@@ -363,6 +365,7 @@ class MessagesView(Gtk.Box):
 
     def _on_message_clicked(self, _button: Gtk.Button, message: Message) -> None:
         """Show message details when clicked."""
+        logger.debug("UI: message clicked id=%s", message.message_id)
         # Toggle if same message clicked again
         if self._selected_message and self._selected_message.message_id == message.message_id:
             self._details_revealer.set_reveal_child(False)
@@ -468,6 +471,7 @@ class MessagesView(Gtk.Box):
 
     def _on_mention_clicked(self, _label: Gtk.Label, uri: str) -> bool:
         """Handle clicks on @mention links — navigate to the peer."""
+        logger.debug("UI: mention clicked uri=%s", uri)
         if not uri.startswith("mention:"):
             return False
         peer_id = uri[len("mention:") :]
@@ -487,6 +491,7 @@ class MessagesView(Gtk.Box):
         return self._entry
 
     def _on_close_details(self, _button: Gtk.Button) -> None:
+        logger.debug("UI: close message details")
         self._details_revealer.set_reveal_child(False)
         self._selected_message = None
 
@@ -554,6 +559,7 @@ class MessagesView(Gtk.Box):
         channel_id = getattr(row, "channel_id", None)
         if not channel_id:
             return
+        logger.debug("UI: channel selected channel_id=%s", channel_id)
         self._selected_channel_id = channel_id
         self._update_thread_title(channel_id)
         self._reload_messages()
@@ -588,6 +594,7 @@ class MessagesView(Gtk.Box):
     ) -> None:
         """Show context menu on right-click for channel removal."""
         channel_id = getattr(row, "channel_id", None)
+        logger.debug("UI: channel right-click channel_id=%s", channel_id)
         if not channel_id or channel_id == "public":
             return
 
@@ -611,6 +618,7 @@ class MessagesView(Gtk.Box):
         self, _button: Gtk.Button, channel_id: str, popover: Gtk.Popover
     ) -> None:
         """Show confirmation dialog before removing a channel."""
+        logger.debug("UI: remove channel clicked channel_id=%s", channel_id)
         popover.popdown()
 
         display_name = self._get_channel_display_name(channel_id)
@@ -630,6 +638,7 @@ class MessagesView(Gtk.Box):
         self, _dialog: Adw.AlertDialog, response: str, channel_id: str
     ) -> None:
         """Handle confirmation dialog response."""
+        logger.debug("UI: remove confirmed response=%s channel_id=%s", response, channel_id)
         if response != "remove":
             return
         if self._service.remove_channel(channel_id):
@@ -640,6 +649,7 @@ class MessagesView(Gtk.Box):
 
     def _on_add_channel_clicked(self, _button: Gtk.Button) -> None:
         """Show a dialog to add a new hashtag channel by name."""
+        logger.debug("UI: add channel clicked")
         dialog = Adw.AlertDialog.new("Add Channel", None)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("add", "Add")
@@ -695,6 +705,9 @@ class MessagesView(Gtk.Box):
 
     def _on_send(self, *_args: object) -> None:
         body = self._entry.get_text().strip()
+        logger.debug(
+            "UI: send clicked channel=%s body_len=%d", self._selected_channel_id, len(body)
+        )
         if not body:
             self._send_status.set_text("Enter a message before sending.")
             return

@@ -64,8 +64,15 @@ class MeshcoreApplication(Adw.Application):
         if not os.environ.get("LOG_LEVEL"):
             set_stderr_level(self.service.get_settings().log_level)
 
+    def do_shutdown(self) -> None:
+        self.service.disconnect()
+        Adw.Application.do_shutdown(self)
+
     def do_activate(self) -> None:
+        from meshcore_console.ui_gtk.debug_hooks import install as install_debug_hooks
+
         _load_css()
+        install_debug_hooks()
         window = self.props.active_window
         if window is None:
             window = MainWindow(application=self, service=self.service)
