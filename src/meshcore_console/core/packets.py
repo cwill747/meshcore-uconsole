@@ -14,6 +14,7 @@ class PacketTypeHandler:
 
     name: PayloadType = PayloadType.UNKNOWN
     css_class: str = "type-other"
+    short_label: str = "UNK"
     encrypted: bool = False
 
     def content_summary(self, data: dict) -> str:
@@ -33,6 +34,7 @@ class PacketTypeHandler:
 class AdvertHandler(PacketTypeHandler):
     name = PayloadType.ADVERT
     css_class = "type-advert"
+    short_label = "ADVT"
 
     _ADV_TYPE_NAMES: dict[int, str] = {
         0: "",
@@ -59,6 +61,7 @@ class AdvertHandler(PacketTypeHandler):
 class AckHandler(PacketTypeHandler):
     name = PayloadType.ACK
     css_class = "type-ack"
+    short_label = "ACK"
 
     def content_summary(self, data: dict) -> str:
         ack_hash = data.get("ack_hash") or data.get("packet_hash")
@@ -70,6 +73,7 @@ class AckHandler(PacketTypeHandler):
 class PathHandler(PacketTypeHandler):
     name = PayloadType.PATH
     css_class = "type-path"
+    short_label = "PATH"
 
     def content_summary(self, data: dict) -> str:
         path_hops = data.get("path_hops") or []
@@ -81,6 +85,7 @@ class PathHandler(PacketTypeHandler):
 class TraceHandler(PacketTypeHandler):
     name = PayloadType.TRACE
     css_class = "type-path"
+    short_label = "TRAC"
 
     def content_summary(self, data: dict) -> str:
         snr_values = data.get("trace_snr_values")
@@ -93,6 +98,7 @@ class TraceHandler(PacketTypeHandler):
 class GrpTxtHandler(PacketTypeHandler):
     name = PayloadType.GRP_TXT
     css_class = "type-grp"
+    short_label = "GRPT"
     encrypted = True
 
     def content_summary(self, data: dict) -> str:
@@ -111,6 +117,7 @@ class GrpTxtHandler(PacketTypeHandler):
 class GrpDataHandler(PacketTypeHandler):
     name = PayloadType.GRP_DATA
     css_class = "type-grp"
+    short_label = "GRPD"
     encrypted = True
 
     def content_summary(self, data: dict) -> str:
@@ -129,6 +136,7 @@ class GrpDataHandler(PacketTypeHandler):
 class TxtMsgHandler(PacketTypeHandler):
     name = PayloadType.TXT_MSG
     css_class = "type-txt"
+    short_label = "TXT"
     encrypted = True
 
     def content_summary(self, data: dict) -> str:
@@ -138,6 +146,7 @@ class TxtMsgHandler(PacketTypeHandler):
 class MultipartHandler(PacketTypeHandler):
     name = PayloadType.MULTIPART
     css_class = "type-multi"
+    short_label = "MULT"
 
     def content_summary(self, data: dict) -> str:
         inner_name = data.get("multipart_inner_type_name")
@@ -153,6 +162,7 @@ class MultipartHandler(PacketTypeHandler):
 class ResponseHandler(PacketTypeHandler):
     name = PayloadType.RESPONSE
     css_class = "type-response"
+    short_label = "RESP"
 
     def content_summary(self, data: dict) -> str:
         text = data.get("payload_text")
@@ -164,6 +174,7 @@ class ResponseHandler(PacketTypeHandler):
 class ReqHandler(PacketTypeHandler):
     name = PayloadType.REQ
     css_class = "type-req"
+    short_label = "REQ"
 
     # Numeric request type codes → human-readable names
     _REQ_TYPE_NAMES: dict[int, str] = {
@@ -187,6 +198,7 @@ class ReqHandler(PacketTypeHandler):
 class AnonReqHandler(PacketTypeHandler):
     name = PayloadType.ANON_REQ
     css_class = "type-req"
+    short_label = "AREQ"
 
     # ANON_REQ sub-types are different from REQ sub-types
     _ANON_TYPE_NAMES: dict[int, str] = {
@@ -208,6 +220,7 @@ class AnonReqHandler(PacketTypeHandler):
 class ControlHandler(PacketTypeHandler):
     name = PayloadType.CONTROL
     css_class = "type-req"
+    short_label = "CTRL"
 
     def content_summary(self, data: dict) -> str:
         control_type = data.get("control_type")
@@ -234,6 +247,7 @@ class ControlHandler(PacketTypeHandler):
 class RawHandler(PacketTypeHandler):
     name = PayloadType.RAW
     css_class = "type-raw"
+    short_label = "RAW"
 
 
 class UnknownHandler(PacketTypeHandler):

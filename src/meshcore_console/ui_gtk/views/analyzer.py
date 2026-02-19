@@ -51,7 +51,7 @@ class PacketRecord:
 class AnalyzerView(Gtk.Box):
     # Column widths in characters -- sized to fit content at any monospace font.
     COL_TIME_CHARS = 11  # HH:MM:SS.mm
-    COL_TYPE_CHARS = 8  # RESPONSE (longest common)
+    COL_TYPE_CHARS = 4  # Short labels: GRPT, RESP, CTRL, etc.
     COL_NODE_CHARS = 14  # display name cap
     COL_ROUTE_CHARS = 3  # "D" or "2R"
     COL_SIGNAL_CHARS = 14  # -112 / -9.00 + padding
@@ -548,9 +548,10 @@ class AnalyzerView(Gtk.Box):
         time_label.set_ellipsize(Pango.EllipsizeMode.END)
         line.append(time_label)
 
-        type_label = Gtk.Label(label=packet.packet_type)
+        handler = get_handler(packet.packet_type)
+        type_label = Gtk.Label(label=handler.short_label)
         type_label.add_css_class("packet-type")
-        type_label.add_css_class(self._type_class(packet.packet_type))
+        type_label.add_css_class(handler.css_class)
         type_label.set_xalign(0)
         type_label.set_width_chars(self.COL_TYPE_CHARS)
         type_label.set_max_width_chars(self.COL_TYPE_CHARS)
