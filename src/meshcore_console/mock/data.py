@@ -589,6 +589,19 @@ def create_mock_packet_events() -> list[dict]:
         seed = pkt["data"]["packet_hash"]
         pkt["received_at"] = _mock_ts(seed, day)
 
+    # Derive wire-level fields so the analyzer details panel can display them
+    for pkt in packets:
+        d = pkt["data"]
+        payload_hex = d.get("payload_hex", "")
+        d.setdefault("payload_len", len(payload_hex) // 2)
+        pt = d.get("payload_type", 0)
+        rt = d.get("route_type", 1)
+        d.setdefault("header", (pt << 4) | rt)
+        has_tc = rt in (0, 3)  # TRANSPORT_FLOOD or TRANSPORT_DIRECT
+        d.setdefault(
+            "raw_length", 2 + d.get("path_len", 0) + d["payload_len"] + (4 if has_tc else 0)
+        )
+
     # Sort chronologically (oldest first) so arrival order matches timestamps
     packets.sort(key=lambda p: p["received_at"])
     return packets
