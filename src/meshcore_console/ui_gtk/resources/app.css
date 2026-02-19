@@ -378,6 +378,21 @@ row:focus-visible {
   border-left: 3px solid @mc_border;
 }
 
+/* Route indicator (direct vs relayed) */
+.route-indicator {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.route-indicator.route-direct {
+  color: @mc_accent;
+}
+
+.route-indicator.route-relayed {
+  color: @mc_warn;
+}
+
+
 .analyzer-detail-block {
   border-radius: 10px;
   background: alpha(@mc_bg, 0.5);

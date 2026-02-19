@@ -53,6 +53,7 @@ class AnalyzerView(Gtk.Box):
     COL_TIME_CHARS = 11  # HH:MM:SS.mm
     COL_TYPE_CHARS = 8  # RESPONSE (longest common)
     COL_NODE_CHARS = 14  # display name cap
+    COL_ROUTE_CHARS = 3  # "D" or "2R"
     COL_SIGNAL_CHARS = 14  # -112 / -9.00 + padding
 
     def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
@@ -115,6 +116,7 @@ class AnalyzerView(Gtk.Box):
         header.append(self._header_label("TIME", self.COL_TIME_CHARS))
         header.append(self._header_label("TYPE", self.COL_TYPE_CHARS))
         header.append(self._header_label("NODE", self.COL_NODE_CHARS))
+        header.append(self._header_label("RT", self.COL_ROUTE_CHARS))
         # Content header expands to fill remaining space
         content_header = self._header_label("CONTENT", -1)
         content_header.set_hexpand(True)
@@ -202,6 +204,12 @@ class AnalyzerView(Gtk.Box):
             self._debug_width_report("pre")
         new_records: list[PacketRecord] = []
         for event in events:
+            etype = event.get("type", "")
+            # Handler events carry decrypted data — back-fill the most recent
+            # unenriched packet record so the analyzer shows sender + text.
+            if etype in (EventType.MESH_CHANNEL_MESSAGE_NEW, EventType.MESH_MESSAGE_NEW):
+                self._enrich_recent_record(event)
+                continue
             record = self._event_to_record(event)
             if record is not None:
                 self._packets.appendleft(record)
@@ -212,6 +220,59 @@ class AnalyzerView(Gtk.Box):
             print(f"[ui-geom] analyzer post-refresh packets={len(self._packets)}")
             self._debug_width_report("post")
         return True
+
+    def _enrich_recent_record(self, handler_event: dict) -> None:
+        """Back-fill a recent GRP_TXT/TXT_MSG PacketRecord with decrypted handler data."""
+        data = handler_event.get("data")
+        if not isinstance(data, dict):
+            return
+        etype = handler_event.get("type", "")
+        target_type = "GRP_TXT" if etype == EventType.MESH_CHANNEL_MESSAGE_NEW else "TXT_MSG"
+        sender = data.get("sender_name") or data.get("peer_name") or ""
+        msg_text = data.get("message_text") or data.get("payload_text") or data.get("text") or ""
+        channel = data.get("channel_name") or ""
+
+        # Find the most recent matching unenriched record (newest is at index 0)
+        for record in self._packets:
+            if record.packet_type != target_type:
+                continue
+            if record.node != "Unknown":
+                continue  # Already enriched
+            # Update the record fields
+            if sender:
+                record.node = str(sender)
+            if msg_text:
+                record.payload_text = str(msg_text)
+                handler = get_handler(record.packet_type)
+                record.content = handler.format_content(str(msg_text), data)
+            if channel and target_type == "GRP_TXT":
+                record.content = f"[#{channel}] {msg_text}" if msg_text else f"[#{channel}]"
+            # Update the visible GTK row
+            self._update_row_for_record(record)
+            break
+
+    def _update_row_for_record(self, record: PacketRecord) -> None:
+        """Find and update the GTK row displaying *record*."""
+        for idx in range(
+            self._stream.get_n_items() if hasattr(self._stream, "get_n_items") else 500
+        ):
+            row = self._stream.get_row_at_index(idx)
+            if row is None:
+                break
+            if getattr(row, "_packet_record", None) is record:
+                line = row.get_child()
+                if line is None:
+                    break
+                # Children: time, type, node, route, content, signal
+                children = []
+                child = line.get_first_child()
+                while child is not None:
+                    children.append(child)
+                    child = child.get_next_sibling()
+                if len(children) >= 5:
+                    children[2].set_label(record.node)  # node label
+                    children[4].set_label(record.content)  # content label
+                break
 
     @staticmethod
     def _measure_h(widget: Gtk.Widget) -> tuple[int, int]:
@@ -504,6 +565,19 @@ class AnalyzerView(Gtk.Box):
         node_label.set_single_line_mode(True)
         node_label.set_ellipsize(Pango.EllipsizeMode.END)
         line.append(node_label)
+
+        is_direct = packet.path_len == 0
+        route_text = "D" if is_direct else f"{packet.path_len}R"
+        route_label = Gtk.Label(label=route_text)
+        route_label.add_css_class("route-indicator")
+        route_label.add_css_class("route-direct" if is_direct else "route-relayed")
+        route_label.set_xalign(0.5)
+        route_label.set_width_chars(self.COL_ROUTE_CHARS)
+        route_label.set_max_width_chars(self.COL_ROUTE_CHARS)
+        route_label.set_single_line_mode(True)
+        line.append(route_label)
+
+        row.add_css_class("route-direct" if is_direct else "route-relayed")
 
         content_label = Gtk.Label(label=packet.content)
         content_label.add_css_class("panel-muted")
