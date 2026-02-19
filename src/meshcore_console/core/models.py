@@ -48,3 +48,4 @@ class Channel:
     display_name: str
     unread_count: int = 0
     peer_name: str | None = None  # Original-case peer name for DM channels
+    kind: str = "group"  # "group" or "dm"

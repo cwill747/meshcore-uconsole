@@ -76,6 +76,12 @@ MIGRATIONS: list[tuple[str, ...]] = [
     ("ALTER TABLE messages ADD COLUMN path_hops TEXT",),
     # v3 -> v4: add is_favorite column to peers for user-pinned contacts/repeaters
     ("ALTER TABLE peers ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0",),
+    # v4 -> v5: add kind column to channels ("group" or "dm")
+    (
+        "ALTER TABLE channels ADD COLUMN kind TEXT NOT NULL DEFAULT 'group'",
+        # Backfill: channels with a peer_name are DM channels
+        "UPDATE channels SET kind = 'dm' WHERE peer_name IS NOT NULL",
+    ),
 ]
 
 
