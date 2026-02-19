@@ -73,9 +73,9 @@ class SettingsView(Gtk.Box):
         # Actions bar at bottom
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         actions.add_css_class("panel-card")
-        save = Gtk.Button.new_with_label("Save Settings")
-        save.connect("clicked", self._on_save)
-        actions.append(save)
+        self._save_button = Gtk.Button.new_with_label("Save Settings")
+        self._save_button.connect("clicked", self._on_save)
+        actions.append(self._save_button)
 
         reload_btn = Gtk.Button.new_with_label("Reload")
         reload_btn.connect("clicked", self._on_reload)
@@ -283,10 +283,12 @@ class SettingsView(Gtk.Box):
 
     def _on_log_level_changed(self, combo: Gtk.ComboBoxText) -> None:
         level = combo.get_active_id()
+        logger.debug("UI: log level changed to %s", level)
         if level:
             set_stderr_level(level)
 
     def _on_export_logs(self, _button: Gtk.Button) -> None:
+        logger.debug("UI: export logs button clicked")
         from datetime import datetime, timezone
 
         ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -352,6 +354,7 @@ class SettingsView(Gtk.Box):
             self._public_key_label.set_text(_abbreviate_key(public_key))
 
     def _on_show_qr(self, _button: Gtk.Button) -> None:
+        logger.debug("UI: show QR button clicked")
         """Show QR code dialog."""
         node_name = self._entries["node_name"].get_text().strip()
         if not node_name:
@@ -364,6 +367,7 @@ class SettingsView(Gtk.Box):
         dialog.present()
 
     def _on_preset_changed(self, _combo: Gtk.ComboBoxText) -> None:
+        logger.debug("UI: radio preset changed")
         preset = self._preset.get_active_id() or "custom"
         if preset == "custom":
             return
@@ -381,21 +385,31 @@ class SettingsView(Gtk.Box):
         self._set_entry_int("tx_power", updated.tx_power)
 
     def _on_reload(self, _button: Gtk.Button) -> None:
+        logger.debug("UI: reload settings button clicked")
         self._load_from_service()
         self._status_label.set_text("Reloaded from persisted settings.")
 
     def _on_save(self, _button: Gtk.Button) -> None:
+        logger.debug("UI: save settings button clicked")
         try:
             settings = self._collect_settings()
-            self._service.update_settings(settings)
-            self._status_label.set_text("Settings saved.")
         except ValueError as exc:
             logger.warning("Settings validation error: %s", exc)
             self._status_label.set_text(f"Invalid: {exc}")
+            return
+
+        try:
+            self._service.update_settings(settings)
         except Exception as exc:  # noqa: BLE001
-            msg = str(exc) or type(exc).__name__
-            logger.error("Settings save failed: %s", msg)
-            self._status_label.set_text(f"Save failed: {msg}")
+            logger.error("Settings save failed: %s", exc)
+            self._status_label.set_text(f"Save failed: {exc}")
+            return
+
+        logger.debug("UI: settings saved successfully")
+        if self._service.get_status().connected:
+            self._status_label.set_text("Saved. Restart the app to apply radio changes.")
+        else:
+            self._status_label.set_text("Settings saved.")
 
     def _load_from_service(self) -> None:
         settings = self._service.get_settings()

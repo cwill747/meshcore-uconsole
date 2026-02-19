@@ -154,7 +154,7 @@ class MeshcoreClient(MeshcoreService):
         runtime_connected = bool(self._session.status().get("connected"))
         if self._connected or runtime_connected:
             try:
-                self._run_async(self._session.stop(), timeout=6.0)
+                self._run_async(self._session.stop(), timeout=10.0)
             except (TimeoutError, RuntimeError):
                 pass
             finally:
@@ -693,24 +693,23 @@ class MeshcoreClient(MeshcoreService):
         return self._settings.clone()
 
     def update_settings(self, settings: MeshcoreSettings) -> None:
-        connected = self._connected
-        if connected:
-            self.disconnect()
-
         updated = settings.clone()
         if updated.radio_preset != "custom":
             updated = apply_preset(updated, updated.radio_preset)
 
         self._settings = updated
         self._settings_store.save(updated)
-        self._session = self._new_session()
         self._config = runtime_config_from_settings(self._settings)
+
+        # Prepare a fresh session so the next connect() picks up new config,
+        # but do NOT restart the radio here — the user must restart the app
+        # for radio-parameter changes to take effect.
+        if not self._connected:
+            self._session = self._new_session()
+
         self._append_event(
             {"type": EventType.SETTINGS_UPDATED, "data": {"node_name": updated.node_name}}
         )
-
-        if connected:
-            self.connect()
 
     def get_device_location(self) -> tuple[float, float] | None:
         return self._gps_provider.get_location()

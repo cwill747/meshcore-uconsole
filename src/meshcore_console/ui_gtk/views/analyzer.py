@@ -174,6 +174,7 @@ class AnalyzerView(Gtk.Box):
 
     def _on_pause_toggled(self, button: Gtk.ToggleButton) -> None:
         self._paused = button.get_active()
+        logger.debug("UI: pause toggled paused=%s", self._paused)
         if self._paused:
             self._pause_icon.set_from_icon_name("media-playback-start-symbolic")
             button.set_tooltip_text("Resume stream")
@@ -182,6 +183,7 @@ class AnalyzerView(Gtk.Box):
             button.set_tooltip_text("Pause stream")
 
     def _on_filter_clicked(self, _button: Gtk.ToggleButton, filter_type: AnalyzerFilter) -> None:
+        logger.debug("UI: filter clicked filter=%s", filter_type.value)
         self._active_filter = filter_type
         for key, btn in self._filter_buttons.items():
             btn.set_active(key == filter_type)
@@ -569,6 +571,12 @@ class AnalyzerView(Gtk.Box):
             self._details_revealer.set_reveal_child(False)
             return
         self._selected_packet = getattr(row, "_packet_record", None)
+        if self._selected_packet:
+            logger.debug(
+                "UI: packet selected id=%s type=%s",
+                self._selected_packet.packet_id,
+                self._selected_packet.packet_type,
+            )
         self._refresh_details()
         self._details_revealer.set_reveal_child(True)
 
@@ -645,6 +653,7 @@ class AnalyzerView(Gtk.Box):
         return self._stream
 
     def _on_close_details_clicked(self, _button: Gtk.Button) -> None:
+        logger.debug("UI: close analyzer details")
         self._selected_packet = None
         self._stream.unselect_all()
         self._details_revealer.set_reveal_child(False)

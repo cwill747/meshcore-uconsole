@@ -213,6 +213,7 @@ class MainWindow(Adw.ApplicationWindow):
                     fn(arg)
 
     def _on_nav_button_toggled(self, button: Gtk.ToggleButton, page_name: str) -> None:
+        logger.debug("UI: nav button toggled page=%s active=%s", page_name, button.get_active())
         if button.get_active():
             # Deactivate other nav buttons
             for name, btn in self._nav_buttons.items():
@@ -225,6 +226,7 @@ class MainWindow(Adw.ApplicationWindow):
             button.set_active(True)
 
     def _on_settings_clicked(self, _button: Gtk.Button) -> None:
+        logger.debug("UI: settings button clicked")
         # Deactivate all nav buttons when showing settings
         for btn in self._nav_buttons.values():
             btn.set_active(False)
@@ -232,10 +234,12 @@ class MainWindow(Adw.ApplicationWindow):
         self._focus_current_view()
 
     def _on_advert_flood(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
+        logger.debug("UI: flood advert button clicked")
         popover.popdown()
         self._send_advert(route_type="flood")
 
     def _on_advert_direct(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
+        logger.debug("UI: direct advert button clicked")
         popover.popdown()
         self._send_advert(route_type="direct")
 
@@ -250,8 +254,10 @@ class MainWindow(Adw.ApplicationWindow):
             def on_done() -> bool:
                 if error:
                     logger.error("Advert failed: %s", error)
+                    logger.debug("UI: toast 'Advert failed: %s'", error)
                     self._toast_overlay.add_toast(Adw.Toast.new(f"Advert failed: {error}"))
                 else:
+                    logger.debug("UI: toast 'Sent %s advert'", route_type)
                     self._toast_overlay.add_toast(Adw.Toast.new(f"Sent {route_type} advert"))
                 return False
 
@@ -405,6 +411,9 @@ class MainWindow(Adw.ApplicationWindow):
         # Use button label to determine action (avoids state sync issues)
         current_label = self._connect_button.get_label()
         is_disconnect = current_label == "Disconnect"
+        logger.debug(
+            "UI: connect toggle clicked, action=%s", "disconnect" if is_disconnect else "connect"
+        )
 
         # Disable button and show pending state
         self._connect_button.set_sensitive(False)
@@ -429,11 +438,12 @@ class MainWindow(Adw.ApplicationWindow):
         self._connect_button.set_sensitive(True)
         if error:
             logger.error("Connection error: %s", error)
+            logger.debug("UI: toast 'Connection error: %s'", error)
             self._toast_overlay.add_toast(Adw.Toast.new(f"Connection error: {error}"))
         else:
-            self._toast_overlay.add_toast(
-                Adw.Toast.new("Disconnected" if was_disconnect else "Connected")
-            )
+            msg = "Disconnected" if was_disconnect else "Connected"
+            logger.debug("UI: toast '%s'", msg)
+            self._toast_overlay.add_toast(Adw.Toast.new(msg))
         self._refresh_connection_state()
         return False  # Don't repeat
 
@@ -508,6 +518,7 @@ class MainWindow(Adw.ApplicationWindow):
         if page is None:
             return False
 
+        logger.debug("UI: keyboard shortcut Ctrl+%s → %s", keyval - Gdk.KEY_0, page)
         self._switch_to_page(page)
         # Update nav button states
         if page == "settings":

@@ -214,9 +214,29 @@ class PyMCCoreSession:
             self._log,
         )
 
-        self._log("calling radio.begin()")
-        if not self._radio.begin():
-            raise RuntimeError("radio.begin() returned False – hardware init failed")
+        # Retry begin() with backoff — pymc_core calls sys.exit(1) when a
+        # GPIO pin is still held by the previous session's edge-detection
+        # thread (stuck in gpio.poll(30s)).  Retrying gives the kernel time
+        # to release the line after the old fd is closed.
+        max_begin_attempts = 4
+        for attempt in range(max_begin_attempts):
+            self._log(f"calling radio.begin() (attempt {attempt + 1}/{max_begin_attempts})")
+            try:
+                if not self._radio.begin():
+                    raise RuntimeError("radio.begin() returned False – hardware init failed")
+                break
+            except SystemExit:
+                if attempt >= max_begin_attempts - 1:
+                    raise RuntimeError("GPIO pins still busy after retries – hardware init failed")
+                delay = 2.0 * (attempt + 1)
+                self._log(f"GPIO busy, retrying in {delay:.0f}s")
+                # Clean up partial radio state before retry
+                try:
+                    self._radio.cleanup()
+                except Exception:
+                    pass
+                await asyncio.sleep(delay)
+                self._radio = create_radio(SX1262Radio, hardware_config, self._log)
         self._log("radio.begin() returned successfully")
 
         self._event_service = EventService()
@@ -280,7 +300,24 @@ class PyMCCoreSession:
                 pass
 
         # Best-effort radio cleanup for reconnect stability on Linux GPIO/SPI.
+        #
+        # pymc_core's GPIOPinManager.cleanup_all() joins edge-detection threads
+        # (2.0s timeout) BEFORE closing pin file descriptors.  Since those
+        # threads block in gpio.poll(30.0), the join always times out.
+        # Pre-closing the fds unblocks the threads so cleanup_all()'s join
+        # succeeds immediately and the whole stop() fits within the caller's
+        # async timeout.
         if self._radio is not None:
+            gpio_mgr = getattr(self._radio, "_gpio_manager", None)
+            if gpio_mgr is not None:
+                for evt in getattr(gpio_mgr, "_edge_stop_events", {}).values():
+                    evt.set()
+                for pin_obj in list(getattr(gpio_mgr, "_pins", {}).values()):
+                    try:
+                        pin_obj.close()
+                    except Exception:
+                        pass
+
             for method in (
                 "stop",
                 "shutdown",
@@ -288,14 +325,13 @@ class PyMCCoreSession:
                 "cleanup",
                 "deinit",
                 "end",
-                "_cleanup_interrupt_handling",
-                "_cleanup_interrupt",
             ):
                 await self._call_maybe_async(self._radio, method)
-            lora = getattr(self._radio, "lora", None)
-            if lora is not None:
-                for method in ("close", "cleanup", "deinit", "end"):
-                    await self._call_maybe_async(lora, method)
+            # Do NOT call lora methods separately.  radio.cleanup() already
+            # calls lora.end() then gpio_manager.cleanup_all().  Calling
+            # lora.end() again would re-open the busy pin (via busyCheck →
+            # _get_input_safe) after cleanup_all() released it, causing
+            # "Device or resource busy" on the next start().
 
         self._radio = None
         self._identity = None
@@ -304,11 +340,10 @@ class PyMCCoreSession:
         self._event_subscriber = None
         self._node_task = None
 
-        # Force GC so the radio's GPIO file descriptors are closed immediately,
-        # then poll until hardware threads (GPIO edge detection, IRQ handlers)
-        # have exited — that's when the kernel actually releases the GPIO lines.
+        # Edge threads should already be dead (fds pre-closed above).
+        # Brief settle for the kernel to fully release GPIO lines.
         gc.collect()
-        await self._poll_hw_threads(timeout=5.0)
+        await self._poll_hw_threads(timeout=3.0)
 
         while not self._event_queue.empty():
             try:

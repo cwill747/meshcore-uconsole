@@ -249,6 +249,7 @@ class MapView(Gtk.Box):
 
     def _on_zoom_in(self, _button: Gtk.Button) -> None:
         """Zoom in on the map."""
+        logger.debug("UI: map zoom in")
         self._programmatic_move = True
         current = self._viewport.get_zoom_level()
         self._viewport.set_zoom_level(min(current + 1, 19))
@@ -256,6 +257,7 @@ class MapView(Gtk.Box):
 
     def _on_zoom_out(self, _button: Gtk.Button) -> None:
         """Zoom out on the map."""
+        logger.debug("UI: map zoom out")
         self._programmatic_move = True
         current = self._viewport.get_zoom_level()
         self._viewport.set_zoom_level(max(current - 1, 0))
@@ -263,6 +265,7 @@ class MapView(Gtk.Box):
 
     def _on_center_device(self, _button: Gtk.Button) -> None:
         """Center the map on the device location and enable follow mode."""
+        logger.debug("UI: center on device clicked")
         location = self._service.get_device_location()
         if location:
             lat, lon = location
@@ -293,6 +296,7 @@ class MapView(Gtk.Box):
 
     def _on_simulate_movement(self, _button: Gtk.Button) -> None:
         """Manually trigger GPS position cycle in mock mode."""
+        logger.debug("UI: simulate GPS movement clicked")
         self._service.cycle_mock_gps()
         self._update_device_marker()
 
@@ -339,6 +343,7 @@ class MapView(Gtk.Box):
 
     def _show_toast(self, message: str) -> None:
         """Show a toast message via the main window's toast overlay."""
+        logger.debug("UI: toast %r", message)
         try:
             import gi
 
@@ -531,6 +536,7 @@ class MapView(Gtk.Box):
         if peer is None:
             return
 
+        logger.debug("UI: map marker clicked peer=%s", peer.display_name)
         self._selected_peer = peer
         self._show_peer_details(peer)
 
