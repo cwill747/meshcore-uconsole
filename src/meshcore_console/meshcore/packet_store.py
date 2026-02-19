@@ -52,6 +52,27 @@ class PacketStore:
         # Reverse so oldest is first (chronological order)
         return [self._hydrate(row[0], row[1]) for row in reversed(rows)]
 
+    def update_by_hash(self, packet_hash: str, updates: dict) -> None:
+        """Merge *updates* into the most recent stored 'packet' event matching *packet_hash*."""
+        row = self._conn.execute(
+            "SELECT id, data FROM packets"
+            " WHERE json_extract(data, '$.type') = 'packet'"
+            "   AND json_extract(data, '$.data.packet_hash') = ?"
+            " ORDER BY id DESC LIMIT 1",
+            (packet_hash,),
+        ).fetchone()
+        if row is None:
+            return
+        event = json.loads(row[1])
+        data = event.get("data")
+        if isinstance(data, dict):
+            data.update(updates)
+            self._conn.execute(
+                "UPDATE packets SET data = ? WHERE id = ?",
+                (json.dumps(event, default=str), row[0]),
+            )
+            self._conn.commit()
+
     def flush_if_dirty(self) -> None:
         pass
 
