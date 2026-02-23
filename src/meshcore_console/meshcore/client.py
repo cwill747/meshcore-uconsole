@@ -506,6 +506,12 @@ class MeshcoreClient(MeshcoreService):
 
         peer_id = data.get("sender_id") or data.get("peer_id")
         public_key = data.get("sender_pubkey")
+
+        # Skip our own advert reflected back through a repeater.
+        self_pubkey = self.get_self_public_key()
+        if self_pubkey and public_key and self_pubkey == public_key:
+            return
+
         path_hops = data.get("path_hops", [])
         rssi_raw = data.get("rssi")
         snr_raw = data.get("snr")
