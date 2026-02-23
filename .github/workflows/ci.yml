@@ -100,6 +100,11 @@ jobs:
           mkdir -p build
           mv ../meshcore-uconsole_*.deb build/
 
+      - name: Install and verify package
+        run: |
+          apt-get install -y ./build/*.deb
+          meshcore-console --version
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
