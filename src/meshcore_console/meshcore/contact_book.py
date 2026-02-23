@@ -5,6 +5,7 @@ a contact book object with:
   - .contacts  — iterable of objects with .public_key (hex str) and .name
   - .get_by_name(name) — return a contact or None
   - .add_contact(data) — store a new contact
+  - .list_contacts() — return all contacts (used by ProtocolResponseHandler)
 """
 
 from __future__ import annotations
@@ -30,6 +31,9 @@ class ContactBook:
 
     def __init__(self) -> None:
         self.contacts: list[Contact] = []
+
+    def list_contacts(self) -> list[Contact]:
+        return self.contacts
 
     def get_by_name(self, name: str) -> Contact | None:
         for contact in self.contacts:

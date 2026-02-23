@@ -23,6 +23,21 @@ from meshcore_console.core.types import (
     SX1262RadioProtocol,
 )
 
+from .cayenne_lpp import encode_gps
+from . import cayenne_lpp as _cayenne_lpp_mod
+
+# pymc_core's ProtocolResponseHandler tries ``from utils.cayenne_lpp_helpers
+# import decode_cayenne_lpp_payload`` which isn't shipped.  Register our
+# module under that name so the import succeeds.
+import sys as _sys
+import types as _types
+
+if "utils.cayenne_lpp_helpers" not in _sys.modules:
+    _shim = _types.ModuleType("utils.cayenne_lpp_helpers")
+    _shim.decode_cayenne_lpp_payload = _cayenne_lpp_mod.decode_cayenne_lpp_payload  # type: ignore[attr-defined]
+    _sys.modules.setdefault("utils", _types.ModuleType("utils"))
+    _sys.modules["utils.cayenne_lpp_helpers"] = _shim
+
 from .channel_db import ChannelDatabase
 from .config import RuntimeRadioConfig, load_hardware_config_from_env
 from .contact_book import ContactBook
@@ -46,6 +61,7 @@ class PyMCCoreSession:
         self._node_task: asyncio.Task[None] | None = None
         self._event_queue: queue.Queue[MeshEventDict] = queue.Queue()
         self._event_notify: Callable[[], None] | None = None
+        self._telemetry_data_fn: Callable[[], dict[str, Any]] | None = None
         self._db = open_db()
         self._channel_db = ChannelDatabase(self._db)
         self._contact_book = ContactBook()
@@ -57,6 +73,10 @@ class PyMCCoreSession:
 
     def set_event_notify(self, notify_fn: Callable[[], None]) -> None:
         self._event_notify = notify_fn
+
+    def set_telemetry_data_fn(self, fn: Callable[[], dict[str, Any]]) -> None:
+        """Set the callback that provides local telemetry data for inbound requests."""
+        self._telemetry_data_fn = fn
 
     def _emit(self, payload: MeshEventDict) -> None:
         self._event_queue.put_nowait(payload)
@@ -120,6 +140,33 @@ class PyMCCoreSession:
 
         control_handler.set_request_callback(_on_discovery_request)
 
+    def _build_telemetry_handler(self) -> Callable[..., bytes | None]:
+        """Build a handler closure for inbound telemetry requests (REQ type 0x03)."""
+        TELEM_PERM_LOCATION = 0x02  # noqa: N806
+
+        def _handle_telemetry(_client: Any, _timestamp: int, req_data: bytes) -> bytes | None:
+            if self._telemetry_data_fn is None:
+                return None
+            data = self._telemetry_data_fn()
+            if not data.get("allow"):
+                self._log("telemetry request denied (allow_telemetry=False)")
+                return None
+            # req_data is an inverse permission mask — bits set = permissions EXCLUDED
+            mask = req_data[0] if req_data else 0x00
+            if mask & TELEM_PERM_LOCATION:
+                self._log("telemetry request excludes location")
+                return None
+            lat = data.get("lat")
+            lon = data.get("lon")
+            if lat is None or lon is None:
+                self._log("telemetry request: no GPS fix")
+                return None
+            payload = encode_gps(channel=1, lat=lat, lon=lon)
+            self._log(f"responding to telemetry request with GPS ({lat:.4f}, {lon:.4f})")
+            return payload
+
+        return _handle_telemetry
+
     def _register_req_handler(self) -> None:
         """Register a handler for incoming REQ packets.
 
@@ -131,6 +178,8 @@ class PyMCCoreSession:
         from pymc_core.node.handlers.protocol_request import ProtocolRequestHandler
         from pymc_core.protocol.constants import PAYLOAD_TYPE_REQ
 
+        REQ_TYPE_GET_TELEMETRY_DATA = 0x03  # noqa: N806
+
         assert self._node is not None
         assert self._identity is not None
 
@@ -138,6 +187,7 @@ class PyMCCoreSession:
             local_identity=self._identity,
             contacts=self._contact_book,
             log_fn=self._log,
+            request_handlers={REQ_TYPE_GET_TELEMETRY_DATA: self._build_telemetry_handler()},
         )
 
         dispatcher = self._node.dispatcher
@@ -382,6 +432,24 @@ class PyMCCoreSession:
             lat=lat,
             lon=lon,
             route_type=route_type,
+        )
+
+    async def send_telemetry_request(
+        self,
+        contact_name: str,
+        *,
+        want_location: bool = True,
+        timeout: float = 10.0,
+    ) -> dict:
+        """Request telemetry from a remote peer. Returns decoded sensor data."""
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        return await self._node.send_telemetry_request(
+            contact_name,
+            want_base=True,
+            want_location=want_location,
+            want_environment=False,
+            timeout=timeout,
         )
 
     async def listen_events(self) -> AsyncIterator[MeshEventDict]:

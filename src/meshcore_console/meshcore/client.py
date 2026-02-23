@@ -157,6 +157,7 @@ class MeshcoreClient(MeshcoreService):
             self._connected = False
             raise
         self._connected = True
+        self._session.set_telemetry_data_fn(self._get_local_telemetry)
         self._seed_contact_book()
         self._gps_provider.start()
         self._append_event(
@@ -776,6 +777,31 @@ class MeshcoreClient(MeshcoreService):
     def get_self_public_key(self) -> str | None:
         """Return this node's public key as a hex string, or None if unavailable."""
         return self._session.get_public_key()
+
+    def request_telemetry(self, peer_name: str) -> dict:
+        """Request telemetry data from a remote peer."""
+        if not self._connected:
+            self.connect()
+        result = self._run_async(
+            self._session.send_telemetry_request(peer_name, timeout=10.0),
+            timeout=15.0,
+        )
+        self._append_event(
+            {
+                "type": EventType.TELEMETRY_RECEIVED,
+                "data": {"peer_name": peer_name, "telemetry": result},
+            }
+        )
+        return result  # type: ignore[return-value]
+
+    def _get_local_telemetry(self) -> dict:
+        """Provide local telemetry data for inbound requests."""
+        loc = self._gps_provider.get_location()
+        return {
+            "allow": self._settings.allow_telemetry,
+            "lat": loc[0] if loc else None,
+            "lon": loc[1] if loc else None,
+        }
 
     def _seed_contact_book(self) -> None:
         """Populate the session's contact book with known peers that have public keys."""

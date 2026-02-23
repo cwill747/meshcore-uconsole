@@ -18,6 +18,23 @@ async def send_group_text(*, node: MeshNodeProtocol, channel_name: str, message:
     return await node.send_group_text(channel_name, message)
 
 
+async def request_telemetry(
+    *,
+    node: MeshNodeProtocol,
+    contact_name: str,
+    want_location: bool = True,
+    timeout: float = 10.0,
+) -> dict:
+    """Request telemetry data from a remote peer."""
+    return await node.send_telemetry_request(
+        contact_name,
+        want_base=True,
+        want_location=want_location,
+        want_environment=False,
+        timeout=timeout,
+    )
+
+
 async def send_advert(
     *,
     node: MeshNodeProtocol,
