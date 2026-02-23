@@ -534,6 +534,7 @@ version = "1.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "gpsdclient" },
+    { name = "pycayennelpp" },
     { name = "pymc-core" },
     { name = "pymc-core", extra = ["hardware"], marker = "sys_platform == 'linux'" },
     { name = "pynmea2" },
@@ -560,6 +561,7 @@ requires-dist = [
     { name = "gpsdclient", specifier = ">=1.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
+    { name = "pycayennelpp", specifier = ">=2.4.0" },
     { name = "pygobject", marker = "extra == 'gtk'", specifier = ">=3.48" },
     { name = "pymc-core", specifier = ">=0.1.0" },
     { name = "pymc-core", extras = ["hardware"], marker = "sys_platform == 'linux'", specifier = ">=0.1.0" },
@@ -713,6 +715,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/5e/91/93632b6ba12ad69c61991e3208bde88486fdfc152be8cfdd13444e9bc650/pycairo-1.29.0-cp314-cp314-win_arm64.whl", hash = "sha256:b72200ea0e5f73ae4c788cd2028a750062221385eb0e6d8f1ecc714d0b4fdf82", size = 719537, upload-time = "2025-11-11T19:12:55.016Z" },
     { url = "https://files.pythonhosted.org/packages/93/23/37053c039f8d3b9b5017af9bc64d27b680c48a898d48b72e6d6583cf0155/pycairo-1.29.0-cp314-cp314t-win_amd64.whl", hash = "sha256:5e45fce6185f553e79e4ef1722b8e98e6cde9900dbc48cb2637a9ccba86f627a", size = 874015, upload-time = "2025-11-11T19:12:28.47Z" },
     { url = "https://files.pythonhosted.org/packages/d7/54/123f6239685f5f3f2edc123f1e38d2eefacebee18cf3c532d2f4bd51d0ef/pycairo-1.29.0-cp314-cp314t-win_arm64.whl", hash = "sha256:caba0837a4b40d47c8dfb0f24cccc12c7831e3dd450837f2a356c75f21ce5a15", size = 721404, upload-time = "2025-11-11T19:12:36.919Z" },
+]
+
+[[package]]
+name = "pycayennelpp"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/d6/3587ea1936b479fbb5250de604f76e2f7e75ac15e845e7c0b7fb1065a157/pycayennelpp-2.4.0.tar.gz", hash = "sha256:bdf5e3e698ce40e66c5065794340e7149c1147f3fd98438e7ea72885c4a786b1", size = 11390, upload-time = "2021-10-12T20:02:33.95Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6e/9a/79e6623e3b65b2ecf3294d3bb14aae74ea529da30d8ff5db1f9cb19c0aac/pycayennelpp-2.4.0-py3-none-any.whl", hash = "sha256:a3e69ea4da9e2971a44d1e275d5555617b2345eea752325f28c0356f64901d62", size = 10417, upload-time = "2021-10-12T20:02:32.573Z" },
 ]
 
 [[package]]

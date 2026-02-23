@@ -7,7 +7,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gtk, Pango
+from gi.repository import GLib, Gtk, Pango
 
 if TYPE_CHECKING:
     pass
@@ -121,7 +121,8 @@ class PeersView(Gtk.Box):
         self._details_title.set_margin_bottom(8)
         details_column.append(self._details_title)
 
-        details_scroll = Gtk.ScrolledWindow.new()
+        self._details_scroll = Gtk.ScrolledWindow.new()
+        details_scroll = self._details_scroll
         details_scroll.set_vexpand(True)
         details_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
@@ -331,6 +332,10 @@ class PeersView(Gtk.Box):
             message_btn.connect("clicked", self._on_send_message_clicked, peer)
             actions.append(message_btn)
 
+        telem_btn = Gtk.Button.new_with_label("Request Telemetry")
+        telem_btn.connect("clicked", self._on_request_telemetry_clicked, peer)
+        actions.append(telem_btn)
+
         self._details_content.append(actions)
 
     def _add_section_header(self, title: str) -> None:
@@ -382,3 +387,126 @@ class PeersView(Gtk.Box):
         """Navigate to messages view and start a conversation with this peer."""
         logger.debug("UI: send message to peer=%s", peer.display_name)
         navigate(self, "messages", ("select_channel", peer.display_name))
+
+    def _on_request_telemetry_clicked(self, button: Gtk.Button, peer: Peer) -> None:
+        """Request telemetry from a peer in a background thread."""
+        import threading
+
+        button.set_sensitive(False)
+        button.set_label("Requesting...")
+
+        # Add a spinner below the actions
+        spinner_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        spinner_box.set_halign(Gtk.Align.START)
+        spinner = Gtk.Spinner()
+        spinner.start()
+        spinner_box.append(spinner)
+        spinner_label = Gtk.Label(label="Waiting for telemetry response...")
+        spinner_label.add_css_class("panel-muted")
+        spinner_box.append(spinner_label)
+        self._details_content.append(spinner_box)
+
+        def _do_request() -> None:
+            try:
+                result = self._service.request_telemetry(peer.display_name)
+                GLib.idle_add(self._show_telemetry_result, spinner_box, button, peer, result)
+            except Exception as exc:
+                GLib.idle_add(self._show_telemetry_error, spinner_box, button, str(exc))
+
+        threading.Thread(target=_do_request, daemon=True, name="telemetry-req").start()
+
+    def _show_telemetry_result(
+        self, spinner_box: Gtk.Box, button: Gtk.Button, peer: Peer, result: dict
+    ) -> None:
+        """Display telemetry results in the details panel (called on main thread)."""
+        self._details_content.remove(spinner_box)
+        button.set_sensitive(True)
+        button.set_label("Request Telemetry")
+
+        self._add_section_header("Telemetry")
+
+        if not result or not result.get("success"):
+            reason = result.get("reason", "No telemetry data returned") if result else "No response"
+            no_data = Gtk.Label(label=reason)
+            no_data.add_css_class("panel-muted")
+            no_data.set_halign(Gtk.Align.START)
+            self._details_content.append(no_data)
+            self._scroll_details_to_bottom()
+            return
+
+        rtt = result.get("rtt_ms")
+        if rtt is not None:
+            self._details_content.append(DetailRow("RTT:", f"{rtt:.0f} ms"))
+
+        telemetry = result.get("telemetry_data") or {}
+        sensors = telemetry.get("sensors", [])
+
+        if not sensors:
+            text = telemetry.get("formatted") or result.get("response_text") or "No sensor data"
+            fallback = Gtk.Label(label=text)
+            fallback.add_css_class("panel-muted")
+            fallback.set_halign(Gtk.Align.START)
+            self._details_content.append(fallback)
+            self._scroll_details_to_bottom()
+            return
+
+        for sensor in sensors:
+            value = sensor.get("value")
+            sensor_type = sensor.get("type", "Unknown")
+
+            if isinstance(value, dict) and "latitude" in value:
+                self._details_content.append(
+                    DetailRow(
+                        "Location:", format_coordinates(value["latitude"], value["longitude"])
+                    )
+                )
+                alt = value.get("altitude")
+                if alt is not None and alt != 0.0:
+                    self._details_content.append(DetailRow("Altitude:", f"{alt:.1f} m"))
+            elif sensor_type == "Voltage":
+                self._details_content.append(DetailRow("Battery:", f"{value:.2f} V"))
+            elif sensor_type == "Temperature":
+                self._details_content.append(DetailRow("Temperature:", f"{value:.1f} °C"))
+            elif sensor_type == "Humidity":
+                self._details_content.append(DetailRow("Humidity:", f"{value:.0f}%"))
+            elif sensor_type == "Barometer":
+                self._details_content.append(DetailRow("Pressure:", f"{value:.1f} hPa"))
+            else:
+                self._details_content.append(DetailRow(f"{sensor_type}:", str(value)))
+
+        self._scroll_details_to_bottom()
+
+    def _show_telemetry_error(self, spinner_box: Gtk.Box, button: Gtk.Button, error: str) -> None:
+        """Display telemetry error in the details panel (called on main thread)."""
+        self._details_content.remove(spinner_box)
+        button.set_sensitive(True)
+        button.set_label("Request Telemetry")
+
+        self._add_section_header("Telemetry")
+
+        err_scroll = Gtk.ScrolledWindow()
+        err_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        err_scroll.set_max_content_height(120)
+        err_scroll.set_propagate_natural_height(True)
+
+        err_label = Gtk.Label(label=f"Request failed: {error}")
+        err_label.add_css_class("panel-muted")
+        err_label.set_halign(Gtk.Align.START)
+        err_label.set_wrap(True)
+        err_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        err_label.set_selectable(True)
+        err_scroll.set_child(err_label)
+        self._details_content.append(err_scroll)
+
+        self._scroll_details_to_bottom()
+
+    def _scroll_details_to_bottom(self) -> None:
+        """Scroll the details panel to the bottom after content is added."""
+
+        def _do_scroll() -> bool:
+            vadj = self._details_scroll.get_vadjustment()
+            vadj.set_value(vadj.get_upper())
+            return False
+
+        # Defer so GTK has time to allocate the new widgets
+        GLib.idle_add(_do_scroll)

@@ -234,6 +234,48 @@ class MockMeshcoreClient(MeshcoreService):
                 peer.is_favorite = favorite
                 return
 
+    def request_telemetry(self, peer_name: str) -> dict:
+        """Return synthetic telemetry data matching pymc_core's format."""
+        import time
+
+        loc = self._gps_provider.get_location()
+        lat = (loc[0] + 0.012) if loc else 37.7749
+        lon = (loc[1] - 0.008) if loc else -122.4194
+        result = {
+            "success": True,
+            "contact": peer_name,
+            "telemetry_data": {
+                "type": "telemetry",
+                "reflected_timestamp": int(time.time()),
+                "sensor_count": 2,
+                "sensors": [
+                    {
+                        "channel": 1,
+                        "type": "Voltage",
+                        "type_id": "Voltage",
+                        "value": 3.87,
+                        "raw_value": "01740183",
+                    },
+                    {
+                        "channel": 2,
+                        "type": "Location",
+                        "type_id": "Location",
+                        "value": {"latitude": lat, "longitude": lon, "altitude": 42.5},
+                        "raw_value": "",
+                    },
+                ],
+            },
+            "rtt_ms": 1247.0,
+            "reason": "Telemetry response received",
+        }
+        self._append_event(
+            {
+                "type": "telemetry_received",
+                "data": {"peer_name": peer_name, "telemetry": result},
+            }
+        )
+        return result
+
     def get_self_public_key(self) -> str | None:
         """Return a mock public key for testing."""
         return "6b547fd13630e0f7a6b167df23b9876543210abcdef0123456789abcdef0a619"

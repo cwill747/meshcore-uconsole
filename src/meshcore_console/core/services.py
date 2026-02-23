@@ -89,6 +89,10 @@ class MeshcoreService(Protocol):
         """Toggle the favorite flag on a peer."""
         ...
 
+    def request_telemetry(self, peer_name: str) -> dict:
+        """Request telemetry data from a remote peer. Returns decoded sensor data."""
+        ...
+
     def get_self_public_key(self) -> str | None:
         """Return this node's public key as a hex string, or None if unavailable."""
         ...

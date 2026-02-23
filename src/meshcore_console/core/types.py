@@ -158,6 +158,17 @@ class MeshNodeProtocol(Protocol):
         """Send a text message to a group channel."""
         ...
 
+    async def send_telemetry_request(
+        self,
+        contact_name: str,
+        want_base: bool = True,
+        want_location: bool = True,
+        want_environment: bool = False,
+        timeout: float = 10.0,
+    ) -> dict:
+        """Request telemetry data from a remote peer."""
+        ...
+
 
 class EventSubscriberProtocol(Protocol):
     """Protocol for pyMC_core EventSubscriber."""
