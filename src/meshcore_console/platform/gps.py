@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
+import threading
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -405,12 +407,133 @@ class UConsoleGps:
             logger.debug("GPS: manual RMC parse error: %s", e)
 
 
+class GpsdProvider:
+    """GPS provider that reads from gpsd via gpsdclient.
+
+    Runs a background daemon thread streaming TPV (Time-Position-Velocity)
+    reports. Reconnects with exponential backoff if gpsd disconnects.
+    """
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 2947) -> None:
+        self._host = host
+        self._port = port
+        self._callback: Callable[[float, float], None] | None = None
+        self._running = False
+        self._latitude: float | None = None
+        self._longitude: float | None = None
+        self._has_fix = False
+        self._last_error: str | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        logger.info("GpsdProvider: started (host=%s, port=%d)", self._host, self._port)
+
+    def stop(self) -> None:
+        self._running = False
+        logger.debug("GpsdProvider: stopped")
+
+    def get_location(self) -> tuple[float, float] | None:
+        if self._latitude is not None and self._longitude is not None:
+            return (self._latitude, self._longitude)
+        return None
+
+    def set_callback(self, callback: Callable[[float, float], None] | None) -> None:
+        self._callback = callback
+
+    def poll(self) -> bool:
+        return self._running
+
+    def get_last_error(self) -> str | None:
+        return self._last_error
+
+    def has_fix(self) -> bool:
+        return self._has_fix
+
+    def _update_location(self, lat: float, lon: float) -> None:
+        if lat == 0.0 and lon == 0.0:
+            return
+        if not self._has_fix:
+            self._has_fix = True
+            logger.info("GpsdProvider: fix acquired: %.6f, %.6f", lat, lon)
+        self._latitude = lat
+        self._longitude = lon
+        if self._callback:
+            self._callback(lat, lon)
+
+    def _run(self) -> None:
+        from gpsdclient import GPSDClient  # type: ignore[import-not-found]
+
+        backoff = 1.0
+        max_backoff = 30.0
+
+        while self._running:
+            try:
+                logger.debug("GpsdProvider: connecting to %s:%d", self._host, self._port)
+                with GPSDClient(host=self._host, port=self._port) as client:
+                    backoff = 1.0  # Reset on successful connection
+                    for result in client.dict_stream(filter=["TPV"]):
+                        if not self._running:
+                            return
+                        mode = result.get("mode", 0)
+                        if mode < 2:
+                            if self._has_fix:
+                                self._has_fix = False
+                                logger.info("GpsdProvider: fix lost (mode=%d)", mode)
+                            continue
+                        lat = result.get("lat")
+                        lon = result.get("lon")
+                        if lat is not None and lon is not None:
+                            self._update_location(float(lat), float(lon))
+            except Exception as e:
+                if not self._running:
+                    return
+                self._last_error = f"gpsd connection error: {e}"
+                logger.warning("GpsdProvider: %s (retry in %.0fs)", e, backoff)
+                # Sleep in small increments so we can check _running
+                elapsed = 0.0
+                while elapsed < backoff and self._running:
+                    import time
+
+                    time.sleep(min(0.5, backoff - elapsed))
+                    elapsed += 0.5
+                backoff = min(backoff * 2, max_backoff)
+
+
+def _gpsd_available(host: str = "127.0.0.1", port: int = 2947) -> bool:
+    """Check if gpsd is reachable via a raw socket connect."""
+    try:
+        with socket.create_connection((host, port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
 def create_gps_provider() -> GpsProvider:
-    """Create the appropriate GPS provider for the current environment."""
+    """Create the appropriate GPS provider for the current environment.
+
+    Priority:
+    1. MESHCORE_MOCK=1 → MockGps
+    2. gpsd reachable (unless MESHCORE_GPSD_DISABLE=1) → GpsdProvider
+    3. /dev/ttyS0 exists → UConsoleGps
+    4. Fallback → MockGps
+    """
     if os.environ.get("MESHCORE_MOCK", "0") == "1":
         from meshcore_console.mock import MockGps
 
         return MockGps()
+
+    # Check for gpsd
+    if os.environ.get("MESHCORE_GPSD_DISABLE", "0") != "1":
+        host = os.environ.get("MESHCORE_GPSD_HOST", "127.0.0.1")
+        port = int(os.environ.get("MESHCORE_GPSD_PORT", "2947"))
+        if _gpsd_available(host, port):
+            logger.info("GPS: gpsd detected at %s:%d, using GpsdProvider", host, port)
+            return GpsdProvider(host=host, port=port)
 
     # Check if we're on a Pi with GPS hardware
     if Path("/dev/ttyS0").exists():

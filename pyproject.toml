@@ -14,6 +14,7 @@ dependencies = [
   "pymc-core[hardware]>=0.1.0; platform_system == 'Linux'",
   "pynmea2>=1.18.0",
   "segno>=1.6.0",  # QR code generation
+  "gpsdclient>=1.3",
 ]
 
 [project.optional-dependencies]
@@ -74,7 +75,7 @@ no_implicit_optional = true
 check_untyped_defs = true
 # PyGObject stubs are incomplete, ignore missing imports for gi
 [[tool.mypy.overrides]]
-module = ["gi.*", "pynmea2", "serial", "RPi.*", "pymc_core.*", "spidev"]
+module = ["gi.*", "pynmea2", "serial", "RPi.*", "pymc_core.*", "spidev", "gpsdclient"]
 ignore_missing_imports = true
 
 [tool.commitizen]
