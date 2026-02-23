@@ -343,6 +343,15 @@ wheels = [
 ]
 
 [[package]]
+name = "gpsdclient"
+version = "1.3.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/85/9bfbc7ea5dd5c61f43ad048efe10d0a5a2d8ffd82143329fa380771221b8/gpsdclient-1.3.2.tar.gz", hash = "sha256:70a496550a9747dff5e0e50b3c95a6e1dcab9d842860997e95120767e2060a7a", size = 7619, upload-time = "2023-01-09T11:29:17.995Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/e9/f8a624fbbe177da2274e8d37d08fabde8269e8fead25b22deda94c3caf88/gpsdclient-1.3.2-py3-none-any.whl", hash = "sha256:35a7f781ae69a04f2d80278a6ae94564e524efaf061646c0a9bbb6ba4ffbcac8", size = 7934, upload-time = "2023-01-09T11:29:16.461Z" },
+]
+
+[[package]]
 name = "identify"
 version = "2.6.16"
 source = { registry = "https://pypi.org/simple" }
@@ -521,9 +530,10 @@ wheels = [
 
 [[package]]
 name = "meshcore-uconsole"
-version = "1.6.1"
+version = "1.7.0"
 source = { editable = "." }
 dependencies = [
+    { name = "gpsdclient" },
     { name = "pymc-core" },
     { name = "pymc-core", extra = ["hardware"], marker = "sys_platform == 'linux'" },
     { name = "pynmea2" },
@@ -547,6 +557,7 @@ gtk = [
 [package.metadata]
 requires-dist = [
     { name = "commitizen", marker = "extra == 'dev'", specifier = ">=4.1" },
+    { name = "gpsdclient", specifier = ">=1.3" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
     { name = "pygobject", marker = "extra == 'gtk'", specifier = ">=3.48" },

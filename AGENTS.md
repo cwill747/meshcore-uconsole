@@ -138,6 +138,9 @@ Mock implementation is in `meshcore/mock_session.py`. It exercises the same adap
 | `MESHCORE_UI_GEOM_DEBUG=1` | Enable geometry debugging logs |
 | `MESHCORE_USE_DIO2_RF=1` | Radio hardware flag (default on) |
 | `MESHCORE_USE_DIO3_TCXO=1` | Radio hardware flag (default on) |
+| `MESHCORE_GPSD_DISABLE=1` | Skip gpsd detection, use direct serial |
+| `MESHCORE_GPSD_HOST` | gpsd hostname (default: 127.0.0.1) |
+| `MESHCORE_GPSD_PORT` | gpsd port (default: 2947) |
 
 ### Nix Development (macOS)
 
