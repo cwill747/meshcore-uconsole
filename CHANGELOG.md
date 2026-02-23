@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.8.0 (2026-02-22)
+
+### Feat
+
+- Add telemetry request and response
+
+### Fix
+
+- Don't show self in contacts
+- Use gpsd if available
+
 ## v1.7.0 (2026-02-19)
 
 ### Feat
