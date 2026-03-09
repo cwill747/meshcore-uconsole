@@ -659,3 +659,68 @@ row:focus-visible {
   box-shadow: 0 0 4px 1px alpha(@mc_accent, 0.6);
   border-color: @mc_accent;
 }
+
+/* Conflict screen */
+.conflict-screen {
+  background: @mc_bg;
+  padding: 32px;
+}
+
+.conflict-icon {
+  color: @mc_danger;
+}
+
+.conflict-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: @mc_danger;
+}
+
+.conflict-subtitle {
+  font-size: 16px;
+  color: @mc_text_muted;
+}
+
+.conflict-detail-row {
+  background: alpha(@mc_danger, 0.08);
+  border: 1px solid alpha(@mc_danger, 0.3);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.conflict-detail-summary {
+  font-weight: 700;
+  color: @mc_text;
+}
+
+.conflict-detail-text {
+  color: @mc_text_muted;
+  font-size: 15px;
+}
+
+.conflict-command {
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 14px;
+  color: @mc_text_muted;
+  background: alpha(@mc_surface_alt, 0.6);
+  border: 1px solid alpha(@mc_border, 0.6);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+/* Loading / shutdown screen */
+.loading-screen {
+  background: @mc_bg;
+  padding: 32px;
+}
+
+.loading-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: @mc_text;
+}
+
+.loading-status {
+  font-size: 16px;
+  color: @mc_text_muted;
+}

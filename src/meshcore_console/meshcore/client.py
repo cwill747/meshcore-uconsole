@@ -143,6 +143,17 @@ class MeshcoreClient(MeshcoreService):
             return
         if self._connected and not runtime_connected:
             self._connected = False
+
+        # Pre-flight: detect conflicting services / busy hardware before
+        # touching pyMC_core (which calls sys.exit on GPIO failures).
+        from meshcore_console.platform.conflicts import ConflictError, run_preflight_checks
+
+        hardware = self._config.hardware
+        if hardware is not None:
+            report = run_preflight_checks(hardware)
+            if report.has_conflicts:
+                raise ConflictError(report)
+
         try:
             self._run_async(self._session.start(), timeout=8.0)
         except SystemExit as exc:
