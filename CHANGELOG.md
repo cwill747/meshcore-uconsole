@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.9.0 (2026-03-08)
+
+### Feat
+
+- Add loading/shutdown screen widget
+- Add pre-flight conflict detection for radio hardware (#48)
+
 ## v1.8.0 (2026-02-22)
 
 ### Feat
