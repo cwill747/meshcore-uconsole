@@ -22,6 +22,7 @@ dependencies = [
 gtk = [
   "PyGObject>=3.48",
 ]
+[dependency-groups]
 dev = [
   "commitizen>=4.1",
   "mypy>=1.7",
