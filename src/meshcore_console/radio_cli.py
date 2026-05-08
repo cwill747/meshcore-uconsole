@@ -74,7 +74,7 @@ def _doctor() -> int:
     checks: list[tuple[str, bool, str]] = []
     checks.append(("linux", os.uname().sysname == "Linux", "Expected Linux host"))
     checks.append(
-        ("spidev", os.path.exists("/dev/spidev1.0"), "Expected SPI1 device /dev/spidev1.0")
+        ("spidev", os.path.exists("/dev/spidev1.0"), "Expected SPI1 device /dev/spidev1.0 — ensure dtoverlay=spi1-1cs is in /boot/firmware/config.txt")
     )
     checks.append(
         ("gpiochip", os.path.exists("/dev/gpiochip0"), "Expected GPIO chip /dev/gpiochip0")
