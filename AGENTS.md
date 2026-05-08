@@ -120,7 +120,22 @@ MESHCORE_MOCK=1 ./scripts/run-dev.sh
 
 Mock implementation is in `meshcore/mock_session.py`. It exercises the same adapter paths as production.
 
+### Nix Dev Shell (required)
+
+**All builds, tests, and commands MUST run inside `nix develop`.** The flake provides Python, GTK4, Libadwaita, PyGObject, and all native dependencies. Do not install tooling with pip, brew, or apt — if something is missing, add it to `flake.nix`.
+
+In a git bare-repo worktree the flake isn't at the repo root, so use `nix develop path:.` to point at the current directory's flake.
+
+Prefix every command with `nix develop --command` (or run inside an existing `nix develop` shell):
+
+```bash
+nix develop path:. --command uv run pytest
+nix develop path:. --command ./scripts/run-dev.sh
+```
+
 ### Common Commands
+
+All commands below assume you are inside `nix develop`.
 
 | Command | Description |
 |---------|-------------|
@@ -142,15 +157,11 @@ Mock implementation is in `meshcore/mock_session.py`. It exercises the same adap
 | `MESHCORE_GPSD_HOST` | gpsd hostname (default: 127.0.0.1) |
 | `MESHCORE_GPSD_PORT` | gpsd port (default: 2947) |
 
-### Nix Development (macOS)
+### Initial Setup (macOS)
 
 ```bash
-# Initial setup
 nix develop --command sh -lc 'uv venv --python "$(which python)" --system-site-packages'
 nix develop --command uv sync
-
-# Run
-./scripts/run-dev.sh
 ```
 
 ### Raspberry Pi Development
