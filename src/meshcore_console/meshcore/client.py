@@ -20,11 +20,7 @@ from meshcore_console.meshcore.logging_setup import install_radio_error_handler
 from meshcore_console.meshcore.packet_codec import repair_utf8
 from meshcore_console.meshcore.packet_store import PacketStore
 from meshcore_console.meshcore.session import PyMCCoreSession
-from meshcore_console.meshcore.settings import (
-    MeshcoreSettings,
-    apply_hardware_preset,
-    apply_preset,
-)
+from meshcore_console.meshcore.settings import MeshcoreSettings
 from meshcore_console.meshcore.settings_store import SettingsStore
 from meshcore_console.meshcore.state_store import MessageStore, PeerStore, UIChannelStore
 from meshcore_console.platform.gps import GpsProvider, create_gps_provider
@@ -738,11 +734,6 @@ class MeshcoreClient(MeshcoreService):
 
     def update_settings(self, settings: MeshcoreSettings) -> None:
         updated = settings.clone()
-        if updated.hardware_preset != "custom":
-            updated = apply_hardware_preset(updated, updated.hardware_preset)
-        if updated.radio_preset != "custom":
-            updated = apply_preset(updated, updated.radio_preset)
-
         self._settings = updated
         self._settings_store.save(updated)
         self._config = runtime_config_from_settings(self._settings)
