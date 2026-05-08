@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.9.1 (2026-05-08)
+
+### Fix
+
+- Fix builds after uv change
+- Don't re-apply presets on settings save, preserving user edits (#59)
+- Use dtoverlay=spi1-1cs instead of raspi-config for SPI1 enablement (#57)
+- Build .deb packages for both Bookworm and Trixie
+
 ## v1.9.0 (2026-03-08)
 
 ### Feat
