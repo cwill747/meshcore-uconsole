@@ -32,17 +32,21 @@
 <p class="subtitle">APT repository for Raspberry Pi (arm64)</p>
 
 <h2>Quick setup</h2>
+<p>Replace <code>DISTRO</code> with your Debian version: <code>bookworm</code> or <code>trixie</code>.</p>
 <pre><code># Add signing key
 curl -fsSL https://cwill747.github.io/meshcore-uconsole/KEY.gpg \
   | sudo gpg --dearmor -o /usr/share/keyrings/meshcore.gpg
 
-# Add repository
+# Add repository (use bookworm or trixie)
 echo "deb [signed-by=/usr/share/keyrings/meshcore.gpg arch=arm64] \
-  https://cwill747.github.io/meshcore-uconsole stable main" \
+  https://cwill747.github.io/meshcore-uconsole bookworm main" \
   | sudo tee /etc/apt/sources.list.d/meshcore.list
 
 # Install
 sudo apt update && sudo apt install meshcore-uconsole</code></pre>
+
+<h2>Which distribution?</h2>
+<p>Run <code>lsb_release -cs</code> to check. Use <code>bookworm</code> for Debian 12 or <code>trixie</code> for Debian 13.</p>
 
 <h2>Updates</h2>
 <pre><code>sudo apt update && sudo apt upgrade</code></pre>
