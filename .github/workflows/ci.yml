@@ -62,11 +62,14 @@ jobs:
           '
 
   build-deb:
-    name: Build Debian Package (arm64)
+    name: Build Debian Package (arm64, ${{ matrix.distro }})
     runs-on: ubuntu-24.04-arm
     needs: check
+    strategy:
+      matrix:
+        distro: [bookworm, trixie]
     container:
-      image: debian:trixie
+      image: debian:${{ matrix.distro }}
     steps:
       - name: Install build dependencies
         run: |
@@ -92,6 +95,10 @@ jobs:
       - name: Show Python version
         run: python3 --version
 
+      - name: Add distro suffix to version
+        run: |
+          sed -i "1s/(\([^)]*\))/(\1~${{ matrix.distro }})/" debian/changelog
+
       - name: Build package
         run: dpkg-buildpackage -us -uc -b
 
@@ -108,7 +115,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: meshcore-uconsole-deb
+          name: meshcore-uconsole-deb-${{ matrix.distro }}
           path: build/*.deb
 
   release:
@@ -121,11 +128,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: meshcore-uconsole-deb
+          pattern: meshcore-uconsole-deb-*
           path: build/
+          merge-multiple: true
 
       - name: Extract changelog
         run: |
@@ -143,7 +151,10 @@ jobs:
           See [install instructions](https://cwill747.github.io/meshcore-uconsole/) for APT repository setup, or install manually:
 
           \`\`\`bash
-          sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1_arm64.deb
+          # Bookworm (Debian 12)
+          sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1~bookworm_arm64.deb
+          # Trixie (Debian 13)
+          sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1~trixie_arm64.deb
           \`\`\`
 
           EOF
@@ -177,32 +188,63 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p site/pool/main
+          mkdir -p staging
           gh release list --repo "${{ github.repository }}" --limit 100 --json tagName --jq '.[].tagName' | while read -r tag; do
-            gh release download "$tag" --repo "${{ github.repository }}" --pattern '*.deb' --dir site/pool/main/ || true
+            gh release download "$tag" --repo "${{ github.repository }}" --pattern '*.deb' --dir staging/ || true
           done
-          echo "Packages in pool:"
-          ls -la site/pool/main/
+          echo "Downloaded packages:"
+          ls -la staging/
+
+      - name: Sort packages by distribution
+        run: |
+          mkdir -p site/pool/bookworm site/pool/trixie
+          for deb in staging/*.deb; do
+            [ -f "$deb" ] || continue
+            name=$(basename "$deb")
+            if echo "$name" | grep -q '~bookworm'; then
+              cp "$deb" site/pool/bookworm/
+            else
+              cp "$deb" site/pool/trixie/
+            fi
+          done
+          echo "Bookworm pool:" && ls -la site/pool/bookworm/ || true
+          echo "Trixie pool:" && ls -la site/pool/trixie/ || true
 
       - name: Generate APT metadata
         run: |
           cd site
+          for distro in bookworm trixie; do
+            mkdir -p "dists/${distro}/main/binary-arm64"
+            dpkg-scanpackages --arch arm64 "pool/${distro}" > "dists/${distro}/main/binary-arm64/Packages"
+            gzip -9c "dists/${distro}/main/binary-arm64/Packages" > "dists/${distro}/main/binary-arm64/Packages.gz"
+            (
+              cd "dists/${distro}"
+              apt-ftparchive \
+                -o APT::FTPArchive::Release::Origin="meshcore-uconsole" \
+                -o APT::FTPArchive::Release::Label="meshcore-uconsole" \
+                -o APT::FTPArchive::Release::Suite="${distro}" \
+                -o APT::FTPArchive::Release::Codename="${distro}" \
+                -o APT::FTPArchive::Release::Architectures="arm64" \
+                -o APT::FTPArchive::Release::Components="main" \
+                release . > Release
+            )
+          done
+
+          # "stable" is an alias for trixie (backward compat for existing users)
           mkdir -p dists/stable/main/binary-arm64
-
-          # Generate Packages file
-          dpkg-scanpackages --arch arm64 pool/ > dists/stable/main/binary-arm64/Packages
-          gzip -9c dists/stable/main/binary-arm64/Packages > dists/stable/main/binary-arm64/Packages.gz
-
-          # Generate Release file
-          cd dists/stable
-          apt-ftparchive \
-            -o APT::FTPArchive::Release::Origin="meshcore-uconsole" \
-            -o APT::FTPArchive::Release::Label="meshcore-uconsole" \
-            -o APT::FTPArchive::Release::Suite="stable" \
-            -o APT::FTPArchive::Release::Codename="stable" \
-            -o APT::FTPArchive::Release::Architectures="arm64" \
-            -o APT::FTPArchive::Release::Components="main" \
-            release . > Release
+          cp dists/trixie/main/binary-arm64/Packages dists/stable/main/binary-arm64/
+          cp dists/trixie/main/binary-arm64/Packages.gz dists/stable/main/binary-arm64/
+          (
+            cd dists/stable
+            apt-ftparchive \
+              -o APT::FTPArchive::Release::Origin="meshcore-uconsole" \
+              -o APT::FTPArchive::Release::Label="meshcore-uconsole" \
+              -o APT::FTPArchive::Release::Suite="stable" \
+              -o APT::FTPArchive::Release::Codename="stable" \
+              -o APT::FTPArchive::Release::Architectures="arm64" \
+              -o APT::FTPArchive::Release::Components="main" \
+              release . > Release
+          )
 
       - name: Import GPG key
         run: |
@@ -210,11 +252,15 @@ jobs:
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           gpgconf --kill gpg-agent
 
-      - name: Sign release
+      - name: Sign releases
         run: |
-          cd site/dists/stable
-          gpg --batch --yes --pinentry-mode loopback --armor --detach-sign -o Release.gpg Release
-          gpg --batch --yes --pinentry-mode loopback --armor --clearsign -o InRelease Release
+          for distro in bookworm trixie stable; do
+            (
+              cd "site/dists/${distro}"
+              gpg --batch --yes --pinentry-mode loopback --armor --detach-sign -o Release.gpg Release
+              gpg --batch --yes --pinentry-mode loopback --armor --clearsign -o InRelease Release
+            )
+          done
 
       - name: Export public key
         run: gpg --armor --export > site/KEY.gpg
