@@ -131,9 +131,13 @@ MESHCORE_MOCK=1 ./scripts/run-gtk-pi.sh
 ### Hardware Troubleshooting
 
 If `doctor` fails on SPI/GPIO, confirm these before retrying:
-- SPI is enabled (`sudo raspi-config nonint do_spi 0`)
-- `/boot/firmware/config.txt` contains `dtoverlay=spi1-1cs`
-- You rebooted after bootstrap
+- `/boot/firmware/config.txt` contains `dtoverlay=spi1-1cs` (enables SPI1 for the radio)
+- You rebooted after adding the overlay
+
+> **Warning:** Do not run `sudo raspi-config nonint do_spi 0` — this enables
+> SPI0 (`dtparam=spi=on`), not SPI1, and on CM5 + Trixie it can disable the
+> uConsole internal display. If this has happened, remove `dtparam=spi=on`
+> from `/boot/firmware/config.txt` via SSH and reboot.
 
 Hardware overrides can be supplied via env vars when running `meshcore-console`.
 Notable radio bring-up flags:

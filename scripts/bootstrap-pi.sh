@@ -46,8 +46,6 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-sudo raspi-config nonint do_spi 0 || true
-
 BOOT_CONFIG=""
 if [[ -f /boot/firmware/config.txt ]]; then
   BOOT_CONFIG="/boot/firmware/config.txt"
@@ -61,11 +59,6 @@ fi
 if ! grep -q '^dtoverlay=spi1-1cs$' "$BOOT_CONFIG"; then
   echo "Enabling SPI1 overlay (dtoverlay=spi1-1cs)"
   echo 'dtoverlay=spi1-1cs' | sudo tee -a "$BOOT_CONFIG" >/dev/null
-fi
-
-if ! grep -q '^dtparam=spi=on$' "$BOOT_CONFIG"; then
-  echo "Enabling SPI dtparam (dtparam=spi=on)"
-  echo 'dtparam=spi=on' | sudo tee -a "$BOOT_CONFIG" >/dev/null
 fi
 
 if systemctl list-unit-files | grep -q '^devterm-printer.service'; then

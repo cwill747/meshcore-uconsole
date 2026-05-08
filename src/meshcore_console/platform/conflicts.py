@@ -104,13 +104,39 @@ def _check_spi_device(bus_id: int, cs_id: int) -> Conflict | None:
         fd = os.open(path, os.O_RDWR)
         os.close(fd)
     except FileNotFoundError:
+        if bus_id >= 1:
+            detail_text = (
+                f"The SPI device {path} does not exist. "
+                f"The dtoverlay=spi{bus_id}-1cs overlay may not be enabled "
+                f"in /boot/firmware/config.txt."
+            )
+            remediation_text = (
+                f"sudo sh -c 'echo dtoverlay=spi{bus_id}-1cs "
+                f">> /boot/firmware/config.txt'\n"
+                f"sudo reboot\n"
+                f"\n"
+                f"WARNING: Do NOT use 'raspi-config nonint do_spi 0' — that\n"
+                f"enables SPI0, not SPI{bus_id}, and can disable the uConsole\n"
+                f"internal display on CM5 + Trixie."
+            )
+        else:
+            detail_text = (
+                f"The SPI device {path} does not exist. "
+                f"SPI may not be enabled in /boot/firmware/config.txt."
+            )
+            remediation_text = (
+                "sudo raspi-config nonint do_spi 0\n"
+                "sudo reboot\n"
+                "\n"
+                "NOTE: On uConsole CM5 + Trixie this command can disable the\n"
+                "internal display. If that happens, remove 'dtparam=spi=on'\n"
+                "from /boot/firmware/config.txt via SSH and reboot."
+            )
         return Conflict(
             kind=ConflictType.SPI_DEVICE,
             summary=f"{path} not found",
-            detail=(
-                f"The SPI device {path} does not exist. SPI may not be enabled in /boot/config.txt."
-            ),
-            remediation="sudo raspi-config nonint do_spi 0",
+            detail=detail_text,
+            remediation=remediation_text,
         )
     except PermissionError:
         return Conflict(
