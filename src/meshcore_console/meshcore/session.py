@@ -43,7 +43,7 @@ from .config import RuntimeRadioConfig, load_hardware_config_from_env
 from .contact_book import ContactBook
 from .db import open_db
 from .event_bridge import attach_dispatcher_callbacks, attach_event_service_subscriber
-from .operations import send_advert, send_group_text, send_text
+from .operations import request_telemetry, send_advert, send_group_text, send_text
 from .runtime import create_mesh_node, create_radio, import_pymc_core
 
 
@@ -444,11 +444,10 @@ class PyMCCoreSession:
         """Request telemetry from a remote peer. Returns decoded sensor data."""
         if self._node is None:
             raise RuntimeError("Session is not started.")
-        return await self._node.send_telemetry_request(
-            contact_name,
-            want_base=True,
+        return await request_telemetry(
+            node=self._node,
+            contact_name=contact_name,
             want_location=want_location,
-            want_environment=False,
             timeout=timeout,
         )
 
@@ -472,8 +471,17 @@ class PyMCCoreSession:
             "connected": self._node is not None,
             "node_name": self.config.node_name,
             "board": "hackergadgets-aio",
-            "pymc_core_version": "1.0.7",
+            "pymc_core_version": self._get_pymc_version(),
         }
+
+    @staticmethod
+    def _get_pymc_version() -> str:
+        try:
+            import pymc_core
+
+            return pymc_core.__version__
+        except Exception:
+            return "unknown"
 
     @property
     def contact_book(self) -> ContactBook:

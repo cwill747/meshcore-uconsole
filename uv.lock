@@ -530,7 +530,7 @@ wheels = [
 
 [[package]]
 name = "meshcore-uconsole"
-version = "1.9.0"
+version = "1.9.1"
 source = { editable = "." }
 dependencies = [
     { name = "gpsdclient" },
@@ -562,8 +562,8 @@ requires-dist = [
     { name = "gpsdclient", specifier = ">=1.3" },
     { name = "pycayennelpp", specifier = ">=2.4.0" },
     { name = "pygobject", marker = "extra == 'gtk'", specifier = ">=3.48" },
-    { name = "pymc-core", specifier = ">=0.1.0" },
-    { name = "pymc-core", extras = ["hardware"], marker = "sys_platform == 'linux'", specifier = ">=0.1.0" },
+    { name = "pymc-core", specifier = ">=1.0.7" },
+    { name = "pymc-core", extras = ["hardware"], marker = "sys_platform == 'linux'", specifier = ">=1.0.7" },
     { name = "pynmea2", specifier = ">=1.18.0" },
     { name = "segno", specifier = ">=1.6.0" },
 ]
@@ -791,22 +791,23 @@ sdist = { url = "https://files.pythonhosted.org/packages/d3/a5/68f883df1d8442e3b
 
 [[package]]
 name = "pymc-core"
-version = "1.0.7"
+version = "1.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pycryptodome" },
     { name = "pynacl" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/d8/182eb232d3d1ecaeacb2f2901ffd3dcb21893cfd7cf6b290ec0ab7c8bbb9/pymc_core-1.0.7.tar.gz", hash = "sha256:96eb511c2a8b7d739dfb73275dc737836414c97bc6fbc603ec1bf12fade2c90d", size = 129663, upload-time = "2026-01-12T21:51:45.536Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/72/d4747766cd6f3858382f838da47c51f27dc22c7fa879c6be4b105fd79782/pymc_core-1.0.10.tar.gz", hash = "sha256:e135fe7d6d918ae83a30ae1a915ebd5a270dd87a053a9dc8e9df8c670a31d1a5", size = 263681, upload-time = "2026-04-24T15:00:57.821Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/8c/ac0a82f9b5662e033dd77fdd607f950a2ca839822930d0e39bc13bf8f206/pymc_core-1.0.7-py3-none-any.whl", hash = "sha256:d8ca56ecb0b0da4cca15df1b5e53a6843d031b2ce08eda03166935407298634f", size = 131661, upload-time = "2026-01-12T21:51:43.985Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/5f/7b99f0266ea38b92c327070ad07a71ce0acaead243976dec7ee6c0c6d9ea/pymc_core-1.0.10-py3-none-any.whl", hash = "sha256:6a50670d8e37ab13927c19d406d212fe0e2ecf1c3187f0555591b2fd245b9003", size = 233519, upload-time = "2026-04-24T15:00:55.742Z" },
 ]
 
 [package.optional-dependencies]
 hardware = [
     { name = "pyserial", marker = "sys_platform == 'linux'" },
     { name = "python-periphery", marker = "sys_platform == 'linux'" },
+    { name = "pyusb", marker = "sys_platform == 'linux'" },
     { name = "spidev", marker = "sys_platform == 'linux'" },
 ]
 
@@ -913,6 +914,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/df/f1/1a986ad2bb696033168db2121151e5ff90df033af780ffca47c8bb559f29/python-periphery-2.4.1.tar.gz", hash = "sha256:61d461d736982a6f766e878720ab10a68151e2e8c1086600d9389ac47e40e88a", size = 35407, upload-time = "2023-04-21T06:19:22.056Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/b8/423ab1d47cb61efc54461107177abb69a1390ac84885eff3ba83a00fd8f4/python_periphery-2.4.1-py2.py3-none-any.whl", hash = "sha256:8ab14002e7520966fae7a3b9c56d98ddaf4c1b78c5f5b2c7153cedc3846fd56a", size = 36362, upload-time = "2023-04-21T06:19:20.176Z" },
+]
+
+[[package]]
+name = "pyusb"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/6b/ce3727395e52b7b76dfcf0c665e37d223b680b9becc60710d4bc08b7b7cb/pyusb-1.3.1.tar.gz", hash = "sha256:3af070b607467c1c164f49d5b0caabe8ac78dbed9298d703a8dbf9df4052d17e", size = 77281, upload-time = "2025-01-08T23:45:01.866Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/28/b8/27e6312e86408a44fe16bd28ee12dd98608b39f7e7e57884a24e8f29b573/pyusb-1.3.1-py3-none-any.whl", hash = "sha256:bf9b754557af4717fe80c2b07cc2b923a9151f5c08d17bdb5345dac09d6a0430", size = 58465, upload-time = "2025-01-08T23:45:00.029Z" },
 ]
 
 [[package]]

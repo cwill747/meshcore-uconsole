@@ -124,19 +124,32 @@ class LocalIdentityProtocol(Protocol):
 class DispatcherProtocol(Protocol):
     """Protocol for pyMC_core dispatcher."""
 
+    protocol_response_handler: Any
+
     def set_raw_packet_callback(self, cb: Callable[..., Awaitable[None]]) -> None:
         """Set callback for raw packets."""
         ...
 
-    async def send_packet(self, packet: object, wait_for_ack: bool = False) -> object:
+    async def send_packet(
+        self, packet: object, wait_for_ack: bool = False, **kwargs: Any
+    ) -> object:
         """Send a packet through the mesh."""
         ...
 
 
 class MeshNodeProtocol(Protocol):
-    """Protocol for pyMC_core MeshNode."""
+    """Protocol for pyMC_core MeshNode.
+
+    As of pyMC_core 1.0.10, MeshNode exposes low-level primitives
+    (send_packet, dispatcher, identity, contacts, etc.) and packet
+    construction is done via PacketBuilder.
+    """
 
     dispatcher: DispatcherProtocol
+    identity: Any
+    contacts: Any
+    channel_db: Any
+    node_name: str
 
     def set_event_service(self, service: EventServiceProtocol) -> None:
         """Set the event service for this node."""
@@ -150,23 +163,8 @@ class MeshNodeProtocol(Protocol):
         """Stop the mesh node. May return awaitable."""
         ...
 
-    async def send_text(self, peer_name: str, message: str) -> object:
-        """Send a text message to a peer."""
-        ...
-
-    async def send_group_text(self, channel_name: str, message: str) -> object:
-        """Send a text message to a group channel."""
-        ...
-
-    async def send_telemetry_request(
-        self,
-        contact_name: str,
-        want_base: bool = True,
-        want_location: bool = True,
-        want_environment: bool = False,
-        timeout: float = 10.0,
-    ) -> dict:
-        """Request telemetry data from a remote peer."""
+    async def send_packet(self, pkt: object, *, wait_for_ack: bool = False, **kwargs: Any) -> bool:
+        """Send a packet through the mesh."""
         ...
 
 

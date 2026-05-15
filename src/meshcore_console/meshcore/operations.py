@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import time
+
 from meshcore_console.core.types import (
     EmitCallback,
     LocalIdentityProtocol,
@@ -9,13 +12,46 @@ from meshcore_console.core.types import (
 )
 
 
-async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> object:
-    return await node.send_text(peer_name, message)
+async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> dict:
+    """Send a direct text message to a peer via PacketBuilder."""
+    from pymc_core.protocol.packet_builder import PacketBuilder
+
+    contacts = node.contacts
+    contact = None
+    if contacts is not None:
+        contact = contacts.get_by_name(peer_name)
+    if contact is None:
+        raise RuntimeError(f"Contact '{peer_name}' not found")
+
+    pkt, ack_crc = PacketBuilder.create_text_message(
+        contact=contact,
+        local_identity=node.identity,
+        message=message,
+    )
+    success = await node.dispatcher.send_packet(pkt, wait_for_ack=True, expected_crc=ack_crc)
+    return {"success": success, "crc": ack_crc}
 
 
-async def send_group_text(*, node: MeshNodeProtocol, channel_name: str, message: str) -> object:
-    """Broadcast a text message to a group/public channel."""
-    return await node.send_group_text(channel_name, message)
+async def send_group_text(*, node: MeshNodeProtocol, channel_name: str, message: str) -> dict:
+    """Broadcast a text message to a group/public channel via PacketBuilder."""
+    from pymc_core.protocol.packet_builder import PacketBuilder
+
+    channels_config = []
+    if node.channel_db is not None:
+        try:
+            channels_config = node.channel_db.get_channels()
+        except Exception:
+            channels_config = []
+
+    pkt = PacketBuilder.create_group_datagram(
+        group_name=channel_name,
+        local_identity=node.identity,
+        message=message,
+        sender_name=node.node_name,
+        channels_config=channels_config,
+    )
+    success = await node.dispatcher.send_packet(pkt, wait_for_ack=False)
+    return {"success": success, "group": channel_name}
 
 
 async def request_telemetry(
@@ -25,14 +61,69 @@ async def request_telemetry(
     want_location: bool = True,
     timeout: float = 10.0,
 ) -> dict:
-    """Request telemetry data from a remote peer."""
-    return await node.send_telemetry_request(
-        contact_name,
+    """Request telemetry data from a remote peer via PacketBuilder."""
+    from pymc_core.protocol.packet_builder import PacketBuilder
+
+    contacts = node.contacts
+    contact = None
+    if contacts is not None:
+        contact = contacts.get_by_name(contact_name)
+    if contact is None:
+        raise RuntimeError(f"Contact '{contact_name}' not found")
+
+    pkt, _ts = PacketBuilder.create_telem_request(
+        contact=contact,
+        local_identity=node.identity,
         want_base=True,
         want_location=want_location,
         want_environment=False,
-        timeout=timeout,
     )
+
+    contact_hash = bytes.fromhex(contact.public_key)[0]
+    response_handler = node.dispatcher.protocol_response_handler
+
+    response_event = asyncio.Event()
+    response_data: dict = {}
+
+    def _on_response(data: dict) -> None:
+        response_data.update(data)
+        response_event.set()
+
+    response_handler.set_response_callback(contact_hash, _on_response)
+    t0 = time.monotonic()
+    try:
+        await node.dispatcher.send_packet(pkt, wait_for_ack=False)
+        got_response = await asyncio.wait_for(response_event.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        got_response = False
+    finally:
+        response_handler.clear_response_callback(contact_hash)
+
+    rtt = (time.monotonic() - t0) * 1000
+
+    if not got_response:
+        return {
+            "success": False,
+            "contact": contact_name,
+            "requested": {"base": True, "location": want_location, "environment": False},
+            "telemetry_data": None,
+            "rtt_ms": round(rtt, 2),
+            "reason": f"Telemetry response timeout after {timeout}s",
+        }
+
+    return {
+        "success": response_data.get("success", False),
+        "contact": contact_name,
+        "requested": {"base": True, "location": want_location, "environment": False},
+        "telemetry_data": response_data.get("parsed"),
+        "response_text": response_data.get("text"),
+        "rtt_ms": round(rtt, 2),
+        "reason": (
+            "Telemetry response received"
+            if response_data.get("success")
+            else "Telemetry request failed"
+        ),
+    }
 
 
 async def send_advert(
