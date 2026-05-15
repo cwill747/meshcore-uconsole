@@ -326,7 +326,14 @@ class MeshcoreClient(MeshcoreService):
     def send_advert(self, name: str | None = None, *, route_type: str = "flood") -> SendResultDict:
         if not self._connected:
             self.connect()
-        result = self._run_async(self._session.send_advert(name=name, route_type=route_type))
+        lat, lon = 0.0, 0.0
+        if self._settings.share_position:
+            pos = self._resolve_position()
+            if pos:
+                lat, lon = pos
+        result = self._run_async(
+            self._session.send_advert(name=name, lat=lat, lon=lon, route_type=route_type)
+        )
         self._append_event(
             {
                 "type": EventType.ADVERT_SENT,
@@ -760,8 +767,31 @@ class MeshcoreClient(MeshcoreService):
             {"type": EventType.SETTINGS_UPDATED, "data": {"node_name": updated.node_name}}
         )
 
+    @staticmethod
+    def _valid_coords(lat: float, lon: float) -> bool:
+        import math
+
+        return (
+            math.isfinite(lat)
+            and math.isfinite(lon)
+            and -90.0 <= lat <= 90.0
+            and -180.0 <= lon <= 180.0
+            and (lat != 0.0 or lon != 0.0)
+        )
+
+    def _resolve_position(self, *, use_settings: bool = True) -> tuple[float, float] | None:
+        """Live GPS first, then settings fixed position as fallback."""
+        loc = self._gps_provider.get_location()
+        if loc and self._valid_coords(loc[0], loc[1]):
+            return loc
+        if use_settings:
+            lat, lon = self._settings.latitude, self._settings.longitude
+            if self._valid_coords(lat, lon):
+                return (lat, lon)
+        return None
+
     def get_device_location(self) -> tuple[float, float] | None:
-        return self._gps_provider.get_location()
+        return self._resolve_position(use_settings=self._settings.share_position)
 
     def _on_radio_error(self, message: str) -> None:
         """Callback from RadioErrorHandler — emit as a UI event."""
@@ -816,11 +846,11 @@ class MeshcoreClient(MeshcoreService):
 
     def _get_local_telemetry(self) -> dict:
         """Provide local telemetry data for inbound requests."""
-        loc = self._gps_provider.get_location()
+        pos = self._resolve_position(use_settings=self._settings.allow_telemetry)
         return {
             "allow": self._settings.allow_telemetry,
-            "lat": loc[0] if loc else None,
-            "lon": loc[1] if loc else None,
+            "lat": pos[0] if pos else None,
+            "lon": pos[1] if pos else None,
         }
 
     def _seed_contact_book(self) -> None:
