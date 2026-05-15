@@ -851,7 +851,16 @@ class MeshcoreClient(MeshcoreService):
             "allow": self._settings.allow_telemetry,
             "lat": pos[0] if pos else None,
             "lon": pos[1] if pos else None,
+            "voltage": self._read_battery_voltage(),
         }
+
+    @staticmethod
+    def _read_battery_voltage() -> float | None:
+        try:
+            with open("/sys/class/power_supply/axp20x-battery/voltage_now") as f:
+                return int(f.read().strip()) / 1_000_000
+        except (FileNotFoundError, ValueError, OSError):
+            return None
 
     def _seed_contact_book(self) -> None:
         """Populate the session's contact book with known peers that have public keys."""
