@@ -160,9 +160,8 @@ class PyMCCoreSession:
                 self._log("telemetry request denied (allow_telemetry=False)")
                 return None
             if data.get("favorites_only") and self._is_favorite_fn is not None:
-                pubkey_hex = getattr(client, "public_key", None) if client else None
-                if not pubkey_hex or not self._is_favorite_fn(pubkey_hex):
-                    sender = getattr(client, "name", "unknown") if client else "unknown"
+                if not client or not self._is_favorite_fn(client.public_key):
+                    sender = client.name if client else "unknown"
                     self._log(f"telemetry request denied (not a favorite: {sender})")
                     return None
             mask = req_data[0] if req_data else 0x00

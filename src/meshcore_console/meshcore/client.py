@@ -173,8 +173,8 @@ class MeshcoreClient(MeshcoreService):
             self._connected = False
             raise
         self._connected = True
-        self._session.set_telemetry_data_fn(self._get_local_telemetry)
         self._session.set_is_favorite_fn(self._is_peer_favorite)
+        self._session.set_telemetry_data_fn(self._get_local_telemetry)
         self._seed_contact_book()
         self._gps_provider.start()
         self._append_event(
@@ -858,10 +858,11 @@ class MeshcoreClient(MeshcoreService):
 
     def _is_peer_favorite(self, public_key_hex: str) -> bool:
         key_lower = public_key_hex.lower()
-        for peer in self._peers.values():
-            if peer.public_key and peer.public_key.lower() == key_lower:
-                return peer.is_favorite
-        return False
+        return any(
+            peer.is_favorite
+            for peer in self._peers.values()
+            if peer.public_key and peer.public_key.lower() == key_lower
+        )
 
     @staticmethod
     def _read_battery_voltage() -> float | None:
