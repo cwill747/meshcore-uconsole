@@ -41,6 +41,20 @@ class ContactBook:
                 return contact
         return None
 
+    def get_by_key(self, public_key: bytes | str) -> Contact | None:
+        if isinstance(public_key, bytes):
+            public_key = public_key.hex()
+        for contact in self.contacts:
+            if contact.public_key == public_key:
+                return contact
+        return None
+
+    def update(self, contact: Contact) -> None:
+        for i, existing in enumerate(self.contacts):
+            if existing.public_key == contact.public_key:
+                self.contacts[i] = contact
+                return
+
     def add_contact(self, data: dict[str, str] | Contact) -> None:
         if isinstance(data, Contact):
             entry = data
