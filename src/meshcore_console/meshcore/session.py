@@ -62,6 +62,7 @@ class PyMCCoreSession:
         self._event_queue: queue.Queue[MeshEventDict] = queue.Queue()
         self._event_notify: Callable[[], None] | None = None
         self._telemetry_data_fn: Callable[[], dict[str, Any]] | None = None
+        self._is_favorite_fn: Callable[[str], bool] | None = None
         self._db = open_db()
         self._channel_db = ChannelDatabase(self._db)
         self._contact_book = ContactBook()
@@ -79,6 +80,10 @@ class PyMCCoreSession:
     def set_telemetry_data_fn(self, fn: Callable[[], dict[str, Any]]) -> None:
         """Set the callback that provides local telemetry data for inbound requests."""
         self._telemetry_data_fn = fn
+
+    def set_is_favorite_fn(self, fn: Callable[[str], bool]) -> None:
+        """Set a callback that checks whether a public key hex belongs to a favorite peer."""
+        self._is_favorite_fn = fn
 
     def _emit(self, payload: MeshEventDict) -> None:
         self._event_queue.put_nowait(payload)
@@ -147,13 +152,19 @@ class PyMCCoreSession:
         TELEM_PERM_BASE = 0x01  # noqa: N806
         TELEM_PERM_LOCATION = 0x02  # noqa: N806
 
-        def _handle_telemetry(_client: Any, _timestamp: int, req_data: bytes) -> bytes | None:
+        def _handle_telemetry(client: Any, _timestamp: int, req_data: bytes) -> bytes | None:
             if self._telemetry_data_fn is None:
                 return None
             data = self._telemetry_data_fn()
             if not data.get("allow"):
                 self._log("telemetry request denied (allow_telemetry=False)")
                 return None
+            if data.get("favorites_only") and self._is_favorite_fn is not None:
+                pubkey_hex = getattr(client, "public_key", None) if client else None
+                if not pubkey_hex or not self._is_favorite_fn(pubkey_hex):
+                    sender = getattr(client, "name", "unknown") if client else "unknown"
+                    self._log(f"telemetry request denied (not a favorite: {sender})")
+                    return None
             mask = req_data[0] if req_data else 0x00
             include_base = not (mask & TELEM_PERM_BASE)
             include_location = not (mask & TELEM_PERM_LOCATION)
