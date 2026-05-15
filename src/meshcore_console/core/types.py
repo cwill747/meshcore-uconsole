@@ -163,10 +163,6 @@ class MeshNodeProtocol(Protocol):
         """Stop the mesh node. May return awaitable."""
         ...
 
-    async def send_packet(self, pkt: object, *, wait_for_ack: bool = False, **kwargs: Any) -> bool:
-        """Send a packet through the mesh."""
-        ...
-
 
 class EventSubscriberProtocol(Protocol):
     """Protocol for pyMC_core EventSubscriber."""

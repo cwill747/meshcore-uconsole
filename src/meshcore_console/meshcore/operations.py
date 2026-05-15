@@ -36,12 +36,9 @@ async def send_group_text(*, node: MeshNodeProtocol, channel_name: str, message:
     """Broadcast a text message to a group/public channel via PacketBuilder."""
     from pymc_core.protocol.packet_builder import PacketBuilder
 
-    channels_config = []
-    if node.channel_db is not None:
-        try:
-            channels_config = node.channel_db.get_channels()
-        except Exception:
-            channels_config = []
+    if node.channel_db is None:
+        raise RuntimeError("No channel database configured")
+    channels_config = node.channel_db.get_channels()
 
     pkt = PacketBuilder.create_group_datagram(
         group_name=channel_name,
@@ -85,8 +82,10 @@ async def request_telemetry(
     response_event = asyncio.Event()
     response_data: dict = {}
 
-    def _on_response(data: dict) -> None:
-        response_data.update(data)
+    def _on_response(success: bool, text: str, parsed: dict) -> None:
+        response_data["success"] = success
+        response_data["text"] = text
+        response_data["parsed"] = parsed
         response_event.set()
 
     response_handler.set_response_callback(contact_hash, _on_response)
