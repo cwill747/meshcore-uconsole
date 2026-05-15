@@ -23,7 +23,7 @@ from meshcore_console.core.types import (
     SX1262RadioProtocol,
 )
 
-from .cayenne_lpp import encode_gps, encode_telemetry
+from .cayenne_lpp import encode_telemetry
 from . import cayenne_lpp as _cayenne_lpp_mod
 
 # pymc_core's ProtocolResponseHandler tries ``from utils.cayenne_lpp_helpers
@@ -214,6 +214,9 @@ class PyMCCoreSession:
 
         identity = self._identity
         contact_book = self._contact_book
+        our_pubkey = identity.get_public_key()
+        our_hash = our_pubkey[0]
+        our_privkey = identity.get_private_key()
 
         async def _handle_req(pkt: Any) -> None:
             # ProtocolRequestHandler._get_client matches on first byte only,
@@ -223,7 +226,6 @@ class PyMCCoreSession:
                 return
             dest_hash = pkt.payload[0]
             src_hash = pkt.payload[1]
-            our_hash = identity.get_public_key()[0]
             if dest_hash != our_hash:
                 return
 
@@ -238,7 +240,7 @@ class PyMCCoreSession:
 
             for contact in candidates:
                 peer_id = Identity(bytes.fromhex(contact.public_key))
-                ss = peer_id.calc_shared_secret(identity.get_private_key())
+                ss = peer_id.calc_shared_secret(our_privkey)
                 aes_key = ss[:16]
                 try:
                     plaintext = CryptoUtils.mac_then_decrypt(
@@ -286,9 +288,6 @@ class PyMCCoreSession:
         dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req)
 
         # --- ANON_REQ handler ---
-        our_pubkey = self._identity.get_public_key()
-        our_hash = our_pubkey[0]
-        our_privkey = self._identity.get_private_key()
         existing_anon = dispatcher._handler_instances.get(PAYLOAD_TYPE_ANON_REQ)
 
         async def _handle_anon_req(pkt: Any) -> None:
@@ -325,8 +324,10 @@ class PyMCCoreSession:
             timestamp = struct.unpack("<I", plaintext[0:4])[0]
             req_type = plaintext[4]
             req_data = plaintext[5:] if len(plaintext) > 5 else b""
+            contact = contact_book.get_by_key(client_pubkey)
+            sender = contact.name if contact else f"{client_pubkey[:4].hex()}..."
             self._log(
-                f"ANON_REQ from {client_pubkey[:4].hex()}... "
+                f"ANON_REQ from {sender} "
                 f"type=0x{req_type:02X} ts={timestamp}"
             )
 
@@ -335,7 +336,7 @@ class PyMCCoreSession:
                 self._log(f"ANON_REQ: no handler for type 0x{req_type:02X}")
                 return
 
-            response_payload = handler_fn(None, timestamp, req_data)
+            response_payload = handler_fn(contact, timestamp, req_data)
             if response_payload is None:
                 self._log("ANON_REQ: handler returned no data")
                 return
