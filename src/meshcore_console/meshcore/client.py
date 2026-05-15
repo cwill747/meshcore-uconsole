@@ -27,6 +27,15 @@ from meshcore_console.platform.gps import GpsProvider, create_gps_provider
 
 logger = logging.getLogger(__name__)
 
+_ROUTING_FIELDS = ("path_hops", "path_len", "snr", "rssi")
+
+
+def _propagate_routing_fields(packet_data: dict, handler_data: dict) -> None:
+    for key in _ROUTING_FIELDS:
+        val = packet_data.get(key)
+        if val is not None and handler_data.get(key) is None:
+            handler_data[key] = list(val) if isinstance(val, list) else val
+
 
 class MeshcoreClient(MeshcoreService):
     """pyMC_core-backed adapter for the UI layer."""
@@ -436,17 +445,20 @@ class MeshcoreClient(MeshcoreService):
                         packet_hash = target.get("packet_hash")
                         if packet_hash:
                             self._packet_store.update_by_hash(packet_hash, updates)
+                    _propagate_routing_fields(target, data)
 
             elif event_type == EventType.MESH_MESSAGE_NEW:
-                sender = data.get("sender_name") or data.get("peer_name")
-                if sender and self._unenriched_txt:
+                if self._unenriched_txt:
                     target = self._unenriched_txt.popleft()
-                    target["sender_name"] = repair_utf8(str(sender))
-                    packet_hash = target.get("packet_hash")
-                    if packet_hash:
-                        self._packet_store.update_by_hash(
-                            packet_hash, {"sender_name": target["sender_name"]}
-                        )
+                    sender = data.get("sender_name") or data.get("peer_name")
+                    if sender:
+                        target["sender_name"] = repair_utf8(str(sender))
+                        packet_hash = target.get("packet_hash")
+                        if packet_hash:
+                            self._packet_store.update_by_hash(
+                                packet_hash, {"sender_name": target["sender_name"]}
+                            )
+                    _propagate_routing_fields(target, data)
 
     def _enrich_stored_sender_names(self, events: list[MeshEventDict]) -> None:
         """Enrich stored packet events with sender names from the peer registry."""
