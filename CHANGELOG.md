@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.10.0 (2026-05-15)
+
+### Feat
+
+- Add "telemetry favorites only" setting
+
+### Fix
+
+- Address codex review comments on telemetry favorites
+- codex issues
+- Resolve ANON_REQ sender identity via ContactBook key lookup
+- Handle inbound telemetry requests with hash-prefix collisions
+- Scope telemetry results to the requesting peer and add ContactBook key lookup
+- Use settings fixed position in adverts, telemetry, and map (#66)
+- Propagate routing fields (path_hops, snr, rssi) to message events (#64)
+- Correct telemetry callback signature and group text error handling (#63)
+- Issues when favoriting node (#62)
+- Use PacketBuilder for send operations, supporting pymc-core 1.0.10 (#61)
+
 ## v1.9.1 (2026-05-08)
 
 ### Fix
