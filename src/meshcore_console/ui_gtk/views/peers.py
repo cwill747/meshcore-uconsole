@@ -380,7 +380,6 @@ class PeersView(Gtk.Box):
             "UI: toggle favorite peer=%s currently=%s", peer.display_name, peer.is_favorite
         )
         self._service.set_favorite(peer.peer_id, not peer.is_favorite)
-        peer.is_favorite = not peer.is_favorite
         GLib.idle_add(self._refresh_peers)
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:

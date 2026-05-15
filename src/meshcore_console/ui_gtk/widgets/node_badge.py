@@ -87,12 +87,19 @@ class NodeBadge(Gtk.Box):
         left_click.connect("released", self._on_left_click)
         self.add_controller(left_click)
 
+        self.connect("destroy", self._on_destroy)
+
         # Right click → navigate to Peers tab
         if peer is not None:
             right_click = Gtk.GestureClick.new()
             right_click.set_button(3)
             right_click.connect("released", self._on_right_click)
             self.add_controller(right_click)
+
+    def _on_destroy(self, _widget: Gtk.Widget) -> None:
+        if self._popover is not None:
+            self._popover.unparent()
+            self._popover = None
 
     def _on_left_click(
         self, gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
