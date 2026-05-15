@@ -144,6 +144,7 @@ class PyMCCoreSession:
 
     def _build_telemetry_handler(self) -> Callable[..., bytes | None]:
         """Build a handler closure for inbound telemetry requests (REQ type 0x03)."""
+        TELEM_PERM_BASE = 0x01  # noqa: N806
         TELEM_PERM_LOCATION = 0x02  # noqa: N806
 
         def _handle_telemetry(_client: Any, _timestamp: int, req_data: bytes) -> bytes | None:
@@ -154,10 +155,11 @@ class PyMCCoreSession:
                 self._log("telemetry request denied (allow_telemetry=False)")
                 return None
             mask = req_data[0] if req_data else 0x00
+            include_base = not (mask & TELEM_PERM_BASE)
             include_location = not (mask & TELEM_PERM_LOCATION)
             lat = data.get("lat") if include_location else None
             lon = data.get("lon") if include_location else None
-            voltage = data.get("voltage")
+            voltage = data.get("voltage") if include_base else None
             payload = encode_telemetry(
                 channel=1,
                 lat=lat,
@@ -299,13 +301,12 @@ class PyMCCoreSession:
             if len(pkt.payload) < 34:
                 return
 
-            # Login response check: sender included OUR pubkey → delegate
-            if pkt.payload[1:33] == our_pubkey and existing_anon is not None:
-                await existing_anon(pkt)
-                return
-
             dest_hash = pkt.payload[0]
             if dest_hash != our_hash:
+                # Not addressed to us — delegate to existing handler
+                # (e.g. login responses where dest_hash is a repeater)
+                if existing_anon is not None:
+                    await existing_anon(pkt)
                 return
 
             client_pubkey = bytes(pkt.payload[1:33])
@@ -322,23 +323,30 @@ class PyMCCoreSession:
                 )
             except Exception as e:
                 self._log(f"ANON_REQ decrypt failed: {e}")
+                if existing_anon is not None:
+                    await existing_anon(pkt)
                 return
 
             if len(plaintext) < 5:
                 self._log("ANON_REQ payload too short")
+                if existing_anon is not None:
+                    await existing_anon(pkt)
                 return
 
             timestamp = struct.unpack("<I", plaintext[0:4])[0]
             req_type = plaintext[4]
             req_data = plaintext[5:] if len(plaintext) > 5 else b""
-            contact = contact_book.get_by_key(client_pubkey)
-            sender = contact.name if contact else f"{client_pubkey[:4].hex()}..."
-            self._log(f"ANON_REQ from {sender} type=0x{req_type:02X} ts={timestamp}")
 
             handler_fn = request_handlers.get(req_type)
             if handler_fn is None:
-                self._log(f"ANON_REQ: no handler for type 0x{req_type:02X}")
+                # Not a request type we handle (e.g. login) — delegate
+                if existing_anon is not None:
+                    await existing_anon(pkt)
                 return
+
+            contact = contact_book.get_by_key(client_pubkey)
+            sender = contact.name if contact else f"{client_pubkey[:4].hex()}..."
+            self._log(f"ANON_REQ from {sender} type=0x{req_type:02X} ts={timestamp}")
 
             response_payload = handler_fn(contact, timestamp, req_data)
             if response_payload is None:
