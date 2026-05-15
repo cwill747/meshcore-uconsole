@@ -159,15 +159,15 @@ class PyMCCoreSession:
             lon = data.get("lon") if include_location else None
             voltage = data.get("voltage")
             payload = encode_telemetry(
-                channel=1, lat=lat, lon=lon, voltage=voltage,
+                channel=1,
+                lat=lat,
+                lon=lon,
+                voltage=voltage,
             )
             if not payload:
                 self._log("telemetry request: no sensor data available")
                 return None
-            self._log(
-                f"responding to telemetry request "
-                f"(voltage={voltage}, lat={lat}, lon={lon})"
-            )
+            self._log(f"responding to telemetry request (voltage={voltage}, lat={lat}, lon={lon})")
             return payload
 
         return _handle_telemetry
@@ -231,7 +231,8 @@ class PyMCCoreSession:
 
             encrypted_data = bytes(pkt.payload[2:])
             candidates = [
-                c for c in contact_book.contacts
+                c
+                for c in contact_book.contacts
                 if c.public_key and bytes.fromhex(c.public_key)[0] == src_hash
             ]
             if not candidates:
@@ -244,7 +245,9 @@ class PyMCCoreSession:
                 aes_key = ss[:16]
                 try:
                     plaintext = CryptoUtils.mac_then_decrypt(
-                        aes_key, ss, encrypted_data,
+                        aes_key,
+                        ss,
+                        encrypted_data,
                     )
                 except Exception:
                     continue
@@ -270,7 +273,10 @@ class PyMCCoreSession:
                     return
 
                 response_pkt = req_handler._build_response(
-                    pkt, contact, struct.pack("<I", timestamp) + response_payload, ss,
+                    pkt,
+                    contact,
+                    struct.pack("<I", timestamp) + response_payload,
+                    ss,
                 )
                 if response_pkt is not None:
                     logger.debug(
@@ -281,8 +287,7 @@ class PyMCCoreSession:
                 return
 
             self._log(
-                f"REQ from 0x{src_hash:02X}: HMAC failed for all "
-                f"{len(candidates)} candidate(s)"
+                f"REQ from 0x{src_hash:02X}: HMAC failed for all {len(candidates)} candidate(s)"
             )
 
         dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req)
@@ -311,7 +316,9 @@ class PyMCCoreSession:
 
             try:
                 plaintext = CryptoUtils.mac_then_decrypt(
-                    aes_key, shared_secret, encrypted_data,
+                    aes_key,
+                    shared_secret,
+                    encrypted_data,
                 )
             except Exception as e:
                 self._log(f"ANON_REQ decrypt failed: {e}")
@@ -326,10 +333,7 @@ class PyMCCoreSession:
             req_data = plaintext[5:] if len(plaintext) > 5 else b""
             contact = contact_book.get_by_key(client_pubkey)
             sender = contact.name if contact else f"{client_pubkey[:4].hex()}..."
-            self._log(
-                f"ANON_REQ from {sender} "
-                f"type=0x{req_type:02X} ts={timestamp}"
-            )
+            self._log(f"ANON_REQ from {sender} type=0x{req_type:02X} ts={timestamp}")
 
             handler_fn = request_handlers.get(req_type)
             if handler_fn is None:
@@ -343,11 +347,7 @@ class PyMCCoreSession:
 
             reply_data = struct.pack("<I", timestamp) + response_payload
             client_hash = client_pubkey[0]
-            path_list = (
-                list(pkt.path[: pkt.path_len])
-                if pkt.path_len > 0
-                else []
-            )
+            path_list = list(pkt.path[: pkt.path_len]) if pkt.path_len > 0 else []
 
             try:
                 response_pkt = PacketBuilder.create_path_return(
