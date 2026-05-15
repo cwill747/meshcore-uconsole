@@ -55,6 +55,7 @@ class PeersView(Gtk.Box):
         self._event_store = event_store
         self._last_peer_snapshot: str = ""
         self._selected_peer: Peer | None = None
+        self._peer_telemetry: dict[str, dict] = {}
 
         # Column 1: Contacts
         contacts_column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -317,6 +318,11 @@ class PeersView(Gtk.Box):
         key_label.set_selectable(True)
         self._details_content.append(key_label)
 
+        # === Cached Telemetry ===
+        cached = self._peer_telemetry.get(peer.peer_id)
+        if cached is not None:
+            self._render_telemetry(cached)
+
         # === Action buttons ===
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         actions.set_margin_top(16)
@@ -410,7 +416,7 @@ class PeersView(Gtk.Box):
                 result = self._service.request_telemetry(peer.display_name)
                 GLib.idle_add(self._show_telemetry_result, spinner_box, button, peer, result)
             except Exception as exc:
-                GLib.idle_add(self._show_telemetry_error, spinner_box, button, str(exc))
+                GLib.idle_add(self._show_telemetry_error, spinner_box, button, peer, str(exc))
 
         threading.Thread(target=_do_request, daemon=True, name="telemetry-req").start()
 
@@ -418,10 +424,51 @@ class PeersView(Gtk.Box):
         self, spinner_box: Gtk.Box, button: Gtk.Button, peer: Peer, result: dict
     ) -> None:
         """Display telemetry results in the details panel (called on main thread)."""
-        self._details_content.remove(spinner_box)
+        self._peer_telemetry[peer.peer_id] = result
+
+        if self._selected_peer is None or self._selected_peer.peer_id != peer.peer_id:
+            return
+
+        if spinner_box.get_parent() is not None:
+            self._details_content.remove(spinner_box)
         button.set_sensitive(True)
         button.set_label("Request Telemetry")
 
+        self._render_telemetry(result)
+        self._scroll_details_to_bottom()
+
+    def _show_telemetry_error(
+        self, spinner_box: Gtk.Box, button: Gtk.Button, peer: Peer, error: str
+    ) -> None:
+        """Display telemetry error in the details panel (called on main thread)."""
+        if self._selected_peer is None or self._selected_peer.peer_id != peer.peer_id:
+            return
+
+        if spinner_box.get_parent() is not None:
+            self._details_content.remove(spinner_box)
+        button.set_sensitive(True)
+        button.set_label("Request Telemetry")
+
+        self._add_section_header("Telemetry")
+
+        err_scroll = Gtk.ScrolledWindow()
+        err_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        err_scroll.set_max_content_height(120)
+        err_scroll.set_propagate_natural_height(True)
+
+        err_label = Gtk.Label(label=f"Request failed: {error}")
+        err_label.add_css_class("panel-muted")
+        err_label.set_halign(Gtk.Align.START)
+        err_label.set_wrap(True)
+        err_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        err_label.set_selectable(True)
+        err_scroll.set_child(err_label)
+        self._details_content.append(err_scroll)
+
+        self._scroll_details_to_bottom()
+
+    def _render_telemetry(self, result: dict) -> None:
+        """Render telemetry data widgets into the details panel."""
         self._add_section_header("Telemetry")
 
         if not result or not result.get("success"):
@@ -430,7 +477,6 @@ class PeersView(Gtk.Box):
             no_data.add_css_class("panel-muted")
             no_data.set_halign(Gtk.Align.START)
             self._details_content.append(no_data)
-            self._scroll_details_to_bottom()
             return
 
         rtt = result.get("rtt_ms")
@@ -446,7 +492,6 @@ class PeersView(Gtk.Box):
             fallback.add_css_class("panel-muted")
             fallback.set_halign(Gtk.Align.START)
             self._details_content.append(fallback)
-            self._scroll_details_to_bottom()
             return
 
         for sensor in sensors:
@@ -472,32 +517,6 @@ class PeersView(Gtk.Box):
                 self._details_content.append(DetailRow("Pressure:", f"{value:.1f} hPa"))
             else:
                 self._details_content.append(DetailRow(f"{sensor_type}:", str(value)))
-
-        self._scroll_details_to_bottom()
-
-    def _show_telemetry_error(self, spinner_box: Gtk.Box, button: Gtk.Button, error: str) -> None:
-        """Display telemetry error in the details panel (called on main thread)."""
-        self._details_content.remove(spinner_box)
-        button.set_sensitive(True)
-        button.set_label("Request Telemetry")
-
-        self._add_section_header("Telemetry")
-
-        err_scroll = Gtk.ScrolledWindow()
-        err_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        err_scroll.set_max_content_height(120)
-        err_scroll.set_propagate_natural_height(True)
-
-        err_label = Gtk.Label(label=f"Request failed: {error}")
-        err_label.add_css_class("panel-muted")
-        err_label.set_halign(Gtk.Align.START)
-        err_label.set_wrap(True)
-        err_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        err_label.set_selectable(True)
-        err_scroll.set_child(err_label)
-        self._details_content.append(err_scroll)
-
-        self._scroll_details_to_bottom()
 
     def _scroll_details_to_bottom(self) -> None:
         """Scroll the details panel to the bottom after content is added."""
