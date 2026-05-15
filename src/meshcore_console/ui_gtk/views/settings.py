@@ -131,11 +131,26 @@ class SettingsView(Gtk.Box):
 
         # Row 5: Allow Telemetry
         grid.attach(self._grid_label("Allow Telemetry"), 0, 5, 1, 1)
-        grid.attach(self._grid_switch("allow_telemetry"), 1, 5, 1, 1)
+        allow_telem_switch = self._grid_switch("allow_telemetry")
+        grid.attach(allow_telem_switch, 1, 5, 1, 1)
 
-        # Row 6: Autoconnect
-        grid.attach(self._grid_label("Autoconnect"), 0, 6, 1, 1)
-        grid.attach(self._grid_switch("autoconnect"), 1, 6, 1, 1)
+        # Row 6: Favorites Only (sub-option of Allow Telemetry)
+        fav_label = self._grid_label("Favorites Only")
+        fav_switch = self._grid_switch("telemetry_favorites_only")
+        grid.attach(fav_label, 0, 6, 1, 1)
+        grid.attach(fav_switch, 1, 6, 1, 1)
+
+        def _sync_fav_sensitivity(*_args: object) -> None:
+            active = allow_telem_switch.get_active()
+            fav_label.set_sensitive(active)
+            fav_switch.set_sensitive(active)
+
+        allow_telem_switch.connect("notify::active", _sync_fav_sensitivity)
+        _sync_fav_sensitivity()
+
+        # Row 7: Autoconnect
+        grid.attach(self._grid_label("Autoconnect"), 0, 7, 1, 1)
+        grid.attach(self._grid_switch("autoconnect"), 1, 7, 1, 1)
 
         panel.append(grid)
         return panel
@@ -464,6 +479,7 @@ class SettingsView(Gtk.Box):
         self._set_entry_float("longitude", settings.longitude)
         self._set_switch("share_position", settings.share_position)
         self._set_switch("allow_telemetry", settings.allow_telemetry)
+        self._set_switch("telemetry_favorites_only", settings.telemetry_favorites_only)
         self._set_switch("autoconnect", settings.autoconnect)
 
         # Update public key display
@@ -510,6 +526,7 @@ class SettingsView(Gtk.Box):
         out.longitude = self._parse_float("longitude", allow_partial) or current.longitude
         out.share_position = self._switches["share_position"].get_active()
         out.allow_telemetry = self._switches["allow_telemetry"].get_active()
+        out.telemetry_favorites_only = self._switches["telemetry_favorites_only"].get_active()
         out.autoconnect = self._switches["autoconnect"].get_active()
 
         # Radio
