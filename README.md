@@ -18,14 +18,16 @@ and following the below instructions, or installing from the APT repository.
 
 ### APT Repository (recommended)
 
+Packages are built for **Bookworm** (Debian 12 / Raspberry Pi OS) and **Trixie** (Debian 13). Check your version with `lsb_release -cs`.
+
 ```bash
 # Add signing key
 curl -fsSL https://cwill747.github.io/meshcore-uconsole/KEY.gpg \
   | sudo gpg --dearmor -o /usr/share/keyrings/meshcore.gpg
 
-# Add repository
+# Add repository — replace DISTRO with bookworm or trixie
 echo "deb [signed-by=/usr/share/keyrings/meshcore.gpg arch=arm64] \
-  https://cwill747.github.io/meshcore-uconsole stable main" \
+  https://cwill747.github.io/meshcore-uconsole DISTRO main" \
   | sudo tee /etc/apt/sources.list.d/meshcore.list
 
 # Install
@@ -36,10 +38,13 @@ Future updates are available via `sudo apt update && sudo apt upgrade`.
 
 ### Manual install
 
-Download the latest `.deb` from [Releases](https://github.com/cwill747/meshcore-uconsole/releases) and install with:
+Download the `.deb` for your distro from [Releases](https://github.com/cwill747/meshcore-uconsole/releases) and install:
 
 ```bash
-sudo apt install ./meshcore-uconsole_*.deb
+# Bookworm (Debian 12)
+sudo apt install ./meshcore-uconsole_*~bookworm_arm64.deb
+# Trixie (Debian 13)
+sudo apt install ./meshcore-uconsole_*~trixie_arm64.deb
 ```
 
 ## Screenshots
