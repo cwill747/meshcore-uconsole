@@ -413,9 +413,12 @@ class PeersView(Gtk.Box):
 
         def _do_request() -> None:
             try:
+                logger.debug("telemetry request starting for peer=%s", peer.display_name)
                 result = self._service.request_telemetry(peer.display_name)
+                logger.debug("telemetry request result: %s", result)
                 GLib.idle_add(self._show_telemetry_result, spinner_box, button, peer, result)
             except Exception as exc:
+                logger.exception("telemetry request failed for peer=%s", peer.display_name)
                 GLib.idle_add(self._show_telemetry_error, spinner_box, button, peer, str(exc))
 
         threading.Thread(target=_do_request, daemon=True, name="telemetry-req").start()

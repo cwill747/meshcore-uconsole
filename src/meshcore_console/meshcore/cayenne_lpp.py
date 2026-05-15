@@ -17,6 +17,23 @@ def encode_gps(channel: int, lat: float, lon: float, alt: float = 0.0) -> bytes:
     return bytes(frame)
 
 
+def encode_telemetry(
+    channel: int,
+    *,
+    lat: float | None = None,
+    lon: float | None = None,
+    alt: float = 0.0,
+    voltage: float | None = None,
+) -> bytes:
+    """Encode available telemetry sensors as CayenneLPP bytes."""
+    frame = LppFrame()
+    if voltage is not None:
+        frame.add_voltage(channel, voltage)
+    if lat is not None and lon is not None:
+        frame.add_gps(channel, lat, lon, alt)
+    return bytes(frame)
+
+
 def decode_cayenne_lpp_payload(hex_string: str) -> dict:
     """Decode a CayenneLPP hex payload into structured sensor data.
 

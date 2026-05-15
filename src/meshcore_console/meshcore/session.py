@@ -23,7 +23,7 @@ from meshcore_console.core.types import (
     SX1262RadioProtocol,
 )
 
-from .cayenne_lpp import encode_gps
+from .cayenne_lpp import encode_gps, encode_telemetry
 from . import cayenne_lpp as _cayenne_lpp_mod
 
 # pymc_core's ProtocolResponseHandler tries ``from utils.cayenne_lpp_helpers
@@ -70,6 +70,8 @@ class PyMCCoreSession:
     def _log(self, message: str) -> None:
         if self._logger is not None:
             self._logger(message)
+        else:
+            logger.debug(message)
 
     def set_event_notify(self, notify_fn: Callable[[], None]) -> None:
         self._event_notify = notify_fn
@@ -151,53 +153,219 @@ class PyMCCoreSession:
             if not data.get("allow"):
                 self._log("telemetry request denied (allow_telemetry=False)")
                 return None
-            # req_data is an inverse permission mask — bits set = permissions EXCLUDED
             mask = req_data[0] if req_data else 0x00
-            if mask & TELEM_PERM_LOCATION:
-                self._log("telemetry request excludes location")
+            include_location = not (mask & TELEM_PERM_LOCATION)
+            lat = data.get("lat") if include_location else None
+            lon = data.get("lon") if include_location else None
+            voltage = data.get("voltage")
+            payload = encode_telemetry(
+                channel=1, lat=lat, lon=lon, voltage=voltage,
+            )
+            if not payload:
+                self._log("telemetry request: no sensor data available")
                 return None
-            lat = data.get("lat")
-            lon = data.get("lon")
-            if lat is None or lon is None:
-                self._log("telemetry request: no GPS fix")
-                return None
-            payload = encode_gps(channel=1, lat=lat, lon=lon)
-            self._log(f"responding to telemetry request with GPS ({lat:.4f}, {lon:.4f})")
+            self._log(
+                f"responding to telemetry request "
+                f"(voltage={voltage}, lat={lat}, lon={lon})"
+            )
             return payload
 
         return _handle_telemetry
 
     def _register_req_handler(self) -> None:
-        """Register a handler for incoming REQ packets.
+        """Register handlers for incoming REQ and ANON_REQ packets.
 
         pyMC_core's register_default_handlers() does not register a handler
         for PAYLOAD_TYPE_REQ (0x00), so incoming requests are silently
         dropped.  We register ProtocolRequestHandler here and wrap it so
         that any generated RESPONSE packet is actually transmitted.
+
+        ANON_REQ (0x07) packets carry the sender's public key inline, so
+        they don't require prior key exchange.  The default AnonReqResponseHandler
+        only handles login responses; we replace it with one that also handles
+        telemetry requests.
         """
+        import struct
+
         from pymc_core.node.handlers.protocol_request import ProtocolRequestHandler
-        from pymc_core.protocol.constants import PAYLOAD_TYPE_REQ
+        from pymc_core.protocol import CryptoUtils, Identity, PacketBuilder
+        from pymc_core.protocol.constants import (
+            PAYLOAD_TYPE_ANON_REQ,
+            PAYLOAD_TYPE_REQ,
+            PAYLOAD_TYPE_RESPONSE,
+        )
 
         REQ_TYPE_GET_TELEMETRY_DATA = 0x03  # noqa: N806
 
         assert self._node is not None
         assert self._identity is not None
 
+        telemetry_handler = self._build_telemetry_handler()
+        request_handlers = {REQ_TYPE_GET_TELEMETRY_DATA: telemetry_handler}
+
         req_handler = ProtocolRequestHandler(
             local_identity=self._identity,
             contacts=self._contact_book,
             log_fn=self._log,
-            request_handlers={REQ_TYPE_GET_TELEMETRY_DATA: self._build_telemetry_handler()},
+            request_handlers=request_handlers,
         )
 
         dispatcher = self._node.dispatcher
 
+        identity = self._identity
+        contact_book = self._contact_book
+
         async def _handle_req(pkt: Any) -> None:
-            response_pkt = await req_handler(pkt)
-            if response_pkt is not None:
-                await dispatcher.send_packet(response_pkt, wait_for_ack=False)
+            # ProtocolRequestHandler._get_client matches on first byte only,
+            # which collides when multiple contacts share a hash prefix.
+            # Try each matching contact until decryption succeeds.
+            if len(pkt.payload) < 2:
+                return
+            dest_hash = pkt.payload[0]
+            src_hash = pkt.payload[1]
+            our_hash = identity.get_public_key()[0]
+            if dest_hash != our_hash:
+                return
+
+            encrypted_data = bytes(pkt.payload[2:])
+            candidates = [
+                c for c in contact_book.contacts
+                if c.public_key and bytes.fromhex(c.public_key)[0] == src_hash
+            ]
+            if not candidates:
+                self._log(f"REQ from unknown 0x{src_hash:02X}")
+                return
+
+            for contact in candidates:
+                peer_id = Identity(bytes.fromhex(contact.public_key))
+                ss = peer_id.calc_shared_secret(identity.get_private_key())
+                aes_key = ss[:16]
+                try:
+                    plaintext = CryptoUtils.mac_then_decrypt(
+                        aes_key, ss, encrypted_data,
+                    )
+                except Exception:
+                    continue
+
+                if len(plaintext) < 5:
+                    continue
+                timestamp = struct.unpack("<I", plaintext[0:4])[0]
+                req_type = plaintext[4]
+                req_data = plaintext[5:] if len(plaintext) > 5 else b""
+                self._log(
+                    f"REQ from {contact.name} (0x{src_hash:02X}) "
+                    f"type=0x{req_type:02X} ts={timestamp}"
+                )
+
+                handler_fn = request_handlers.get(req_type)
+                if handler_fn is None:
+                    self._log(f"REQ: no handler for type 0x{req_type:02X}")
+                    return
+
+                response_payload = handler_fn(contact, timestamp, req_data)
+                if response_payload is None:
+                    self._log("REQ: handler returned no data")
+                    return
+
+                response_pkt = req_handler._build_response(
+                    pkt, contact, struct.pack("<I", timestamp) + response_payload, ss,
+                )
+                if response_pkt is not None:
+                    logger.debug(
+                        "REQ handler: sending response (%d bytes)",
+                        len(response_pkt.payload),
+                    )
+                    await dispatcher.send_packet(response_pkt, wait_for_ack=False)
+                return
+
+            self._log(
+                f"REQ from 0x{src_hash:02X}: HMAC failed for all "
+                f"{len(candidates)} candidate(s)"
+            )
 
         dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req)
+
+        # --- ANON_REQ handler ---
+        our_pubkey = self._identity.get_public_key()
+        our_hash = our_pubkey[0]
+        our_privkey = self._identity.get_private_key()
+        existing_anon = dispatcher._handler_instances.get(PAYLOAD_TYPE_ANON_REQ)
+
+        async def _handle_anon_req(pkt: Any) -> None:
+            if len(pkt.payload) < 34:
+                return
+
+            # Login response check: sender included OUR pubkey → delegate
+            if pkt.payload[1:33] == our_pubkey and existing_anon is not None:
+                await existing_anon(pkt)
+                return
+
+            dest_hash = pkt.payload[0]
+            if dest_hash != our_hash:
+                return
+
+            client_pubkey = bytes(pkt.payload[1:33])
+            encrypted_data = bytes(pkt.payload[33:])
+            client_identity = Identity(client_pubkey)
+            shared_secret = client_identity.calc_shared_secret(our_privkey)
+            aes_key = shared_secret[:16]
+
+            try:
+                plaintext = CryptoUtils.mac_then_decrypt(
+                    aes_key, shared_secret, encrypted_data,
+                )
+            except Exception as e:
+                self._log(f"ANON_REQ decrypt failed: {e}")
+                return
+
+            if len(plaintext) < 5:
+                self._log("ANON_REQ payload too short")
+                return
+
+            timestamp = struct.unpack("<I", plaintext[0:4])[0]
+            req_type = plaintext[4]
+            req_data = plaintext[5:] if len(plaintext) > 5 else b""
+            self._log(
+                f"ANON_REQ from {client_pubkey[:4].hex()}... "
+                f"type=0x{req_type:02X} ts={timestamp}"
+            )
+
+            handler_fn = request_handlers.get(req_type)
+            if handler_fn is None:
+                self._log(f"ANON_REQ: no handler for type 0x{req_type:02X}")
+                return
+
+            response_payload = handler_fn(None, timestamp, req_data)
+            if response_payload is None:
+                self._log("ANON_REQ: handler returned no data")
+                return
+
+            reply_data = struct.pack("<I", timestamp) + response_payload
+            client_hash = client_pubkey[0]
+            path_list = (
+                list(pkt.path[: pkt.path_len])
+                if pkt.path_len > 0
+                else []
+            )
+
+            try:
+                response_pkt = PacketBuilder.create_path_return(
+                    dest_hash=client_hash,
+                    src_hash=our_hash,
+                    secret=shared_secret,
+                    path=path_list,
+                    extra_type=PAYLOAD_TYPE_RESPONSE,
+                    extra=bytes(reply_data),
+                )
+                self._log(
+                    f"ANON_REQ: sending PATH response to "
+                    f"0x{client_hash:02X} ({len(response_pkt.payload)} bytes)"
+                )
+                await dispatcher.send_packet(response_pkt, wait_for_ack=False)
+            except Exception as e:
+                self._log(f"ANON_REQ: failed to build/send response: {e}")
+
+        dispatcher.register_handler(PAYLOAD_TYPE_ANON_REQ, _handle_anon_req)
 
     async def _call_maybe_async(self, target: Any, name: str) -> None:
         fn = getattr(target, name, None)
