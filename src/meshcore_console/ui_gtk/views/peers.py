@@ -381,7 +381,7 @@ class PeersView(Gtk.Box):
         )
         self._service.set_favorite(peer.peer_id, not peer.is_favorite)
         peer.is_favorite = not peer.is_favorite
-        self._refresh_peers()
+        GLib.idle_add(self._refresh_peers)
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Navigate to messages view and start a conversation with this peer."""
