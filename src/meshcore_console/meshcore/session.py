@@ -499,6 +499,10 @@ class PyMCCoreSession:
         )
         attach_dispatcher_callbacks(node=self._node, emit=self._emit, logger=self._log)
 
+        if self.config.path_hash_mode:
+            self._node.dispatcher.set_default_path_hash_mode(self.config.path_hash_mode)
+            self._log(f"path hash mode set to {self.config.path_hash_mode}")
+
         self._register_req_handler()
         self._register_discovery_handler()
 

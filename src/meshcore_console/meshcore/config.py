@@ -10,6 +10,7 @@ from .settings import MeshcoreSettings
 class RuntimeRadioConfig:
     node_name: str
     share_public_key: bool = True
+    path_hash_mode: int = 0
     hardware: "HardwareRadioConfig | None" = None
 
 
@@ -113,5 +114,6 @@ def runtime_config_from_settings(settings: MeshcoreSettings) -> RuntimeRadioConf
     return RuntimeRadioConfig(
         node_name=settings.node_name,
         share_public_key=True,
+        path_hash_mode=settings.path_hash_mode,
         hardware=hardware,
     )
