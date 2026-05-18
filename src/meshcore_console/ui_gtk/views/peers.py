@@ -293,10 +293,13 @@ class PeersView(Gtk.Box):
 
         if peer.last_path:
             peer_prefix = (peer.public_key or peer.display_name)[:2].upper()
+            self_key = self._service.get_self_public_key()
+            self_prefix = (self_key or "")[:2].upper() or "Me"
+            self_name = self._service.get_status().node_id
             path = PathVisualization(
                 hops=peer.last_path,
                 peers=self._service.list_peers(),
-                start=("Me", "You (this node)", None, STYLE_SELF),
+                start=(self_prefix, self_name, None, STYLE_SELF),
                 end=(peer_prefix, peer.display_name, peer, STYLE_DEFAULT),
             )
             self._details_content.append(path)

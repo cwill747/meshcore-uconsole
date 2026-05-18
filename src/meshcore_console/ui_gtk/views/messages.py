@@ -432,12 +432,15 @@ class MessagesView(Gtk.Box):
             sender_name = message.sender_id
             sender_peer = find_peer_for_hop(all_peers, sender_name)
             sender_prefix = (sender_name or "??")[:2].upper()
+            self_key = self._service.get_self_public_key()
+            self_prefix = (self_key or "")[:2].upper() or "Me"
+            self_name = self._service.get_status().node_id
 
             path = PathVisualization(
                 hops=message.path_hops,
                 peers=all_peers,
                 arrow="\u2190",
-                start=("Me", "You (this node)", None, STYLE_SELF),
+                start=(self_prefix, self_name, None, STYLE_SELF),
                 end=(sender_prefix, sender_name, sender_peer, STYLE_DEFAULT),
             )
             path.set_margin_top(4)
