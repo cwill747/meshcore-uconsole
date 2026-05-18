@@ -258,24 +258,37 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         except Exception:
             pass
 
-    # Extract routing path information
+    # Extract routing path information.
+    # path_len is an encoded byte: bits 6-7 = hash_size-1, bits 0-5 = hop count.
+    # Use get_path_hashes_hex() which correctly handles 1/2/3-byte hashes.
     path_len = packet.path_len or 0
     path_bytes = packet.path
     path_hops: list[str] = []
+    hop_count = 0
     if path_bytes and path_len > 0:
-        for i in range(min(path_len, len(path_bytes))):
-            path_hops.append(f"{path_bytes[i]:02X}")
+        get_hashes_hex = getattr(packet, "get_path_hashes_hex", None)
+        if callable(get_hashes_hex):
+            path_hops = list(get_hashes_hex())
+            hop_count = len(path_hops)
+        else:
+            hash_size = ((path_len >> 6) & 0x03) + 1
+            hop_count = path_len & 0x3F
+            for i in range(hop_count):
+                start = i * hash_size
+                end = start + hash_size
+                if end > len(path_bytes):
+                    break
+                path_hops.append(path_bytes[start:end].hex().upper())
 
     # For TRACE packets, path[] contains per-hop SNR values (int8_t, SNR*4),
     # NOT node ID hashes like other packet types.
     trace_snr_values: list[float] = []
     is_trace = payload_type_name == "TRACE" or payload_type == 9
     if is_trace and path_bytes and path_len > 0:
-        # Re-interpret path bytes as signed SNR values
-        path_hops = []  # Clear — these aren't hop IDs for TRACE
-        for i in range(min(path_len, len(path_bytes))):
+        path_hops = []
+        trace_hop_count = path_len & 0x3F
+        for i in range(min(trace_hop_count, len(path_bytes))):
             raw = path_bytes[i]
-            # Convert from unsigned byte to signed int8_t, then divide by 4
             signed = raw if raw < 128 else raw - 256
             trace_snr_values.append(signed / 4.0)
 
@@ -301,7 +314,7 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
         "advert_type": advert_info.get("advert_type"),
         "advert_lat": advert_info.get("advert_lat"),
         "advert_lon": advert_info.get("advert_lon"),
-        "path_len": path_len,
+        "path_len": hop_count,
         "path_hops": path_hops,
         "packet_hash": packet_hash,
         "control_type": control_type,

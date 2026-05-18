@@ -24,6 +24,7 @@ class MeshcoreSettings:
     coding_rate: int = 5
     tx_power: int = 22
     preamble_length: int = 17
+    path_hash_mode: int = 0
 
     # Hardware (SPI/GPIO)
     hardware_preset: str = "uconsole"

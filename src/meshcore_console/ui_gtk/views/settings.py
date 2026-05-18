@@ -214,6 +214,15 @@ class SettingsView(Gtk.Box):
         grid.attach(self._grid_label("Preamble"), 0, 6, 1, 1)
         grid.attach(self._grid_entry("preamble_length", 4), 1, 6, 1, 1)
 
+        # Row 7: Path Hash Mode (multi-byte)
+        grid.attach(self._grid_label("Path Hash"), 0, 7, 1, 1)
+        self._path_hash_combo = Gtk.ComboBoxText.new()
+        self._path_hash_combo.append("0", "1-byte (64 hops)")
+        self._path_hash_combo.append("1", "2-byte (32 hops)")
+        self._path_hash_combo.append("2", "3-byte (21 hops)")
+        self._path_hash_combo.set_active_id("0")
+        grid.attach(self._path_hash_combo, 1, 7, 3, 1)
+
         panel.append(grid)
         return panel
 
@@ -496,6 +505,8 @@ class SettingsView(Gtk.Box):
         self._set_entry_int("tx_power", settings.tx_power)
         self._set_entry_int("preamble_length", settings.preamble_length)
 
+        self._path_hash_combo.set_active_id(str(settings.path_hash_mode))
+
         # Hardware
         self._hw_preset.set_active_id(settings.hardware_preset)
         for key in (
@@ -537,6 +548,9 @@ class SettingsView(Gtk.Box):
         bw = self._parse_float("bandwidth", allow_partial)
         if bw is not None:
             out.bandwidth = int(bw * 1_000)
+
+        path_hash_id = self._path_hash_combo.get_active_id()
+        out.path_hash_mode = int(path_hash_id) if path_hash_id else 0
 
         for key in (
             "spreading_factor",
