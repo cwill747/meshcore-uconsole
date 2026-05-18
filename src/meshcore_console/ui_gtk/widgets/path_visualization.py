@@ -67,8 +67,13 @@ class PathVisualization(Gtk.FlowBox):
 
     @staticmethod
     def _hop_pair(
-        arrow: str, prefix: str, name: str, peer: Peer | None, style: str,
-        *, hide_arrow: bool = False,
+        arrow: str,
+        prefix: str,
+        name: str,
+        peer: Peer | None,
+        style: str,
+        *,
+        hide_arrow: bool = False,
     ) -> Gtk.Box:
         pair = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         lbl = Gtk.Label(label=arrow)
