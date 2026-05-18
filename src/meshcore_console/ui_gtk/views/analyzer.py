@@ -146,13 +146,19 @@ class AnalyzerView(Gtk.Box):
         center_overlay.add_overlay(self._details_revealer)
         center_overlay.set_measure_overlay(self._details_revealer, False)
 
-        # Use fixed-width box for details panel. Content must pre-wrap
-        # long strings to avoid natural width explosion in GTK4.
         self._details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._details.add_css_class("panel-card")
         self._details.add_css_class("analyzer-details")
         self._details.add_css_class("analyzer-drawer")
         self._details.set_size_request(self._layout.analyzer_details_width, -1)
+
+        self._details_scroll = Gtk.ScrolledWindow()
+        self._details_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self._details_scroll.set_vexpand(True)
+        self._details_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self._details_scroll.set_child(self._details_content)
+        self._details.append(self._details_scroll)
+
         self._details_revealer.set_child(self._details)
 
         self._event_store.connect("events-available", lambda _store: self._poll_events())
@@ -656,7 +662,7 @@ class AnalyzerView(Gtk.Box):
         self._details_revealer.set_reveal_child(True)
 
     def _refresh_details(self) -> None:
-        clear_children(self._details)
+        clear_children(self._details_content)
 
         if self._selected_packet is None:
             self._details_revealer.set_reveal_child(False)
@@ -676,7 +682,7 @@ class AnalyzerView(Gtk.Box):
         close.update_property([Gtk.AccessibleProperty.LABEL], ["Close details"])
         close.connect("clicked", self._on_close_details_clicked)
         title_row.append(close)
-        self._details.append(title_row)
+        self._details_content.append(title_row)
 
         subtitle = Gtk.Label(label=f"{packet.packet_type}  •  ID: {packet.packet_id}")
         subtitle.add_css_class("panel-muted")
@@ -684,21 +690,21 @@ class AnalyzerView(Gtk.Box):
         subtitle.set_ellipsize(Pango.EllipsizeMode.END)
         subtitle.set_single_line_mode(True)
         subtitle.set_max_width_chars(28)
-        self._details.append(subtitle)
+        self._details_content.append(subtitle)
 
         wrap = self._layout.detail_block_wrap_chars
-        self._details.append(DetailBlock("Timestamp", packet.timestamp, wrap_chars=wrap))
-        self._details.append(
+        self._details_content.append(DetailBlock("Timestamp", packet.timestamp, wrap_chars=wrap))
+        self._details_content.append(
             DetailBlock(
                 "Radio Signal",
                 f"RSSI {packet.rssi} dBm   SNR {packet.snr:.2f} dB",
                 wrap_chars=wrap,
             )
         )
-        self._details.append(self._packet_info_block(packet))
-        self._details.append(self._decoded_payload_block(packet))
-        self._details.append(self._routing_block(packet))
-        self._details.append(self._raw_block(packet))
+        self._details_content.append(self._packet_info_block(packet))
+        self._details_content.append(self._decoded_payload_block(packet))
+        self._details_content.append(self._routing_block(packet))
+        self._details_content.append(self._raw_block(packet))
 
         # "View in Channel" action for group text/data packets
         if packet.channel_name and packet.packet_type in ("GRP_TXT", "GRP_DATA"):
@@ -712,7 +718,7 @@ class AnalyzerView(Gtk.Box):
             nav_btn.connect(
                 "clicked", lambda _b, ch=packet.channel_name: self._navigate_to_channel(ch)
             )
-            self._details.append(nav_btn)
+            self._details_content.append(nav_btn)
 
     def close_active_detail(self) -> bool:
         """Close the details panel if open. Returns True if something was closed."""
@@ -795,12 +801,15 @@ class AnalyzerView(Gtk.Box):
             sender_name = packet.node if packet.node else "Sender"
             sender_peer = find_peer_for_hop(all_peers, packet.node) if packet.node else None
             sender_prefix = (packet.node or "??")[:2].upper()
+            self_key = self._service.get_self_public_key()
+            self_prefix = (self_key or "")[:2].upper() or "Me"
+            self_name = self._service.get_status().node_id
 
             path = PathVisualization(
                 hops=packet.path_hops,
                 peers=all_peers,
                 arrow="←",
-                start=("Me", "You (this node)", None, STYLE_SELF),
+                start=(self_prefix, self_name, None, STYLE_SELF),
                 end=(sender_prefix, sender_name, sender_peer, STYLE_DEFAULT),
             )
             path.set_margin_top(4)
