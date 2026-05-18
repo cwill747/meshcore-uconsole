@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.11.0 (2026-05-17)
+
+### Feat
+
+- Add dedupe toggle to analyzer view
+- Add mock data with 2-byte and 3-byte path hops
+- Use FlowBox for path visualization to support wrapping long paths
+- Add multi-byte path hash mode setting (#71)
+
+### Fix
+
+- Auto-create venv with system-site-packages in run-dev.sh
+- Address codex review comments on long path visualization
+- Show self public key prefix in path badges instead of hardcoded "Me"
+
 ## v1.10.0 (2026-05-15)
 
 ### Feat
