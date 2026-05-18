@@ -126,11 +126,11 @@ Mock implementation is in `meshcore/mock_session.py`. It exercises the same adap
 
 In a git bare-repo worktree the flake isn't at the repo root, so use `nix develop path:.` to point at the current directory's flake.
 
-Prefix every command with `nix develop --command` (or run inside an existing `nix develop` shell):
+Prefix every command with `nix develop path:. --command` (or run inside an existing `nix develop` shell):
 
 ```bash
 nix develop path:. --command uv run pytest
-nix develop path:. --command ./scripts/run-dev.sh
+./scripts/run-dev.sh  # enters nix develop automatically
 ```
 
 ### Common Commands
@@ -159,10 +159,13 @@ All commands below assume you are inside `nix develop`.
 
 ### Initial Setup (macOS)
 
+`run-dev.sh` auto-creates the venv with `--system-site-packages` if missing or misconfigured. To set up manually:
+
 ```bash
-nix develop --command sh -lc 'uv venv --python "$(which python)" --system-site-packages'
-nix develop --command uv sync
+nix develop path:. --command bash -c 'uv venv --python "$(which python)" --system-site-packages && uv sync'
 ```
+
+**Important:** If tests or other tools recreate `.venv` without `--system-site-packages`, PyGObject (`gi`) will be missing and the GTK app will fail to import. Run `./scripts/run-dev.sh` to auto-fix, or re-run the command above.
 
 ### Raspberry Pi Development
 
