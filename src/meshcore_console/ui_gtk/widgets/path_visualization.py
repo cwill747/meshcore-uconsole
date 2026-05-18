@@ -48,7 +48,7 @@ class PathVisualization(Gtk.FlowBox):
         self.set_column_spacing(2)
         self.set_halign(Gtk.Align.START)
         self.set_min_children_per_line(1)
-        self.set_max_children_per_line(50)
+        self.set_max_children_per_line(6)
         self.add_css_class("path-visualization")
 
         if start is not None:
