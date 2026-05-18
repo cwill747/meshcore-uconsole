@@ -82,6 +82,14 @@ MIGRATIONS: list[tuple[str, ...]] = [
         # Backfill: channels with a peer_name are DM channels
         "UPDATE channels SET kind = 'dm' WHERE peer_name IS NOT NULL",
     ),
+    # v5 -> v6: add repeater_passwords table
+    (
+        """CREATE TABLE IF NOT EXISTS repeater_passwords (
+            peer_name TEXT PRIMARY KEY,
+            password TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )""",
+    ),
 ]
 
 

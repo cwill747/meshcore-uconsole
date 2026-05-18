@@ -49,6 +49,11 @@ class Layout:
     def status_card_width(self) -> int:
         return int(self.content_width * 0.15)
 
+    # -- Admin view -----------------------------------------------------------
+    @property
+    def admin_list_width(self) -> int:
+        return int(self.content_width * 0.22)
+
     @property
     def detail_block_wrap_chars(self) -> int:
         return max(16, int(self.content_width * 0.019))

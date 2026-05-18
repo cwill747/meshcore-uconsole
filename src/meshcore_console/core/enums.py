@@ -66,6 +66,11 @@ class EventType(StrEnum):
     # Telemetry
     TELEMETRY_RECEIVED = "telemetry_received"
 
+    # Repeater admin
+    REPEATER_LOGIN = "repeater_login"
+    REPEATER_LOGOUT = "repeater_logout"
+    REPEATER_COMMAND_RESPONSE = "repeater_command_response"
+
     # EventService events (mesh.* naming)
     MESH_CONTACT_NEW = "mesh.contact.new"
     MESH_CHANNEL_MESSAGE_NEW = "mesh.channel.message.new"

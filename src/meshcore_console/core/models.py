@@ -43,6 +43,17 @@ class Message:
 
 
 @dataclass(slots=True)
+class RepeaterLoginState:
+    peer_name: str
+    is_admin: bool = False
+    is_guest: bool = False
+    keep_alive_interval: int = 0
+    acl_permissions: int = 0
+    firmware_ver_level: int | None = None
+    logged_in_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass(slots=True)
 class Channel:
     channel_id: str
     display_name: str

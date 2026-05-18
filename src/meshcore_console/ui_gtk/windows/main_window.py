@@ -65,6 +65,7 @@ class MainWindow(Adw.ApplicationWindow):
         from meshcore_console.ui_gtk.views.map import MapView
         from meshcore_console.ui_gtk.views.messages import MessagesView
         from meshcore_console.ui_gtk.views.peers import PeersView
+        from meshcore_console.ui_gtk.views.admin import AdminView
         from meshcore_console.ui_gtk.views.settings import SettingsView
 
         header_bar = self._build_header_bar()
@@ -81,6 +82,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._stack.add_named(PeersView(self._service, self._event_store, layout), "peers")
         self._stack.add_named(MessagesView(self._service, self._event_store, layout), "messages")
         self._stack.add_named(MapView(self._service, self._event_store, layout), "map")
+        self._stack.add_named(AdminView(self._service, self._event_store, layout), "admin")
         self._stack.add_named(SettingsView(self._service), "settings")
         self._stack.set_visible_child_name("analyzer")
 
@@ -129,6 +131,7 @@ class MainWindow(Adw.ApplicationWindow):
             ("Peers", "peers"),
             ("Channels", "messages"),
             ("Map", "map"),
+            ("Admin", "admin"),
         ]:
             btn = Gtk.ToggleButton.new_with_label(label)
             btn.add_css_class("nav-button")
@@ -416,7 +419,7 @@ class MainWindow(Adw.ApplicationWindow):
             visible = self._stack.get_visible_child_name()
             print(f"[ui-geom] window={win_w}x{win_h} visible={visible}")
             print(f"[ui-geom] stack={self._stack.get_width()}x{self._stack.get_height()}")
-            for name in ("analyzer", "peers", "messages", "map", "settings"):
+            for name in ("analyzer", "peers", "messages", "map", "admin", "settings"):
                 child = self._stack.get_child_by_name(name)
                 if child is not None:
                     min_w, nat_w, _min_b, _nat_b = child.measure(Gtk.Orientation.HORIZONTAL, -1)
@@ -725,7 +728,8 @@ class MainWindow(Adw.ApplicationWindow):
             Gdk.KEY_2: "peers",
             Gdk.KEY_3: "messages",
             Gdk.KEY_4: "map",
-            Gdk.KEY_5: "settings",
+            Gdk.KEY_5: "admin",
+            Gdk.KEY_6: "settings",
         }
         page = mapping.get(keyval)
         if page is None:

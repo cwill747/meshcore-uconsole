@@ -43,7 +43,15 @@ from .config import RuntimeRadioConfig, load_hardware_config_from_env
 from .contact_book import ContactBook
 from .db import open_db
 from .event_bridge import attach_dispatcher_callbacks, attach_event_service_subscriber
-from .operations import request_telemetry, send_advert, send_group_text, send_text
+from .operations import (
+    request_telemetry,
+    send_advert,
+    send_group_text,
+    send_login,
+    send_logout,
+    send_repeater_command,
+    send_text,
+)
 from .runtime import create_mesh_node, create_radio, import_pymc_core
 
 
@@ -643,6 +651,23 @@ class PyMCCoreSession:
             contact_name=contact_name,
             want_location=want_location,
             timeout=timeout,
+        )
+
+    async def send_repeater_login(self, peer_name: str, password: str) -> dict:
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        return await send_login(node=self._node, peer_name=peer_name, password=password)
+
+    async def send_repeater_logout(self, peer_name: str) -> dict:
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        return await send_logout(node=self._node, peer_name=peer_name)
+
+    async def send_repeater_cli(self, peer_name: str, command: str, timeout: float = 15.0) -> dict:
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        return await send_repeater_command(
+            node=self._node, peer_name=peer_name, command=command, timeout=timeout
         )
 
     async def listen_events(self) -> AsyncIterator[MeshEventDict]:

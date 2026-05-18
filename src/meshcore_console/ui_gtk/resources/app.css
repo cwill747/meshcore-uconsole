@@ -730,3 +730,68 @@ row:focus-visible {
   font-size: 16px;
   color: @mc_text_muted;
 }
+
+/* -- Admin / Repeater CLI ------------------------------------------------ */
+
+.cli-console {
+  background: shade(@mc_bg, 0.9);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.cli-console label {
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.cli-command {
+  color: @mc_accent;
+}
+
+.cli-response {
+  color: @mc_text;
+}
+
+.cli-error {
+  color: @mc_danger;
+}
+
+.cli-entry {
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.login-status-admin {
+  color: @mc_accent;
+  font-weight: 700;
+}
+
+.login-status-guest {
+  color: @mc_warn;
+  font-weight: 700;
+}
+
+.login-status-offline {
+  color: @mc_text_muted;
+}
+
+.admin-repeater-row {
+  padding: 8px 12px;
+}
+
+.admin-login-dot {
+  color: @mc_accent;
+  font-size: 10px;
+}
+
+.admin-login-dot-off {
+  color: @mc_text_muted;
+  font-size: 10px;
+}
+
+.quick-cmd-btn {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 2px 8px;
+  min-height: 24px;
+}
