@@ -554,8 +554,8 @@ class MeshcoreClient(MeshcoreService):
 
         # Extract GPS coordinates from ADVERT (packet events use advert_lat/lon,
         # NODE_DISCOVERED events use lat/lon).
-        advert_lat_raw = data.get("advert_lat") or data.get("lat")
-        advert_lon_raw = data.get("advert_lon") or data.get("lon")
+        advert_lat_raw = data.get("advert_lat") if data.get("advert_lat") is not None else data.get("lat")
+        advert_lon_raw = data.get("advert_lon") if data.get("advert_lon") is not None else data.get("lon")
         advert_lat: float | None = float(advert_lat_raw) if advert_lat_raw is not None else None
         advert_lon: float | None = float(advert_lon_raw) if advert_lon_raw is not None else None
         has_location = (
@@ -574,14 +574,17 @@ class MeshcoreClient(MeshcoreService):
         # Extract raw routing path so the ContactBook Contact gets
         # out_path/out_path_len for direct routing.  NODE_DISCOVERED events
         # carry inbound_path (bytes) + path_len_encoded directly; for "packet"
-        # events reconstruct from the decoded path_hops list.
+        # events reconstruct from the decoded path_hops list.  Only derive
+        # path when the event actually carries routing data ("path_hops" key
+        # present) — identity-only events like mesh.contact.new must not
+        # overwrite a previously learned route.
         inbound_path: bytes | None = data.get("inbound_path")  # type: ignore[assignment]
         path_len_encoded: int | None = data.get("path_len_encoded")  # type: ignore[assignment]
-        if path_len_encoded is None and public_key:
+        if path_len_encoded is None and public_key and "path_hops" in data:
             if not path_hops:
                 inbound_path = b""
                 path_len_encoded = 0
-            elif path_hops:
+            else:
                 hash_size = len(path_hops[0]) // 2 or 1
                 inbound_path = bytes.fromhex("".join(path_hops))
                 path_len_encoded = ((hash_size - 1) << 6) | len(path_hops)
