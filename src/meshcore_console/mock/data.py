@@ -709,9 +709,9 @@ def create_mock_packet_events() -> list[dict]:
         rt = d.get("route_type", 1)
         d.setdefault("header", (pt << 4) | rt)
         has_tc = rt in (0, 3)  # TRANSPORT_FLOOD or TRANSPORT_DIRECT
-        d.setdefault(
-            "raw_length", 2 + d.get("path_len", 0) + d["payload_len"] + (4 if has_tc else 0)
-        )
+        path_hops = d.get("path_hops", [])
+        path_bytes = sum(len(h) // 2 for h in path_hops) if path_hops else 0
+        d.setdefault("raw_length", 2 + path_bytes + d["payload_len"] + (4 if has_tc else 0))
 
     # Sort chronologically (oldest first) so arrival order matches timestamps
     packets.sort(key=lambda p: p["received_at"])

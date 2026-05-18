@@ -663,6 +663,9 @@ class AnalyzerView(Gtk.Box):
 
     def _refresh_details(self) -> None:
         clear_children(self._details_content)
+        adj = self._details_scroll.get_vadjustment()
+        if adj:
+            adj.set_value(0)
 
         if self._selected_packet is None:
             self._details_revealer.set_reveal_child(False)
