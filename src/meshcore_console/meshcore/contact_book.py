@@ -23,7 +23,8 @@ class Contact:
 
     name: str
     public_key: str  # 64-char hex string
-    out_path: list | None = None  # Routing path set by pyMC_core on advert receipt
+    out_path: bytes | None = None
+    out_path_len: int = -1  # -1 = unknown → flood; 0 = direct; >0 = encoded hop count
 
 
 class ContactBook:
@@ -62,9 +63,11 @@ class ContactBook:
             entry = Contact(name=data.get("name", ""), public_key=data.get("public_key", ""))
         if not entry.name or not entry.public_key:
             return
-        # Update existing or append
         for i, existing in enumerate(self.contacts):
             if existing.name == entry.name:
-                self.contacts[i] = entry
+                existing.public_key = entry.public_key
+                if entry.out_path is not None:
+                    existing.out_path = entry.out_path
+                    existing.out_path_len = entry.out_path_len
                 return
         self.contacts.append(entry)
