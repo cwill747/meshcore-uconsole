@@ -73,6 +73,7 @@ class EventType(StrEnum):
 
     # EventService events (mesh.* naming)
     MESH_CONTACT_NEW = "mesh.contact.new"
+    MESH_NODE_DISCOVERED = "mesh.network.node_discovered"
     MESH_CHANNEL_MESSAGE_NEW = "mesh.channel.message.new"
     MESH_MESSAGE_NEW = "mesh.message.new"
 
