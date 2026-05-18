@@ -554,8 +554,12 @@ class MeshcoreClient(MeshcoreService):
 
         # Extract GPS coordinates from ADVERT (packet events use advert_lat/lon,
         # NODE_DISCOVERED events use lat/lon).
-        advert_lat_raw = data.get("advert_lat") if data.get("advert_lat") is not None else data.get("lat")
-        advert_lon_raw = data.get("advert_lon") if data.get("advert_lon") is not None else data.get("lon")
+        advert_lat_raw = (
+            data.get("advert_lat") if data.get("advert_lat") is not None else data.get("lat")
+        )
+        advert_lon_raw = (
+            data.get("advert_lon") if data.get("advert_lon") is not None else data.get("lon")
+        )
         advert_lat: float | None = float(advert_lat_raw) if advert_lat_raw is not None else None
         advert_lon: float | None = float(advert_lon_raw) if advert_lon_raw is not None else None
         has_location = (
