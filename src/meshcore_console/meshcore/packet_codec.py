@@ -271,9 +271,14 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
             path_hops = list(get_hashes_hex())
             hop_count = len(path_hops)
         else:
+            hash_size = ((path_len >> 6) & 0x03) + 1
             hop_count = path_len & 0x3F
-            for i in range(min(hop_count, len(path_bytes))):
-                path_hops.append(f"{path_bytes[i]:02X}")
+            for i in range(hop_count):
+                start = i * hash_size
+                end = start + hash_size
+                if end > len(path_bytes):
+                    break
+                path_hops.append(path_bytes[start:end].hex().upper())
 
     # For TRACE packets, path[] contains per-hop SNR values (int8_t, SNR*4),
     # NOT node ID hashes like other packet types.

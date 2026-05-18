@@ -499,9 +499,12 @@ class PyMCCoreSession:
         )
         attach_dispatcher_callbacks(node=self._node, emit=self._emit, logger=self._log)
 
-        if self.config.path_hash_mode:
-            self._node.dispatcher.set_default_path_hash_mode(self.config.path_hash_mode)
-            self._log(f"path hash mode set to {self.config.path_hash_mode}")
+        mode = self.config.path_hash_mode
+        if mode and 0 <= mode <= 2:
+            self._node.dispatcher.set_default_path_hash_mode(mode)
+            self._log(f"path hash mode set to {mode}")
+        elif mode:
+            self._log(f"ignoring invalid path_hash_mode={mode} (must be 0-2)")
 
         self._register_req_handler()
         self._register_discovery_handler()
