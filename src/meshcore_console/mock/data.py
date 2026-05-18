@@ -104,6 +104,26 @@ def create_mock_messages() -> list[Message]:
             path_hops=["B7", "C2"],
             created_at=now - timedelta(minutes=30),
         ),
+        # 2-byte path hops (4 hex chars each)
+        Message(
+            message_id=str(uuid4()),
+            sender_id="\U0001f680 Bob",
+            body="Relayed via 2-byte addressed nodes",
+            channel_id="ops",
+            path_len=2,
+            path_hops=["A1B2", "C3D4"],
+            created_at=now - timedelta(minutes=28),
+        ),
+        # 3-byte path hops (6 hex chars each)
+        Message(
+            message_id=str(uuid4()),
+            sender_id="\U0001f43b Alice",
+            body="Long address path test -- 3-byte node IDs",
+            channel_id="test",
+            path_len=3,
+            path_hops=["F0E1D2", "A3B4C5", "D6E7F8"],
+            created_at=now - timedelta(minutes=26),
+        ),
         Message(
             message_id=str(uuid4()),
             sender_id="\U0001f4e1 Backhaul B",
@@ -223,7 +243,7 @@ def create_mock_packet_events() -> list[dict]:
         return (day - timedelta(seconds=offset_sec)).isoformat()
 
     # Number of "today" packets; the rest are stamped as yesterday
-    TODAY_COUNT = 8
+    TODAY_COUNT = 11
 
     packets = [
         # ADVERT packet - repeater node advertising identity with location
@@ -388,6 +408,69 @@ def create_mock_packet_events() -> list[dict]:
                 "path_len": 1,
                 "path_hops": ["relay-001"],
                 "packet_hash": "GRPDATA12345",
+            },
+        },
+        # 2-byte path hops (4 hex chars per hop)
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 5,
+                "payload_type_name": "GRP_TXT",
+                "route_type": 1,
+                "route_type_name": "FLOOD",
+                "sender_name": "Relay-Gamma",
+                "sender_id": "relay-gamma-001",
+                "channel_name": "ops",
+                "payload_text": "Route update via 2-byte addressed nodes",
+                "rssi": -83,
+                "snr": 4.50,
+                "payload_hex": "0500relay0gamma001route",
+                "path_len": 2,
+                "path_hops": ["A1B2", "C3D4"],
+                "packet_hash": "2BYTE0PATH01",
+            },
+        },
+        # 3-byte path hops (6 hex chars per hop)
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 2,
+                "payload_type_name": "TXT_MSG",
+                "route_type": 0,
+                "route_type_name": "TRANSPORT_FLOOD",
+                "sender_name": "Remote-Station",
+                "sender_id": "remote-station-01",
+                "payload_text": "Checking in via 3-byte addressed relays",
+                "rssi": -102,
+                "snr": -3.25,
+                "payload_hex": "0200remote0station013byte",
+                "path_len": 3,
+                "path_hops": ["F0E1D2", "A3B4C5", "D6E7F8"],
+                "packet_hash": "3BYTE0PATH01",
+            },
+        },
+        # Long-path packet (32 hops) to test wrapping
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 2,
+                "payload_type_name": "TXT_MSG",
+                "route_type": 0,
+                "route_type_name": "TRANSPORT_FLOOD",
+                "sender_name": "Far-Node-ZZ",
+                "sender_id": "farnode-zz-0001",
+                "payload_text": "Hello from 32 hops away!",
+                "rssi": -118,
+                "snr": -8.25,
+                "payload_hex": "0200farnode0zz00010032hops",
+                "path_len": 32,
+                "path_hops": [
+                    "A1", "B2", "C3", "D4", "E5", "F6", "G7", "H8",
+                    "I9", "J0", "K1", "L2", "M3", "N4", "O5", "P6",
+                    "Q7", "R8", "S9", "T0", "U1", "V2", "W3", "X4",
+                    "Y5", "Z6", "A7", "B8", "C9", "D0", "E1", "F2",
+                ],
+                "packet_hash": "LONGROUTE032",
             },
         },
         # --- Yesterday's packets (older traffic) ---
