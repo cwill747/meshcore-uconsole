@@ -48,6 +48,7 @@ EXPECTED_TABLES = {
     "peers",
     "messages",
     "packets",
+    "repeater_passwords",
 }
 
 EXPECTED_COLUMNS = {

@@ -6,13 +6,14 @@ from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
 
-from meshcore_console.core.enums import PayloadType
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer
+from meshcore_console.core.enums import EventType, PayloadType
+from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.settings import MeshcoreSettings
 
 from .data import (
+    MOCK_CLI_RESPONSES,
     create_mock_boot_events,
     create_mock_channels,
     create_mock_messages,
@@ -34,6 +35,9 @@ class MockMeshcoreClient(MeshcoreService):
         self._event_notify: Callable[[], None] | None = None
         self._event_buffer: list[dict] = []
         self._event_history: list[dict] = []
+
+        self._repeater_sessions: dict[str, RepeaterLoginState] = {}
+        self._saved_passwords: dict[str, str] = {}
 
         # Initialize mock state
         self._channels = create_mock_channels()
@@ -279,6 +283,79 @@ class MockMeshcoreClient(MeshcoreService):
     def get_self_public_key(self) -> str | None:
         """Return a mock public key for testing."""
         return "6b547fd13630e0f7a6b167df23b9876543210abcdef0123456789abcdef0a619"
+
+    # -- Repeater admin (mock) -------------------------------------------------
+
+    def login_to_repeater(
+        self, peer_name: str, password: str, *, save_password: bool = False
+    ) -> dict:
+        is_admin = password != ""
+        state = RepeaterLoginState(
+            peer_name=peer_name,
+            is_admin=is_admin,
+            is_guest=not is_admin,
+            keep_alive_interval=300,
+            acl_permissions=0x02 if is_admin else 0x01,
+            firmware_ver_level=12,
+        )
+        self._repeater_sessions[peer_name] = state
+        if save_password and password:
+            self._saved_passwords[peer_name] = password
+        self._append_event(
+            {
+                "type": EventType.REPEATER_LOGIN,
+                "data": {"peer_name": peer_name, "success": True, "is_admin": is_admin},
+            }
+        )
+        return {
+            "success": True,
+            "repeater": peer_name,
+            "is_admin": is_admin,
+            "keep_alive_interval": 300,
+            "acl_permissions": 0x02 if is_admin else 0x01,
+            "firmware_ver_level": 12,
+            "reason": "Login successful",
+        }
+
+    def guest_login_to_repeater(self, peer_name: str) -> dict:
+        return self.login_to_repeater(peer_name, password="")
+
+    def logout_from_repeater(self, peer_name: str) -> None:
+        self._repeater_sessions.pop(peer_name, None)
+        self._append_event({"type": EventType.REPEATER_LOGOUT, "data": {"peer_name": peer_name}})
+
+    def send_repeater_command(self, peer_name: str, command: str) -> dict:
+        cmd_key = command.strip().split()[0].lower() if command.strip() else ""
+        response_text = MOCK_CLI_RESPONSES.get(cmd_key, f"OK: {command}")
+        self._append_event(
+            {
+                "type": EventType.REPEATER_COMMAND_RESPONSE,
+                "data": {
+                    "peer_name": peer_name,
+                    "command": command,
+                    "success": True,
+                    "response_text": response_text,
+                },
+            }
+        )
+        return {
+            "success": True,
+            "repeater": peer_name,
+            "command": command,
+            "response_text": response_text,
+        }
+
+    def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None:
+        return self._repeater_sessions.get(peer_name)
+
+    def list_logged_in_repeaters(self) -> list[str]:
+        return list(self._repeater_sessions.keys())
+
+    def get_saved_repeater_password(self, peer_name: str) -> str | None:
+        return self._saved_passwords.get(peer_name)
+
+    def delete_saved_repeater_password(self, peer_name: str) -> None:
+        self._saved_passwords.pop(peer_name, None)
 
     def _process_event_for_messages(self, event: dict) -> None:
         """Convert incoming packet events into messages and channels."""

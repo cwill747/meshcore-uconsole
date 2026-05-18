@@ -9,7 +9,7 @@ from typing import Callable
 from uuid import uuid4
 
 from meshcore_console.core.enums import EventType, PayloadType
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer
+from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
 from meshcore_console.core.radio import rssi_to_signal_percent
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.types import MeshEventDict, SendResultDict
@@ -19,6 +19,7 @@ from meshcore_console.meshcore.db import open_db
 from meshcore_console.meshcore.logging_setup import install_radio_error_handler
 from meshcore_console.meshcore.packet_codec import repair_utf8
 from meshcore_console.meshcore.packet_store import PacketStore
+from meshcore_console.meshcore.repeater_store import RepeaterPasswordStore
 from meshcore_console.meshcore.session import PyMCCoreSession
 from meshcore_console.meshcore.settings import MeshcoreSettings
 from meshcore_console.meshcore.settings_store import SettingsStore
@@ -69,6 +70,8 @@ class MeshcoreClient(MeshcoreService):
         self._peer_store = peer_store or PeerStore(self._db)
         self._channel_store = channel_store or UIChannelStore(self._db)
         self._gps_provider = gps_provider or create_gps_provider()
+        self._repeater_password_store = RepeaterPasswordStore(self._db)
+        self._repeater_sessions: dict[str, RepeaterLoginState] = {}
         # Load persisted state
         self._messages: list[Message] = self._message_store.get_all()
         self._channels: dict[str, Channel] = self._channel_store.get_all()
@@ -193,6 +196,7 @@ class MeshcoreClient(MeshcoreService):
                 self._session = self._new_session()
                 self._shutdown_loop()
         self._connected = False
+        self._repeater_sessions.clear()
         self._gps_provider.stop()
         self._append_event(
             {
@@ -844,6 +848,85 @@ class MeshcoreClient(MeshcoreService):
             }
         )
         return result  # type: ignore[return-value]
+
+    # -- Repeater admin --------------------------------------------------------
+
+    def login_to_repeater(
+        self, peer_name: str, password: str, *, save_password: bool = False
+    ) -> dict:
+        if not self._connected:
+            self.connect()
+        result = self._run_async(
+            self._session.send_repeater_login(peer_name, password),
+            timeout=15.0,
+        )
+        if result.get("success"):
+            state = RepeaterLoginState(
+                peer_name=peer_name,
+                is_admin=result.get("is_admin", False),
+                is_guest=password == "",
+                keep_alive_interval=result.get("keep_alive_interval", 0),
+                acl_permissions=result.get("acl_permissions", 0),
+                firmware_ver_level=result.get("firmware_ver_level"),
+            )
+            self._repeater_sessions[peer_name] = state
+            if save_password:
+                self._repeater_password_store.save_password(peer_name, password)
+        self._append_event(
+            {
+                "type": EventType.REPEATER_LOGIN,
+                "data": {
+                    "peer_name": peer_name,
+                    "success": result.get("success"),
+                    "is_admin": result.get("is_admin", False),
+                },
+            }
+        )
+        return result
+
+    def guest_login_to_repeater(self, peer_name: str) -> dict:
+        return self.login_to_repeater(peer_name, password="")
+
+    def logout_from_repeater(self, peer_name: str) -> None:
+        if self._connected:
+            try:
+                self._run_async(self._session.send_repeater_logout(peer_name), timeout=5.0)
+            except (RuntimeError, TimeoutError):
+                pass
+        self._repeater_sessions.pop(peer_name, None)
+        self._append_event({"type": EventType.REPEATER_LOGOUT, "data": {"peer_name": peer_name}})
+
+    def send_repeater_command(self, peer_name: str, command: str) -> dict:
+        if not self._connected:
+            self.connect()
+        result = self._run_async(
+            self._session.send_repeater_cli(peer_name, command),
+            timeout=20.0,
+        )
+        self._append_event(
+            {
+                "type": EventType.REPEATER_COMMAND_RESPONSE,
+                "data": {
+                    "peer_name": peer_name,
+                    "command": command,
+                    "success": result.get("success"),
+                    "response_text": result.get("response_text"),
+                },
+            }
+        )
+        return result
+
+    def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None:
+        return self._repeater_sessions.get(peer_name)
+
+    def list_logged_in_repeaters(self) -> list[str]:
+        return list(self._repeater_sessions.keys())
+
+    def get_saved_repeater_password(self, peer_name: str) -> str | None:
+        return self._repeater_password_store.get_password(peer_name)
+
+    def delete_saved_repeater_password(self, peer_name: str) -> None:
+        self._repeater_password_store.delete_password(peer_name)
 
     def _get_local_telemetry(self) -> dict:
         """Provide local telemetry data for inbound requests."""

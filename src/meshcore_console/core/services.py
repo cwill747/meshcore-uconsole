@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Protocol
 
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer
+from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
 from meshcore_console.core.types import MeshEventDict, SendResultDict
 
 if TYPE_CHECKING:
@@ -96,3 +96,23 @@ class MeshcoreService(Protocol):
     def get_self_public_key(self) -> str | None:
         """Return this node's public key as a hex string, or None if unavailable."""
         ...
+
+    # -- Repeater admin --------------------------------------------------------
+
+    def login_to_repeater(
+        self, peer_name: str, password: str, *, save_password: bool = False
+    ) -> dict: ...
+
+    def guest_login_to_repeater(self, peer_name: str) -> dict: ...
+
+    def logout_from_repeater(self, peer_name: str) -> None: ...
+
+    def send_repeater_command(self, peer_name: str, command: str) -> dict: ...
+
+    def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None: ...
+
+    def list_logged_in_repeaters(self) -> list[str]: ...
+
+    def get_saved_repeater_password(self, peer_name: str) -> str | None: ...
+
+    def delete_saved_repeater_password(self, peer_name: str) -> None: ...
