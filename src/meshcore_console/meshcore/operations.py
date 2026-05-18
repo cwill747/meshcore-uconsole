@@ -207,7 +207,12 @@ async def send_repeater_command(
     response_event = asyncio.Event()
     response_data: dict = {"text": None}
 
+    expected_key = contact.public_key
+
     def _on_response(message_text: str, sender_contact: object) -> None:
+        sender_key = getattr(sender_contact, "public_key", None)
+        if sender_key is not None and sender_key != expected_key:
+            return
         response_data["text"] = message_text
         response_event.set()
 

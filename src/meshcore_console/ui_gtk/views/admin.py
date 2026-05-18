@@ -505,24 +505,29 @@ class AdminView(Gtk.Box):
 
             def done() -> bool:
                 self._busy = False
+                still_selected = (
+                    self._selected_repeater is not None
+                    and self._selected_repeater.display_name == peer_name
+                )
                 if error:
                     self._append_console_error(f"Login failed: {error}")
-                    self._login_btn.set_sensitive(True)
-                    self._guest_btn.set_sensitive(True)
-                    self._update_login_ui(None)
+                    if still_selected:
+                        self._login_btn.set_sensitive(True)
+                        self._guest_btn.set_sensitive(True)
+                        self._update_login_ui(None)
                 elif not result.get("success"):
                     reason = result.get("reason", "Login failed")
                     self._append_console_error(reason)
-                    self._login_btn.set_sensitive(True)
-                    self._guest_btn.set_sensitive(True)
-                    self._update_login_ui(None)
+                    if still_selected:
+                        self._login_btn.set_sensitive(True)
+                        self._guest_btn.set_sensitive(True)
+                        self._update_login_ui(None)
                 else:
-                    state = self._service.get_repeater_login_state(peer_name)
-                    self._update_login_ui(state)
-                    self._append_console_response("Login successful")
-                    # Refresh status tab to show login info
-                    if self._selected_repeater:
+                    if still_selected and self._selected_repeater is not None:
+                        state = self._service.get_repeater_login_state(peer_name)
+                        self._update_login_ui(state)
                         self._populate_status(self._selected_repeater)
+                    self._append_console_response("Login successful")
                     self._refresh_list()
                 return False
 
@@ -531,15 +536,35 @@ class AdminView(Gtk.Box):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_logout_clicked(self, _btn: Gtk.Button) -> None:
-        if self._selected_repeater is None:
+        if self._selected_repeater is None or self._busy:
             return
         peer_name = self._selected_repeater.display_name
-        self._service.logout_from_repeater(peer_name)
-        self._update_login_ui(None)
-        self._append_console_response("Logged out")
-        if self._selected_repeater:
-            self._populate_status(self._selected_repeater)
-        self._refresh_list()
+        self._busy = True
+        self._logout_btn.set_sensitive(False)
+
+        def work() -> None:
+            error: str | None = None
+            try:
+                self._service.logout_from_repeater(peer_name)
+            except Exception as exc:
+                error = str(exc) or type(exc).__name__
+
+            def done() -> bool:
+                self._busy = False
+                if error:
+                    self._append_console_error(f"Logout failed: {error}")
+                    self._logout_btn.set_sensitive(True)
+                    return False
+                if self._selected_repeater and self._selected_repeater.display_name == peer_name:
+                    self._update_login_ui(None)
+                    self._populate_status(self._selected_repeater)
+                self._append_console_response("Logged out")
+                self._refresh_list()
+                return False
+
+            GLib.idle_add(done)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _on_forget_clicked(self, _btn: Gtk.Button) -> None:
         if self._selected_repeater is None:
@@ -615,6 +640,12 @@ class AdminView(Gtk.Box):
             def done() -> bool:
                 self._busy = False
                 self._send_btn.set_sensitive(True)
+                still_selected = (
+                    self._selected_repeater is not None
+                    and self._selected_repeater.display_name == peer_name
+                )
+                if not still_selected:
+                    return False
                 if error:
                     self._append_console_error(f"Error: {error}")
                 elif not result.get("success"):
@@ -634,34 +665,28 @@ class AdminView(Gtk.Box):
 
     # -- Console output --------------------------------------------------------
 
-    def _append_console_command(self, text: str) -> None:
-        label = Gtk.Label(label=f"> {text}")
-        label.add_css_class("cli-command")
+    def _make_console_label(self, text: str, css_class: str) -> Gtk.Label:
+        label = Gtk.Label(label=text)
+        label.add_css_class(css_class)
         label.set_halign(Gtk.Align.START)
+        label.set_xalign(0.0)
         label.set_wrap(True)
         label.set_wrap_mode(Pango.WrapMode.CHAR)
         label.set_selectable(True)
-        self._console_box.append(label)
+        label.set_size_request(10, -1)
+        label.set_hexpand(True)
+        return label
+
+    def _append_console_command(self, text: str) -> None:
+        self._console_box.append(self._make_console_label(f"> {text}", "cli-command"))
         self._scroll_console()
 
     def _append_console_response(self, text: str) -> None:
-        label = Gtk.Label(label=text)
-        label.add_css_class("cli-response")
-        label.set_halign(Gtk.Align.START)
-        label.set_wrap(True)
-        label.set_wrap_mode(Pango.WrapMode.CHAR)
-        label.set_selectable(True)
-        self._console_box.append(label)
+        self._console_box.append(self._make_console_label(text, "cli-response"))
         self._scroll_console()
 
     def _append_console_error(self, text: str) -> None:
-        label = Gtk.Label(label=text)
-        label.add_css_class("cli-error")
-        label.set_halign(Gtk.Align.START)
-        label.set_wrap(True)
-        label.set_wrap_mode(Pango.WrapMode.CHAR)
-        label.set_selectable(True)
-        self._console_box.append(label)
+        self._console_box.append(self._make_console_label(text, "cli-error"))
         self._scroll_console()
 
     def _scroll_console(self) -> None:
