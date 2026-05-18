@@ -66,6 +66,7 @@ class AnalyzerView(Gtk.Box):
         self._packets: deque[PacketRecord] = deque(maxlen=400)
         self._selected_packet: PacketRecord | None = None
         self._paused = False
+        self._dedupe = False
         self._active_filter = AnalyzerFilter.ALL
 
         toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -82,6 +83,13 @@ class AnalyzerView(Gtk.Box):
             self._filter_buttons[filter_type] = button
             toolbar.append(button)
         self._filter_buttons[AnalyzerFilter.ALL].set_active(True)
+
+        # Dedupe toggle
+        self._dedupe_btn = Gtk.ToggleButton.new_with_label("DEDUPE")
+        self._dedupe_btn.add_css_class("analyzer-filter")
+        self._dedupe_btn.set_tooltip_text("Hide duplicate packets (same hash, different hops)")
+        self._dedupe_btn.connect("toggled", self._on_dedupe_toggled)
+        toolbar.append(self._dedupe_btn)
 
         # Spacer to push play/pause to the right
         spacer = Gtk.Box()
@@ -189,6 +197,10 @@ class AnalyzerView(Gtk.Box):
         else:
             self._pause_icon.set_from_icon_name("media-playback-pause-symbolic")
             button.set_tooltip_text("Pause stream")
+
+    def _on_dedupe_toggled(self, button: Gtk.ToggleButton) -> None:
+        self._dedupe = button.get_active()
+        self._refresh_all()
 
     def _on_filter_clicked(self, _button: Gtk.ToggleButton, filter_type: AnalyzerFilter) -> None:
         logger.debug("UI: filter clicked filter=%s", filter_type.value)
@@ -467,12 +479,26 @@ class AnalyzerView(Gtk.Box):
 
     def _filtered_packets(self) -> list[PacketRecord]:
         if self._active_filter == AnalyzerFilter.ALL:
-            return list(self._packets)
-        filter_val = self._active_filter.value
-        # PATH filter also matches TRACE (both are network diagnostics)
-        if filter_val == "PATH":
-            return [p for p in self._packets if "PATH" in p.packet_type or "TRACE" in p.packet_type]
-        return [p for p in self._packets if filter_val in p.packet_type]
+            packets = list(self._packets)
+        else:
+            filter_val = self._active_filter.value
+            if filter_val == "PATH":
+                packets = [
+                    p for p in self._packets if "PATH" in p.packet_type or "TRACE" in p.packet_type
+                ]
+            else:
+                packets = [p for p in self._packets if filter_val in p.packet_type]
+        if self._dedupe:
+            seen: set[str] = set()
+            deduped: list[PacketRecord] = []
+            for p in packets:
+                if p.packet_hash and p.packet_hash in seen:
+                    continue
+                if p.packet_hash:
+                    seen.add(p.packet_hash)
+                deduped.append(p)
+            return deduped
+        return packets
 
     def _matches_filter(self, record: PacketRecord) -> bool:
         """Check if a record matches the current active filter."""
@@ -489,8 +515,24 @@ class AnalyzerView(Gtk.Box):
 
     def _append_new_rows(self, new_records: list[PacketRecord]) -> None:
         """Incrementally prepend new rows to the stream ListBox."""
-        # Filter new records that match the current filter
-        matching = [r for r in new_records if self._matches_filter(r)]
+        # Filter new records that match the current filter and dedupe.
+        # For dedupe: keep the first of each hash within the new batch, and
+        # suppress any whose hash already existed in the deque before this batch.
+        new_set = set(id(r) for r in new_records)
+        seen_hashes: set[str] = set()
+        matching: list[PacketRecord] = []
+        for r in new_records:
+            if not self._matches_filter(r):
+                continue
+            if self._dedupe and r.packet_hash:
+                if r.packet_hash in seen_hashes:
+                    continue
+                seen_hashes.add(r.packet_hash)
+                if any(
+                    p.packet_hash == r.packet_hash for p in self._packets if id(p) not in new_set
+                ):
+                    continue
+            matching.append(r)
         if not matching:
             return
 

@@ -243,7 +243,7 @@ def create_mock_packet_events() -> list[dict]:
         return (day - timedelta(seconds=offset_sec)).isoformat()
 
     # Number of "today" packets; the rest are stamped as yesterday
-    TODAY_COUNT = 11
+    TODAY_COUNT = 12
 
     packets = [
         # ADVERT packet - repeater node advertising identity with location
@@ -286,6 +286,26 @@ def create_mock_packet_events() -> list[dict]:
                 "payload_hex": "f589d410abcd1234567890abcdef",
                 "path_len": 2,
                 "path_hops": ["B7", "C2"],
+                "packet_hash": "1234567890AB",
+            },
+        },
+        # GRP_TXT duplicate - same packet_hash as THD Observer above, different route
+        {
+            "type": "packet",
+            "data": {
+                "payload_type": 5,
+                "payload_type_name": "GRP_TXT",
+                "route_type": 1,
+                "route_type_name": "FLOOD",
+                "sender_name": "THD Observer",
+                "sender_id": "f5890d41abcd1234",
+                "channel_name": "public",
+                "payload_text": "@[\U0001f4e1 Relay A] observed at 14:32 UTC",
+                "rssi": -101,
+                "snr": -1.75,
+                "payload_hex": "f589d410abcd1234567890abcdef",
+                "path_len": 3,
+                "path_hops": ["B7", "D4", "C2"],
                 "packet_hash": "1234567890AB",
             },
         },
