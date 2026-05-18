@@ -585,6 +585,12 @@ row:focus-visible {
   background: alpha(@mc_accent, 0.1);
 }
 
+/* PathVisualization wrapping flow */
+.path-visualization > flowboxchild {
+  padding: 0;
+  margin: 0;
+}
+
 /* NodeBadge container */
 .node-badge {
   padding: 0;
