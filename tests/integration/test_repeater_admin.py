@@ -48,7 +48,7 @@ def test_list_logged_in_repeaters() -> None:
 def test_send_command() -> None:
     client = MockMeshcoreClient()
     client.login_to_repeater("repeater-1", "admin123")
-    result = client.send_repeater_command("repeater-1", "status")
+    result = client.send_repeater_command("repeater-1", "ver")
 
     assert result["success"] is True
     assert "response_text" in result

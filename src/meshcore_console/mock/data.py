@@ -38,44 +38,22 @@ MOCK_GPS_WAYPOINTS: list[tuple[float, float]] = [
 
 
 MOCK_CLI_RESPONSES: dict[str, str] = {
-    "status": (
-        "Uptime: 3d 14h 22m\n"
-        "Connected clients: 7\n"
-        "Packets forwarded: 12,847\n"
-        "Frequency: 910.525 MHz\n"
-        "TX Power: 20 dBm\n"
-        "SF: 10  BW: 250 kHz  CR: 4/5"
-    ),
     "ver": "MeshCore Repeater v1.12.3\nBoard: Heltec V3\nBuild: 2025-04-10",
     "neighbors": (
         "Neighbors (3):\n"
-        "  Alice     -67 dBm  SNR  8.5  direct\n"
-        "  Bob       -82 dBm  SNR  3.2  2 hops\n"
-        "  Charlie   -91 dBm  SNR -1.0  3 hops"
+        "  Alice     -67 dBm  SNR  8.5  0 hops\n"
+        "  Bob       -82 dBm  SNR  3.2  0 hops\n"
+        "  Charlie   -91 dBm  SNR -1.0  0 hops"
     ),
-    "help": (
-        "Available commands:\n"
-        "  status        Show repeater status\n"
-        "  ver           Firmware version\n"
-        "  neighbors     Connected peers\n"
-        "  reboot        Reboot repeater\n"
-        "  advert        Send advertisement\n"
-        "  clock         Show device time\n"
-        "  set           Configure parameters\n"
-        "  get           Query parameters\n"
-        "  log           View packet log"
+    "telemetry": (
+        "Battery: 3.82V (74%)\n"
+        "Temperature: 32.1 C\n"
+        "Humidity: 58%\n"
+        "Uptime: 3d 14h 22m\n"
+        "TX Power: 20 dBm\n"
+        "Packets forwarded: 12,847"
     ),
-    "clock": "Device time: 2025-04-15 14:32:07 UTC\nUptime: 3d 14h 22m",
-    "advert": "Advertisement sent (flood)",
     "reboot": "Rebooting in 3 seconds...",
-    "log": (
-        "Recent packets (last 5):\n"
-        "  14:31:52 ADVERT  Alice      -67 dBm\n"
-        "  14:31:48 GRP_TXT #test      -73 dBm\n"
-        "  14:31:45 TXT_MSG Bob        -82 dBm\n"
-        "  14:31:40 ACK     Charlie    -91 dBm\n"
-        "  14:31:38 ADVERT  Diana      -78 dBm"
-    ),
 }
 
 
