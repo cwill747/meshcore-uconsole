@@ -45,14 +45,7 @@ MOCK_CLI_RESPONSES: dict[str, str] = {
         "  Bob       -82 dBm  SNR  3.2  0 hops\n"
         "  Charlie   -91 dBm  SNR -1.0  0 hops"
     ),
-    "telemetry": (
-        "Battery: 3.82V (74%)\n"
-        "Temperature: 32.1 C\n"
-        "Humidity: 58%\n"
-        "Uptime: 3d 14h 22m\n"
-        "TX Power: 20 dBm\n"
-        "Packets forwarded: 12,847"
-    ),
+    "get repeat": "repeat: ON",
     "reboot": "Rebooting in 3 seconds...",
 }
 
