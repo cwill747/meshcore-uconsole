@@ -512,6 +512,7 @@ class MeshcoreClient(MeshcoreService):
             EventType.CONTACT_RECEIVED,
             EventType.ADVERT_RECEIVED,
             EventType.MESH_CONTACT_NEW,
+            EventType.MESH_NODE_DISCOVERED,
         ):
             self._process_advert_event(data)
 
@@ -536,7 +537,7 @@ class MeshcoreClient(MeshcoreService):
         peer_name = repair_utf8(str(peer_name))
 
         peer_id = data.get("sender_id") or data.get("peer_id")
-        public_key = data.get("sender_pubkey")
+        public_key = data.get("sender_pubkey") or data.get("public_key")
 
         # Skip our own advert reflected back through a repeater.
         self_pubkey = self.get_self_public_key()
@@ -551,9 +552,14 @@ class MeshcoreClient(MeshcoreService):
         rssi: int | None = int(rssi_raw) if rssi_raw is not None else None
         snr: float | None = float(snr_raw) if snr_raw is not None else None
 
-        # Extract GPS coordinates from ADVERT
-        advert_lat_raw = data.get("advert_lat")
-        advert_lon_raw = data.get("advert_lon")
+        # Extract GPS coordinates from ADVERT (packet events use advert_lat/lon,
+        # NODE_DISCOVERED events use lat/lon).
+        advert_lat_raw = (
+            data.get("advert_lat") if data.get("advert_lat") is not None else data.get("lat")
+        )
+        advert_lon_raw = (
+            data.get("advert_lon") if data.get("advert_lon") is not None else data.get("lon")
+        )
         advert_lat: float | None = float(advert_lat_raw) if advert_lat_raw is not None else None
         advert_lon: float | None = float(advert_lon_raw) if advert_lon_raw is not None else None
         has_location = (
@@ -566,8 +572,26 @@ class MeshcoreClient(MeshcoreService):
 
         # Determine repeater status from advert_type (lower nibble of ADVERT flags byte).
         # ADV_TYPE_REPEATER = 2 per pyMC_core.
-        advert_type = data.get("advert_type")
+        advert_type = data.get("advert_type") or data.get("contact_type")
         is_repeater = int(advert_type) == 2 if advert_type is not None else False
+
+        # Extract raw routing path so the ContactBook Contact gets
+        # out_path/out_path_len for direct routing.  NODE_DISCOVERED events
+        # carry inbound_path (bytes) + path_len_encoded directly; for "packet"
+        # events reconstruct from the decoded path_hops list.  Only derive
+        # path when the event actually carries routing data ("path_hops" key
+        # present) — identity-only events like mesh.contact.new must not
+        # overwrite a previously learned route.
+        inbound_path: bytes | None = data.get("inbound_path")  # type: ignore[assignment]
+        path_len_encoded: int | None = data.get("path_len_encoded")  # type: ignore[assignment]
+        if path_len_encoded is None and public_key and "path_hops" in data:
+            if not path_hops:
+                inbound_path = b""
+                path_len_encoded = 0
+            else:
+                hash_size = len(path_hops[0]) // 2 or 1
+                inbound_path = bytes.fromhex("".join(path_hops))
+                path_len_encoded = ((hash_size - 1) << 6) | len(path_hops)
 
         if peer_name in self._peers:
             self._update_existing_peer(
@@ -581,6 +605,8 @@ class MeshcoreClient(MeshcoreService):
                 advert_lat,
                 advert_lon,
                 is_repeater,
+                inbound_path=inbound_path,
+                path_len_encoded=path_len_encoded,
             )
         else:
             self._create_new_peer(
@@ -595,6 +621,8 @@ class MeshcoreClient(MeshcoreService):
                 has_location,
                 advert_lat,
                 advert_lon,
+                inbound_path=inbound_path,
+                path_len_encoded=path_len_encoded,
             )
 
     def _update_existing_peer(
@@ -609,6 +637,8 @@ class MeshcoreClient(MeshcoreService):
         advert_lat: float | None,
         advert_lon: float | None,
         is_repeater: bool = False,
+        inbound_path: bytes | None = None,
+        path_len_encoded: int | None = None,
     ) -> None:
         """Update an existing peer with new advert data."""
         existing = self._peers[peer_name]
@@ -620,7 +650,9 @@ class MeshcoreClient(MeshcoreService):
         existing.is_repeater = is_repeater
         if public_key:
             existing.public_key = public_key
-            self._sync_contact_to_book(peer_name, public_key)
+            self._sync_contact_to_book(
+                peer_name, public_key, inbound_path=inbound_path, path_len_encoded=path_len_encoded
+            )
         if has_location and advert_lat is not None and advert_lon is not None:
             existing.latitude = advert_lat
             existing.longitude = advert_lon
@@ -640,6 +672,8 @@ class MeshcoreClient(MeshcoreService):
         has_location: bool,
         advert_lat: float | None,
         advert_lon: float | None,
+        inbound_path: bytes | None = None,
+        path_len_encoded: int | None = None,
     ) -> None:
         """Create a new peer from advert data."""
         peer = Peer(
@@ -659,7 +693,9 @@ class MeshcoreClient(MeshcoreService):
         self._peers[peer_name] = peer
         self._peer_store.add_or_update(peer)
         if public_key:
-            self._sync_contact_to_book(peer_name, public_key)
+            self._sync_contact_to_book(
+                peer_name, public_key, inbound_path=inbound_path, path_len_encoded=path_len_encoded
+            )
 
     def _process_message_event(self, data: MeshEventDict, event_type: str = "") -> None:
         """Process an incoming message event."""
@@ -959,13 +995,36 @@ class MeshcoreClient(MeshcoreService):
         """Populate the session's contact book with known peers that have public keys."""
         book = self._session.contact_book
         for peer in self._peers.values():
-            if peer.public_key:
-                book.add_contact({"name": peer.display_name, "public_key": peer.public_key})
+            if not peer.public_key:
+                continue
+            book.add_contact({"name": peer.display_name, "public_key": peer.public_key})
+            contact = book.get_by_name(peer.display_name)
+            if contact is not None and peer.last_path is not None:
+                if not peer.last_path:
+                    contact.out_path = b""
+                    contact.out_path_len = 0
+                else:
+                    hash_size = len(peer.last_path[0]) // 2 or 1
+                    contact.out_path = bytes.fromhex("".join(peer.last_path))
+                    contact.out_path_len = ((hash_size - 1) << 6) | len(peer.last_path)
 
-    def _sync_contact_to_book(self, name: str, public_key: str) -> None:
+    def _sync_contact_to_book(
+        self,
+        name: str,
+        public_key: str,
+        inbound_path: bytes | None = None,
+        path_len_encoded: int | None = None,
+    ) -> None:
         """Add or update a single contact in the session's contact book."""
-        if self._connected:
-            self._session.contact_book.add_contact({"name": name, "public_key": public_key})
+        if not self._connected:
+            return
+        book = self._session.contact_book
+        book.add_contact({"name": name, "public_key": public_key})
+        if path_len_encoded is not None:
+            contact = book.get_by_name(name)
+            if contact is not None:
+                contact.out_path = inbound_path or b""
+                contact.out_path_len = path_len_encoded
 
     def set_event_notify(self, notify_fn: Callable[[], None]) -> None:
         self._event_notify = notify_fn
