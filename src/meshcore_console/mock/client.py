@@ -327,7 +327,9 @@ class MockMeshcoreClient(MeshcoreService):
     def send_repeater_command(self, peer_name: str, command: str) -> dict:
         stripped = command.strip().lower()
         cmd_key = stripped.split()[0] if stripped else ""
-        response_text = MOCK_CLI_RESPONSES.get(stripped) or MOCK_CLI_RESPONSES.get(cmd_key, f"OK: {command}")
+        response_text = MOCK_CLI_RESPONSES.get(stripped) or MOCK_CLI_RESPONSES.get(
+            cmd_key, f"OK: {command}"
+        )
         self._append_event(
             {
                 "type": EventType.REPEATER_COMMAND_RESPONSE,
