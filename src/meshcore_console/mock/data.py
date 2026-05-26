@@ -45,6 +45,7 @@ MOCK_CLI_RESPONSES: dict[str, str] = {
         "  Bob       -82 dBm  SNR  3.2  0 hops\n"
         "  Charlie   -91 dBm  SNR -1.0  0 hops"
     ),
+    "get repeat": "repeat: ON",
     "telemetry": (
         "Battery: 3.82V (74%)\n"
         "Temperature: 32.1 C\n"

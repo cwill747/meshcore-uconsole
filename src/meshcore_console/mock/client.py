@@ -325,8 +325,11 @@ class MockMeshcoreClient(MeshcoreService):
         self._append_event({"type": EventType.REPEATER_LOGOUT, "data": {"peer_name": peer_name}})
 
     def send_repeater_command(self, peer_name: str, command: str) -> dict:
-        cmd_key = command.strip().split()[0].lower() if command.strip() else ""
-        response_text = MOCK_CLI_RESPONSES.get(cmd_key, f"OK: {command}")
+        stripped = command.strip().lower()
+        cmd_key = stripped.split()[0] if stripped else ""
+        response_text = MOCK_CLI_RESPONSES.get(stripped) or MOCK_CLI_RESPONSES.get(
+            cmd_key, f"OK: {command}"
+        )
         self._append_event(
             {
                 "type": EventType.REPEATER_COMMAND_RESPONSE,
