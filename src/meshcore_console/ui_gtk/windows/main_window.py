@@ -20,6 +20,7 @@ from gi.repository import Pango
 
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.platform.conflicts import ConflictError, ConflictReport
+from meshcore_console.ui_gtk.compat import build_alert_dialog, build_toolbar_page, present_dialog
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.ui_gtk.widgets import ConflictScreen, LoadingScreen, StatusPill
 
@@ -95,9 +96,7 @@ class MainWindow(Adw.ApplicationWindow):
         content_pane.set_vexpand(True)
         content_pane.append(self._stack)
 
-        page = Adw.ToolbarView.new()
-        page.add_top_bar(header_bar)
-        page.set_content(content_pane)
+        page = build_toolbar_page(header_bar, content_pane)
 
         self._toast_overlay = Adw.ToastOverlay.new()
         self._toast_overlay.set_child(page)
@@ -626,7 +625,8 @@ class MainWindow(Adw.ApplicationWindow):
             return
         svc = service_names[0]
 
-        dialog = Adw.AlertDialog.new(
+        dialog = build_alert_dialog(
+            self,
             f"{svc} is running",
             (
                 f"The {svc} service is using the radio hardware. "
@@ -640,7 +640,7 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.set_default_response("stop")
         dialog.set_close_response("cancel")
         dialog.connect("response", self._on_service_dialog_response, svc)
-        dialog.present(self)
+        present_dialog(dialog, self)
 
     def _on_service_dialog_response(
         self, dialog: Adw.AlertDialog, response: str, service_name: str
