@@ -70,7 +70,35 @@ def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: igno
     )
 
 
+def _doctor_hardware_config() -> Any:
+    """Load the persisted hardware config, falling back to env defaults."""
+    from meshcore_console.meshcore.config import (
+        load_hardware_config_from_env,
+        runtime_config_from_settings,
+    )
+
+    try:
+        from meshcore_console.meshcore.db import open_db
+        from meshcore_console.meshcore.settings_store import SettingsStore
+
+        conn = open_db()
+        try:
+            settings = SettingsStore(conn).load()
+        finally:
+            conn.close()
+        hardware = runtime_config_from_settings(settings).hardware
+        if hardware is not None:
+            return hardware
+    except Exception:  # noqa: BLE001
+        pass
+    return load_hardware_config_from_env()
+
+
 def _doctor() -> int:
+    from meshcore_console.platform.conflicts import available_gpio_chips
+
+    hardware = _doctor_hardware_config()
+
     checks: list[tuple[str, bool, str]] = []
     checks.append(("linux", os.uname().sysname == "Linux", "Expected Linux host"))
     checks.append(
@@ -80,9 +108,19 @@ def _doctor() -> int:
             "Expected SPI1 device /dev/spidev1.0 — ensure dtoverlay=spi1-1cs is in /boot/firmware/config.txt",
         )
     )
-    checks.append(
-        ("gpiochip", os.path.exists("/dev/gpiochip0"), "Expected GPIO chip /dev/gpiochip0")
-    )
+
+    chip_path = f"/dev/gpiochip{hardware.gpio_chip}"
+    if os.path.exists(chip_path):
+        gpiochip_detail = f"Expected GPIO chip {chip_path}"
+    else:
+        found = available_gpio_chips()
+        available = ", ".join(str(c) for c in found) if found else "none"
+        gpiochip_detail = (
+            f"Configured GPIO chip {chip_path} not found — available: {available}. "
+            f"Set it in Settings > Hardware or via MESHCORE_GPIO_CHIP "
+            f"(CM5/Pi 5 kernels usually put the 40-pin header on 15, not 0)."
+        )
+    checks.append(("gpiochip", os.path.exists(chip_path), gpiochip_detail))
 
     try:
         import openhop_core  # noqa: F401

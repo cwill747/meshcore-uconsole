@@ -54,6 +54,9 @@ def create_radio(
         "coding_rate": config.coding_rate,
         "preamble_length": config.preamble_length,
         "is_waveshare": config.is_waveshare,
+        "gpio_chip": config.gpio_chip,
+        "use_gpiod_backend": config.use_gpiod_backend,
+        "en_pins": list(config.en_pins),
     }
 
     signature = inspect.signature(sx1262_radio_type)

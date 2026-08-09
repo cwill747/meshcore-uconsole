@@ -41,6 +41,19 @@ class MeshcoreSettings:
     is_waveshare: bool = False
     use_dio2_rf: bool = True
     use_dio3_tcxo: bool = True
+    # Which /dev/gpiochipN carries the 40-pin header.  0 on CM4, but 15 on CM5
+    # and Pi 5 kernels where the header hangs off the RP1 (#85).
+    gpio_chip: int = 0
+    # Selects openhop_core's "gpiod" GPIO backend.  Despite the name this does
+    # not switch to libgpiod while python-periphery is installed (the library
+    # only swaps in its libgpiod wrapper when periphery is *absent*); what it
+    # actually changes is edge detection, from kernel edge interrupts to a
+    # polling thread.  That is the useful part: some kernels reject the edge
+    # request outright, leaving the radio connected but deaf (#85).
+    use_gpiod_backend: bool = False
+    # Comma-separated GPIO pins driven HIGH at init to power the radio, for
+    # boards with a LoRa power-enable line (e.g. HG AIOv2).  Empty = none (#85).
+    en_pins: str = ""
 
     def clone(self) -> "MeshcoreSettings":
         return replace(self)

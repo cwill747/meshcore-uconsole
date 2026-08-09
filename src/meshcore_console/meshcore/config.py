@@ -33,6 +33,9 @@ class HardwareRadioConfig:
     is_waveshare: bool = False
     use_dio2_rf: bool = True
     use_dio3_tcxo: bool = True
+    gpio_chip: int = 0
+    use_gpiod_backend: bool = False
+    en_pins: tuple[int, ...] = ()
 
     def to_log_string(self) -> str:
         return (
@@ -40,7 +43,9 @@ class HardwareRadioConfig:
             f"reset_pin={self.reset_pin} busy_pin={self.busy_pin} irq_pin={self.irq_pin} "
             f"txen_pin={self.txen_pin} rxen_pin={self.rxen_pin} "
             f"is_waveshare={self.is_waveshare} "
-            f"use_dio2_rf={self.use_dio2_rf} use_dio3_tcxo={self.use_dio3_tcxo}"
+            f"use_dio2_rf={self.use_dio2_rf} use_dio3_tcxo={self.use_dio3_tcxo} "
+            f"gpio_chip={self.gpio_chip} use_gpiod_backend={self.use_gpiod_backend} "
+            f"en_pins={list(self.en_pins)}"
         )
 
 
@@ -69,6 +74,29 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def parse_pin_list(raw: str) -> tuple[int, ...]:
+    """Parse a comma-separated GPIO pin list, dropping blanks and non-numbers."""
+    pins: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            pin = int(part)
+        except ValueError:
+            continue
+        if pin >= 0 and pin not in pins:
+            pins.append(pin)
+    return tuple(pins)
+
+
+def _env_pins(name: str, default: tuple[int, ...]) -> tuple[int, ...]:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return parse_pin_list(value)
+
+
 def load_hardware_config_from_env() -> HardwareRadioConfig:
     return HardwareRadioConfig(
         bus_id=_env_int("MESHCORE_BUS_ID", 1),
@@ -88,6 +116,9 @@ def load_hardware_config_from_env() -> HardwareRadioConfig:
         is_waveshare=_env_bool("MESHCORE_IS_WAVESHARE", False),
         use_dio2_rf=_env_bool("MESHCORE_USE_DIO2_RF", True),
         use_dio3_tcxo=_env_bool("MESHCORE_USE_DIO3_TCXO", True),
+        gpio_chip=_env_int("MESHCORE_GPIO_CHIP", 0),
+        use_gpiod_backend=_env_bool("MESHCORE_USE_GPIOD_BACKEND", False),
+        en_pins=_env_pins("MESHCORE_EN_PINS", ()),
     )
 
 
@@ -110,6 +141,9 @@ def runtime_config_from_settings(settings: MeshcoreSettings) -> RuntimeRadioConf
         is_waveshare=settings.is_waveshare,
         use_dio2_rf=settings.use_dio2_rf,
         use_dio3_tcxo=settings.use_dio3_tcxo,
+        gpio_chip=settings.gpio_chip,
+        use_gpiod_backend=settings.use_gpiod_backend,
+        en_pins=parse_pin_list(settings.en_pins),
     )
     return RuntimeRadioConfig(
         node_name=settings.node_name,

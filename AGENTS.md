@@ -157,6 +157,26 @@ All commands below assume you are inside `nix develop`.
 | `MESHCORE_GPSD_HOST` | gpsd hostname (default: 127.0.0.1) |
 | `MESHCORE_GPSD_PORT` | gpsd port (default: 2947) |
 | `MESHCORE_GPS_DEVICE` | GPS serial port; overrides auto-detection and gpsd (also in Settings > GPS Device) |
+| `MESHCORE_GPIO_CHIP` | `/dev/gpiochipN` number (default: 0; also in Settings > Hardware) |
+| `MESHCORE_USE_GPIOD_BACKEND=1` | Poll for IRQ edges instead of using kernel edge interrupts |
+| `MESHCORE_EN_PINS` | Comma-separated GPIO pins driven HIGH at init to power the radio |
+
+### GPIO Chip Selection
+
+The 40-pin header is `/dev/gpiochip0` on CM4, but **`/dev/gpiochip15` on CM5 and
+Pi 5 kernels**, where the header hangs off the RP1 (issue #85).  A wrong chip
+number means the radio never initialises.  `meshcore-console doctor` reports the
+configured chip and lists what the host actually has:
+
+```text
+[FAIL] gpiochip: Configured GPIO chip /dev/gpiochip0 not found — available: 11, 12, 13, 14, 15. ...
+```
+
+Note that `use_gpiod_backend` does **not** switch openhop_core to libgpiod while
+python-periphery is installed — the library only swaps in its libgpiod wrapper
+when periphery is absent.  What the flag actually changes is edge detection,
+from kernel edge interrupts to a polling thread, which is a workaround for
+kernels that reject the edge request outright.
 
 ### Initial Setup (macOS)
 
