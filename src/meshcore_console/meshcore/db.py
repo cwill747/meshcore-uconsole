@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sqlite3
 
+from .channel_db import PUBLIC_CHANNEL_SECRET
 from .paths import db_path
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,11 @@ MIGRATIONS: list[tuple[str, ...]] = [
             created_at TEXT NOT NULL
         )""",
     ),
+    # v6 -> v7: backfill channel_secrets for group channels added before the
+    # fix for issue #81. The secret is sha256("#" + name)[:32], which cannot be
+    # expressed in SQL, so the work happens in _backfill_channel_secrets();
+    # this entry exists only to bump the schema version.
+    (),
 ]
 
 
@@ -102,6 +109,55 @@ def _get_version(conn: sqlite3.Connection) -> int:
         return 0
 
 
+def _backfill_channel_secrets(conn: sqlite3.Connection) -> None:
+    """Derive missing secrets for group channels (issue #81).
+
+    Hashtag channels added before the fix have a row in `channels` but none in
+    `channel_secrets`, so sending to them failed with "not in provided
+    channels_config". Derive the secret for any such channel.
+
+    Public is special: its secret is a fixed constant shared by all MeshCore
+    devices, *not* the derived sha256("#Public")[:32]. It is normally seeded by
+    ChannelDatabase.__init__, but that runs after open_db() -> _migrate(), so we
+    cannot assume it is present yet. Seed it here and exclude it from derivation;
+    otherwise the backfill would mint a bogus derived secret for #public and
+    break decryption on the default channel.
+
+    Idempotent: channels that already have a secret (matched case-insensitively)
+    are left untouched.
+    """
+    # Seed Public up-front so it is never treated as an orphan needing derivation.
+    conn.execute(
+        "INSERT OR IGNORE INTO channel_secrets (name, secret) VALUES (?, ?)",
+        ("Public", PUBLIC_CHANNEL_SECRET),
+    )
+
+    # LOWER() on both sides: SQLite binds COLLATE NOCASE to a column, not to an
+    # expression like LTRIM(...), so relying on it here would silently compare
+    # case-sensitively.
+    rows = conn.execute(
+        """SELECT c.channel_id, c.display_name FROM channels c
+           WHERE c.kind = 'group'
+             AND LOWER(c.channel_id) != 'public'
+             AND NOT EXISTS (
+                 SELECT 1 FROM channel_secrets s
+                 WHERE LOWER(s.name) = LOWER(c.channel_id)
+                    OR LOWER(s.name) = LOWER(LTRIM(c.display_name, '#'))
+             )"""
+    ).fetchall()
+    for channel_id, display_name in rows:
+        # Lowercase: the derived secret is keyed on the lowercased name (see
+        # derive_channel_secret), so the stored name must match, or peers using
+        # the same channel would end up with a different key.
+        name = ((display_name or "").lstrip("#") or channel_id).strip().lower()
+        secret = hashlib.sha256(f"#{name}".encode()).hexdigest()[:32]
+        conn.execute(
+            "INSERT OR IGNORE INTO channel_secrets (name, secret) VALUES (?, ?)",
+            (name, secret),
+        )
+        logger.info("Backfilled channel secret for #%s (issue #81)", name)
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Run any outstanding migrations."""
     current = _get_version(conn)
@@ -112,6 +168,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for version_index in range(current, target):
         for stmt in MIGRATIONS[version_index]:
             conn.execute(stmt)
+    # Data backfills run after all DDL so the columns they read (e.g. channels.kind,
+    # added in v5) are guaranteed to exist.
+    if current < 7:
+        _backfill_channel_secrets(conn)
     conn.execute("UPDATE schema_version SET version = ?", (target,))
     conn.commit()
 
