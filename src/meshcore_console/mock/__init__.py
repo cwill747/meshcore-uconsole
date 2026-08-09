@@ -2,6 +2,6 @@
 
 from .client import MockMeshcoreClient
 from .gps import MockGps
-from .session import MockPyMCCoreSession
+from .session import MockOpenHopCoreSession
 
-__all__ = ["MockMeshcoreClient", "MockPyMCCoreSession", "MockGps"]
+__all__ = ["MockMeshcoreClient", "MockOpenHopCoreSession", "MockGps"]

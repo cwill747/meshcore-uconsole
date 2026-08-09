@@ -8,9 +8,9 @@ GTK4/Libadwaita mesh radio console application targeting Raspberry Pi (uConsole 
 
 **Target hardware:** Raspberry Pi CM4 in uConsole, 1280x720 display, Wayland compositor.
 
-**Stack:** Python 3.11+, GTK4, Libadwaita, PyGObject, pyMC_core (radio driver).
+**Stack:** Python 3.11+, GTK4, Libadwaita, PyGObject, openhop_core (radio driver).
 
-**pyMC_core API reference:** https://rightup.github.io/pyMC_core/api/core/
+**openhop_core API reference:** https://openhop-dev.github.io/openhop_core/api/core/
 
 ## Repository Layout
 
@@ -19,7 +19,7 @@ src/meshcore_console/
   app.py                 # GTK application composition root
   main.py                # Console entrypoint
   core/                  # Domain models + service interfaces
-  meshcore/              # pyMC_core integration adapter (event_bridge, packet_codec)
+  meshcore/              # openhop_core integration adapter (event_bridge, packet_codec)
   platform/              # Platform helpers (GPIO/SPI/device info)
   ui_gtk/                # GTK views, windows, widgets, CSS
     views/               # Main UI panels (analyzer, messages, settings, etc.)
@@ -38,7 +38,7 @@ packaging/deb/           # Debian package metadata
 ```
 Radio Hardware
     ↓
-pyMC_core dispatcher callbacks
+openhop_core dispatcher callbacks
     ↓
 event_bridge.py (attach_dispatcher_callbacks)
     ↓
@@ -192,7 +192,7 @@ uv sync
 
 5. **Wayland-specific issues** - Test on actual Pi hardware. Some behaviors differ between XWayland (macOS) and native Wayland.
 
-6. **pyMC_core API calls** - pyMC_core is a known dependency. Call its APIs directly without defensive `getattr`/`hasattr` fallbacks or manual reimplementations. If a pyMC_core method exists (e.g. `packet.get_raw_length()`), call it and let exceptions propagate naturally. Do not duplicate its logic as a fallback — if the API breaks, we want to know immediately, not silently use a stale copy.
+6. **openhop_core API calls** - openhop_core is a known dependency. Call its APIs directly without defensive `getattr`/`hasattr` fallbacks or manual reimplementations. If an openhop_core method exists (e.g. `packet.get_raw_length()`), call it and let exceptions propagate naturally. Do not duplicate its logic as a fallback — if the API breaks, we want to know immediately, not silently use a stale copy.
 
 ## UI Framework Assessment
 

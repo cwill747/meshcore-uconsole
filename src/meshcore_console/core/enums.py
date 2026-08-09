@@ -6,7 +6,7 @@ from enum import StrEnum
 class PayloadType(StrEnum):
     """Payload types for mesh packets.
 
-    From pyMC_core protocol:
+    From openhop_core protocol:
         0: REQ        - Request
         1: RESPONSE   - Response to REQ or ANON_REQ
         2: TXT_MSG    - Plain text message (encrypted)

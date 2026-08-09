@@ -20,7 +20,7 @@ from meshcore_console.meshcore.logging_setup import install_radio_error_handler
 from meshcore_console.meshcore.packet_codec import repair_utf8
 from meshcore_console.meshcore.packet_store import PacketStore
 from meshcore_console.meshcore.repeater_store import RepeaterPasswordStore
-from meshcore_console.meshcore.session import PyMCCoreSession
+from meshcore_console.meshcore.session import OpenHopCoreSession
 from meshcore_console.meshcore.settings import MeshcoreSettings
 from meshcore_console.meshcore.settings_store import SettingsStore
 from meshcore_console.meshcore.state_store import MessageStore, PeerStore, UIChannelStore
@@ -39,14 +39,14 @@ def _propagate_routing_fields(packet_data: dict, handler_data: dict) -> None:
 
 
 class MeshcoreClient(MeshcoreService):
-    """pyMC_core-backed adapter for the UI layer."""
+    """openhop_core-backed adapter for the UI layer."""
 
     def __init__(
         self,
         node_name: str = "uconsole-node",
-        session: PyMCCoreSession | None = None,
+        session: OpenHopCoreSession | None = None,
         *,
-        require_pymc: bool = True,
+        require_openhop: bool = True,
         settings_store: SettingsStore | None = None,
         packet_store: PacketStore | None = None,
         message_store: MessageStore | None = None,
@@ -91,22 +91,22 @@ class MeshcoreClient(MeshcoreService):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
 
-        if require_pymc:
+        if require_openhop:
             try:
-                import pymc_core  # noqa: F401
+                import openhop_core  # noqa: F401
 
-                self._pymc_available = True
+                self._openhop_available = True
             except ImportError:
-                self._pymc_available = False
+                self._openhop_available = False
         else:
-            self._pymc_available = True
+            self._openhop_available = True
 
         self._radio_error_handler = install_radio_error_handler(self._on_radio_error)
 
     def _sync_channel_secrets_to_ui(self) -> None:
         """Ensure every channel secret has a corresponding UI channel entry."""
         for row in self._channel_secrets.get_channels():
-            original_name = row["name"]  # Preserve original case for pyMC_core
+            original_name = row["name"]  # Preserve original case for openhop_core
             channel_id = original_name.lower()
             if channel_id not in self._channels:
                 channel = Channel(
@@ -148,8 +148,10 @@ class MeshcoreClient(MeshcoreService):
         self._loop_thread = None
 
     def connect(self) -> None:
-        if not self._pymc_available:
-            raise RuntimeError("pyMC_core is not installed. Run in mock mode or install pyMC_core.")
+        if not self._openhop_available:
+            raise RuntimeError(
+                "openhop_core is not installed. Run in mock mode or install openhop_core."
+            )
         runtime_connected = bool(self._session.status().get("connected"))
         if self._connected and runtime_connected:
             return
@@ -157,7 +159,7 @@ class MeshcoreClient(MeshcoreService):
             self._connected = False
 
         # Pre-flight: detect conflicting services / busy hardware before
-        # touching pyMC_core (which calls sys.exit on GPIO failures).
+        # touching openhop_core (which calls sys.exit on GPIO failures).
         from meshcore_console.platform.conflicts import ConflictError, run_preflight_checks
 
         hardware = self._config.hardware
@@ -169,7 +171,7 @@ class MeshcoreClient(MeshcoreService):
         try:
             self._run_async(self._session.start(), timeout=8.0)
         except SystemExit as exc:
-            # pyMC_core calls sys.exit() on fatal GPIO errors.  Convert to
+            # openhop_core calls sys.exit() on fatal GPIO errors.  Convert to
             # RuntimeError so the UI can show the failure instead of crashing.
             self._session = self._new_session()
             self._connected = False
@@ -253,7 +255,7 @@ class MeshcoreClient(MeshcoreService):
         self._channels[normalized_id] = channel
         self._channel_store.add_or_update(channel)
         if is_group:
-            # Hashtag channels need a row in channel_secrets or pyMC_core cannot
+            # Hashtag channels need a row in channel_secrets or openhop_core cannot
             # encrypt for them at send time and cannot match them at receive
             # time (issue #81).
             self._ensure_channel_secret(channel)
@@ -263,7 +265,7 @@ class MeshcoreClient(MeshcoreService):
         """Ensure a group channel has a secret, and return its on-the-wire name."""
         name = channel.display_name.lstrip("#") or channel.channel_id
         self._channel_secrets.ensure_channel_secret(name)
-        # pyMC_core matches channels_config by exact name, so send with the name
+        # openhop_core matches channels_config by exact name, so send with the name
         # as stored ("Public"), not the UI display name ("#public").
         return self._channel_secrets.resolve_name(name) or name
 
@@ -316,13 +318,13 @@ class MeshcoreClient(MeshcoreService):
             self._channel_store.add_or_update(channel)
 
         if is_group:
-            # Ensure a secret exists and resolve the name pyMC_core knows the
+            # Ensure a secret exists and resolve the name openhop_core knows the
             # channel by. Done on every send, not just for newly created
             # channels, so a channel that predates issue #81 is repaired too.
             channel_name = self._ensure_channel_secret(self._channels[channel_id])
             self._run_async(self._session.send_group_text(channel_name=channel_name, message=body))
         else:
-            # Use the original-case peer name from the channel so pyMC_core
+            # Use the original-case peer name from the channel so openhop_core
             # can find the contact in the contact book (case-sensitive lookup).
             channel = self._channels.get(channel_id)
             resolved_name = (channel.peer_name or channel.display_name) if channel else peer_id
@@ -420,7 +422,7 @@ class MeshcoreClient(MeshcoreService):
     def _enrich_sender_names(self, events: list[MeshEventDict]) -> None:
         """Best-effort enrichment of packet events for the analyzer display.
 
-        pymc_core's raw packet callback fires *before* handler processing, so
+        openhop_core's raw packet callback fires *before* handler processing, so
         ``packet`` events often lack sender_name (and GRP_TXT/TXT_MSG lack
         channel_name / payload_text).  We try two strategies:
 
@@ -593,7 +595,7 @@ class MeshcoreClient(MeshcoreService):
         signal = rssi_to_signal_percent(rssi) if rssi is not None else None
 
         # Determine repeater status from advert_type (lower nibble of ADVERT flags byte).
-        # ADV_TYPE_REPEATER = 2 per pyMC_core.
+        # ADV_TYPE_REPEATER = 2 per openhop_core.
         advert_type = data.get("advert_type") or data.get("contact_type")
         is_repeater = int(advert_type) == 2 if advert_type is not None else False
 
@@ -747,7 +749,7 @@ class MeshcoreClient(MeshcoreService):
         peer_display_name = sender_name if is_direct else None
 
         # Deduplicate by message_id — handles radio retransmissions of the
-        # same packet (pyMC_core derives a deterministic id from the decrypted
+        # same packet (openhop_core derives a deterministic id from the decrypted
         # timestamp + content hash, so copies of the same packet share an id).
         msg_id = data.get("message_id") or str(uuid4())
         existing_ids = {m.message_id for m in self._messages[-100:]}
@@ -1076,9 +1078,9 @@ class MeshcoreClient(MeshcoreService):
         if len(self._event_history) > 500:
             self._event_history = self._event_history[-500:]
 
-    def _new_session(self) -> PyMCCoreSession:
+    def _new_session(self) -> OpenHopCoreSession:
         runtime = runtime_config_from_settings(self._settings)
-        session = PyMCCoreSession(runtime)
+        session = OpenHopCoreSession(runtime)
         if self._event_notify is not None:
             session.set_event_notify(self._event_notify)
         return session

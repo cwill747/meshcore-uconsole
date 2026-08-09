@@ -75,7 +75,7 @@ class ChannelDatabase:
     def resolve_name(self, name: str) -> str | None:
         """Return the stored name for a channel, matched case-insensitively.
 
-        pyMC_core matches ``channels_config`` entries by exact name, so senders
+        openhop_core matches ``channels_config`` entries by exact name, so senders
         must use the name as stored here ("Public"), not whatever casing the UI
         happens to display.
         """
@@ -108,7 +108,7 @@ class ChannelDatabase:
         return True
 
     def get_channels(self) -> list[dict[str, str]]:
-        """Return channels in the format expected by pymc_core GroupTextHandler."""
+        """Return channels in the format expected by openhop_core GroupTextHandler."""
         rows = self._conn.execute("SELECT name, secret FROM channel_secrets").fetchall()
         return [{"name": row[0], "secret": row[1]} for row in rows]
 

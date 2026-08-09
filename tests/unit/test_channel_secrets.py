@@ -70,14 +70,14 @@ def test_client_ensure_channel_stores_secret(tmp_path, monkeypatch) -> None:
     from meshcore_console.meshcore.client import MeshcoreClient
     from meshcore_console.meshcore.config import runtime_config_from_settings
     from meshcore_console.meshcore.settings import MeshcoreSettings
-    from meshcore_console.mock import MockPyMCCoreSession
+    from meshcore_console.mock import MockOpenHopCoreSession
 
     db_conn = open_db(str(tmp_path / "client.db"))
     monkeypatch.setattr(client_mod, "open_db", lambda *a, **k: db_conn)
 
     client = MeshcoreClient(
-        session=MockPyMCCoreSession(runtime_config_from_settings(MeshcoreSettings())),
-        require_pymc=False,
+        session=MockOpenHopCoreSession(runtime_config_from_settings(MeshcoreSettings())),
+        require_openhop=False,
     )
 
     # Mirrors the UI '+ Add Channel' handler (messages.py).
@@ -102,13 +102,13 @@ def _client(tmp_path, monkeypatch, name):
     from meshcore_console.meshcore.client import MeshcoreClient
     from meshcore_console.meshcore.config import runtime_config_from_settings
     from meshcore_console.meshcore.settings import MeshcoreSettings
-    from meshcore_console.mock import MockPyMCCoreSession
+    from meshcore_console.mock import MockOpenHopCoreSession
 
     db_conn = open_db(str(tmp_path / name))
     monkeypatch.setattr(client_mod, "open_db", lambda *a, **k: db_conn)
     client = MeshcoreClient(
-        session=MockPyMCCoreSession(runtime_config_from_settings(MeshcoreSettings())),
-        require_pymc=False,
+        session=MockOpenHopCoreSession(runtime_config_from_settings(MeshcoreSettings())),
+        require_openhop=False,
     )
     return client, db_conn
 
@@ -137,7 +137,7 @@ def test_remove_channel_keeps_imported_secret(tmp_path, monkeypatch) -> None:
 def test_send_uses_the_name_stored_in_channel_secrets(
     tmp_path, monkeypatch, channel_id, display_name
 ) -> None:
-    """pyMC_core matches channels_config by exact name, so the name passed to
+    """openhop_core matches channels_config by exact name, so the name passed to
     send_group_text must appear verbatim in channel_secrets (issue #81)."""
     client, db_conn = _client(tmp_path, monkeypatch, f"send-{channel_id}.db")
     client.ensure_channel(channel_id, display_name)

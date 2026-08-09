@@ -16,7 +16,7 @@ from .config import HardwareRadioConfig
 from .paths import identity_key_path
 
 
-def import_pymc_core() -> tuple[
+def import_openhop_core() -> tuple[
     type[SX1262RadioProtocol],
     type[EventServiceProtocol],
     type[EventSubscriberProtocol],
@@ -24,12 +24,12 @@ def import_pymc_core() -> tuple[
     type[LocalIdentityProtocol],
 ]:
     try:
-        from pymc_core.hardware.sx1262_wrapper import SX1262Radio
-        from pymc_core.node.events import EventService, EventSubscriber
-        from pymc_core.node.node import MeshNode
-        from pymc_core.protocol.identity import LocalIdentity
+        from openhop_core.hardware.sx1262_wrapper import SX1262Radio
+        from openhop_core.node.events import EventService, EventSubscriber
+        from openhop_core.node.node import MeshNode
+        from openhop_core.protocol.identity import LocalIdentity
     except ImportError as exc:
-        raise RuntimeError("pymc_core is not available. Run `uv sync` in this project.") from exc
+        raise RuntimeError("openhop_core is not available. Run `uv sync` in this project.") from exc
     return SX1262Radio, EventService, EventSubscriber, MeshNode, LocalIdentity  # type: ignore[return-value]
 
 
@@ -94,7 +94,7 @@ def create_mesh_node(
     config_payload = {"node": {"name": node_name}}
     if node_config:
         config_payload["node"].update(node_config)
-    # pyMC_core constructor kwargs not in Protocol (which only defines methods)
+    # openhop_core constructor kwargs not in Protocol (which only defines methods)
     node = mesh_node_type(  # type: ignore[call-arg]
         radio=radio,
         local_identity=identity,

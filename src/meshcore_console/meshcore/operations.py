@@ -25,7 +25,7 @@ def _resolve_contact(node: MeshNodeProtocol, peer_name: str) -> object:
 
 async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> dict:
     """Send a direct text message to a peer via PacketBuilder."""
-    from pymc_core.protocol.packet_builder import PacketBuilder
+    from openhop_core.protocol.packet_builder import PacketBuilder
 
     contact = _resolve_contact(node, peer_name)
 
@@ -40,7 +40,7 @@ async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> 
 
 async def send_group_text(*, node: MeshNodeProtocol, channel_name: str, message: str) -> dict:
     """Broadcast a text message to a group/public channel via PacketBuilder."""
-    from pymc_core.protocol.packet_builder import PacketBuilder
+    from openhop_core.protocol.packet_builder import PacketBuilder
 
     if node.channel_db is None:
         raise RuntimeError("No channel database configured")
@@ -65,7 +65,7 @@ async def request_telemetry(
     timeout: float = 10.0,
 ) -> dict:
     """Request telemetry data from a remote peer via PacketBuilder."""
-    from pymc_core.protocol.packet_builder import PacketBuilder
+    from openhop_core.protocol.packet_builder import PacketBuilder
 
     contact = _resolve_contact(node, contact_name)
 
@@ -134,7 +134,7 @@ async def send_login(
     timeout: float = 10.0,
 ) -> dict:
     """Send a login request to a repeater and wait for the response."""
-    from pymc_core.protocol.packet_builder import PacketBuilder
+    from openhop_core.protocol.packet_builder import PacketBuilder
 
     contact = _resolve_contact(node, peer_name)
 
@@ -179,7 +179,7 @@ async def send_login(
 
 async def send_logout(*, node: MeshNodeProtocol, peer_name: str) -> dict:
     """Send a logout/disconnect to a repeater."""
-    from pymc_core.protocol.packet_builder import PacketBuilder
+    from openhop_core.protocol.packet_builder import PacketBuilder
 
     contact = _resolve_contact(node, peer_name)
 
@@ -199,7 +199,7 @@ async def send_repeater_command(
     timeout: float = 15.0,
 ) -> dict:
     """Send a CLI command to a repeater and wait for the response."""
-    from pymc_core.protocol.packet_builder import PacketBuilder
+    from openhop_core.protocol.packet_builder import PacketBuilder
 
     contact = _resolve_contact(node, peer_name)
 
@@ -256,7 +256,7 @@ async def send_advert(
     lon: float = 0.0,
     route_type: str = "flood",
 ) -> SendResultDict:
-    from pymc_core.protocol.packet_builder import PacketBuilder
+    from openhop_core.protocol.packet_builder import PacketBuilder
 
     advert_name = name or default_name
     packet = PacketBuilder.create_self_advert(

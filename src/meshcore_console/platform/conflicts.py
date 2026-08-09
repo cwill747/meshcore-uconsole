@@ -1,7 +1,7 @@
 """Pre-flight conflict detection for radio hardware.
 
 Detects processes (e.g. meshtasticd) or permission issues that would prevent
-pyMC_core from initialising SPI/GPIO.  Runs *before* any radio access so the
+openhop_core from initialising SPI/GPIO.  Runs *before* any radio access so the
 UI can show actionable guidance instead of a cryptic exit-code toast.
 """
 

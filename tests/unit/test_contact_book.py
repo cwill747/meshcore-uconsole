@@ -1,19 +1,19 @@
-"""Tests for ContactBook and Contact compatibility with pyMC_core."""
+"""Tests for ContactBook and Contact compatibility with openhop_core."""
 
 from meshcore_console.meshcore.contact_book import Contact, ContactBook
 
 
 def test_contact_has_out_path_default() -> None:
-    """Contact.out_path defaults to None so pyMC_core can read it before an advert arrives."""
+    """Contact.out_path defaults to None so openhop_core can read it before an advert arrives."""
     contact = Contact(name="Alice", public_key="ab" * 32)
     assert contact.out_path is None
     assert contact.out_path_len == -1
 
 
 def test_contact_allows_dynamic_attributes() -> None:
-    """pyMC_core sets dynamic attributes on contacts during advert processing.
+    """openhop_core sets dynamic attributes on contacts during advert processing.
 
-    Contact must NOT use slots=True or pyMC_core will crash with AttributeError.
+    Contact must NOT use slots=True or openhop_core will crash with AttributeError.
     """
     contact = Contact(name="Alice", public_key="ab" * 32)
 
@@ -22,7 +22,7 @@ def test_contact_allows_dynamic_attributes() -> None:
     assert contact.out_path == b"\xa2\xb3"
     assert contact.out_path_len == 2
 
-    # pyMC_core may also set other dynamic attributes we don't declare
+    # openhop_core may also set other dynamic attributes we don't declare
     contact.last_rssi = -72  # type: ignore[attr-defined]
     assert contact.last_rssi == -72  # type: ignore[attr-defined]
 
