@@ -12,6 +12,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.ui_gtk.compat import build_alert_dialog, present_dialog
 from meshcore_console.ui_gtk.helpers import clear_children, clear_listbox, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
@@ -625,7 +626,8 @@ class MessagesView(Gtk.Box):
         popover.popdown()
 
         display_name = self._get_channel_display_name(channel_id)
-        dialog = Adw.AlertDialog.new(
+        dialog = build_alert_dialog(
+            self.get_root(),
             f"Remove {display_name}?",
             "This will remove the channel and all its messages. This cannot be undone.",
         )
@@ -635,7 +637,7 @@ class MessagesView(Gtk.Box):
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
         dialog.connect("response", self._on_remove_confirmed, channel_id)
-        dialog.present(self.get_root())
+        present_dialog(dialog, self.get_root())
 
     def _on_remove_confirmed(
         self, _dialog: Adw.AlertDialog, response: str, channel_id: str
@@ -653,7 +655,7 @@ class MessagesView(Gtk.Box):
     def _on_add_channel_clicked(self, _button: Gtk.Button) -> None:
         """Show a dialog to add a new hashtag channel by name."""
         logger.debug("UI: add channel clicked")
-        dialog = Adw.AlertDialog.new("Add Channel", None)
+        dialog = build_alert_dialog(self.get_root(), "Add Channel", None)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("add", "Add")
         dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
@@ -678,7 +680,7 @@ class MessagesView(Gtk.Box):
 
         dialog.set_extra_child(row)
         dialog.connect("response", self._on_add_channel_response, entry)
-        dialog.present(self.get_root())
+        present_dialog(dialog, self.get_root())
         entry.grab_focus()
 
     def _on_add_channel_response(
