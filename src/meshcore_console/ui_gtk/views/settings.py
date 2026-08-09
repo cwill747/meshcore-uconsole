@@ -152,6 +152,16 @@ class SettingsView(Gtk.Box):
         grid.attach(self._grid_label("Autoconnect"), 0, 7, 1, 1)
         grid.attach(self._grid_switch("autoconnect"), 1, 7, 1, 1)
 
+        # Row 8: GPS serial device (empty = auto-detect ttyS0/ttyAMA0)
+        grid.attach(self._grid_label("GPS Device"), 0, 8, 1, 1)
+        gps_entry = self._grid_entry("gps_device", 18)
+        gps_entry.set_placeholder_text("auto (/dev/ttyS0, /dev/ttyAMA0)")
+        gps_entry.set_tooltip_text(
+            "Serial port for the GPS module. Leave empty to auto-detect. "
+            "CM4 units use /dev/ttyS0, CM5 units use /dev/ttyAMA0."
+        )
+        grid.attach(gps_entry, 1, 8, 2, 1)
+
         panel.append(grid)
         return panel
 
@@ -490,6 +500,7 @@ class SettingsView(Gtk.Box):
         self._set_switch("allow_telemetry", settings.allow_telemetry)
         self._set_switch("telemetry_favorites_only", settings.telemetry_favorites_only)
         self._set_switch("autoconnect", settings.autoconnect)
+        self._set_entry("gps_device", settings.gps_device)
 
         # Update public key display
         public_key = self._service.get_self_public_key()
@@ -539,6 +550,7 @@ class SettingsView(Gtk.Box):
         out.allow_telemetry = self._switches["allow_telemetry"].get_active()
         out.telemetry_favorites_only = self._switches["telemetry_favorites_only"].get_active()
         out.autoconnect = self._switches["autoconnect"].get_active()
+        out.gps_device = self._entries["gps_device"].get_text().strip()
 
         # Radio
         out.radio_preset = self._preset.get_active_id() or "custom"

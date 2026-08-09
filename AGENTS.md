@@ -156,6 +156,7 @@ All commands below assume you are inside `nix develop`.
 | `MESHCORE_GPSD_DISABLE=1` | Skip gpsd detection, use direct serial |
 | `MESHCORE_GPSD_HOST` | gpsd hostname (default: 127.0.0.1) |
 | `MESHCORE_GPSD_PORT` | gpsd port (default: 2947) |
+| `MESHCORE_GPS_DEVICE` | GPS serial port; overrides auto-detection and gpsd (also in Settings > GPS Device) |
 
 ### Initial Setup (macOS)
 
