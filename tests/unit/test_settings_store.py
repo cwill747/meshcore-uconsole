@@ -28,3 +28,19 @@ def test_log_level_round_trip(tmp_path) -> None:
     loaded = store.load()
     assert loaded.log_level == "DEBUG"
     conn.close()
+
+
+def test_radio_error_toasts_default_to_disabled_and_round_trip(tmp_path) -> None:
+    conn = open_db(str(tmp_path / "test.db"))
+    store = SettingsStore(conn)
+
+    assert MeshcoreSettings().show_radio_error_toasts is False
+
+    # Persisted False must survive the store's string round-trip, not just the
+    # dataclass default that load() falls back to on an empty table.
+    store.save(MeshcoreSettings())
+    assert store.load().show_radio_error_toasts is False
+
+    store.save(MeshcoreSettings(show_radio_error_toasts=True))
+    assert store.load().show_radio_error_toasts is True
+    conn.close()

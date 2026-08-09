@@ -16,6 +16,7 @@ class MeshcoreSettings:
     gps_device: str = ""  # GPS serial port path; empty = auto-detect (#82)
     suppress_service_dialog: bool = False  # Don't prompt to stop conflicting services
     log_level: str = "INFO"  # stderr log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    show_radio_error_toasts: bool = False  # Show radio warnings as in-app toast alerts
 
     # Radio
     radio_preset: str = "meshcore-us"
