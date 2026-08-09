@@ -71,6 +71,7 @@ class MeshcoreClient(MeshcoreService):
         self._channel_store = channel_store or UIChannelStore(self._db)
         self._gps_provider = gps_provider or create_gps_provider()
         self._repeater_password_store = RepeaterPasswordStore(self._db)
+        self._channel_secrets = ChannelDatabase(self._db)
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
         # Load persisted state
         self._messages: list[Message] = self._message_store.get_all()
@@ -100,8 +101,7 @@ class MeshcoreClient(MeshcoreService):
 
     def _sync_channel_secrets_to_ui(self) -> None:
         """Ensure every channel secret has a corresponding UI channel entry."""
-        channel_db = ChannelDatabase(self._db)
-        for row in channel_db.get_channels():
+        for row in self._channel_secrets.get_channels():
             original_name = row["name"]  # Preserve original case for pyMC_core
             channel_id = original_name.lower()
             if channel_id not in self._channels:
@@ -248,7 +248,20 @@ class MeshcoreClient(MeshcoreService):
         )
         self._channels[normalized_id] = channel
         self._channel_store.add_or_update(channel)
+        if is_group:
+            # Hashtag channels need a row in channel_secrets or pyMC_core cannot
+            # encrypt for them at send time and cannot match them at receive
+            # time (issue #81).
+            self._ensure_channel_secret(channel)
         return channel
+
+    def _ensure_channel_secret(self, channel: Channel) -> str:
+        """Ensure a group channel has a secret, and return its on-the-wire name."""
+        name = channel.display_name.lstrip("#") or channel.channel_id
+        self._channel_secrets.ensure_channel_secret(name)
+        # pyMC_core matches channels_config by exact name, so send with the name
+        # as stored ("Public"), not the UI display name ("#public").
+        return self._channel_secrets.resolve_name(name) or name
 
     def list_messages_for_channel(self, channel_id: str, limit: int = 50) -> list[Message]:
         filtered = [m for m in self._messages if m.channel_id == channel_id]
@@ -258,7 +271,12 @@ class MeshcoreClient(MeshcoreService):
         """Remove a channel and its messages. Returns False if channel cannot be removed."""
         if channel_id == "public":
             return False
-        self._channels.pop(channel_id, None)
+        removed = self._channels.pop(channel_id, None)
+        if removed is not None and removed.kind == "group":
+            # Only derived hashtag secrets are dropped; an imported secret is
+            # not recoverable, so it outlives the channel entry (issue #81).
+            name = removed.display_name.lstrip("#") or removed.channel_id
+            self._channel_secrets.remove_derived_secret(name)
         self._messages = [m for m in self._messages if m.channel_id != channel_id]
         self._channel_store.remove(channel_id)
         self._message_store.remove_for_channel(channel_id)
@@ -294,10 +312,10 @@ class MeshcoreClient(MeshcoreService):
             self._channel_store.add_or_update(channel)
 
         if is_group:
-            # Resolve the original-case channel name for pyMC_core.
-            # display_name is "#ChannelName" — strip the "#" prefix.
-            channel = self._channels[channel_id]
-            channel_name = channel.display_name.lstrip("#")
+            # Ensure a secret exists and resolve the name pyMC_core knows the
+            # channel by. Done on every send, not just for newly created
+            # channels, so a channel that predates issue #81 is repaired too.
+            channel_name = self._ensure_channel_secret(self._channels[channel_id])
             self._run_async(self._session.send_group_text(channel_name=channel_name, message=body))
         else:
             # Use the original-case peer name from the channel so pyMC_core
