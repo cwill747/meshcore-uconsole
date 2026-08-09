@@ -23,6 +23,9 @@ from meshcore_console.platform.conflicts import ConflictError, ConflictReport
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.ui_gtk.widgets import ConflictScreen, LoadingScreen, StatusPill
 
+# How long the header badge shows "Radio Error" before reverting to connection state.
+RADIO_ERROR_BADGE_MS = 5000
+
 
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, application: Adw.Application, service: MeshcoreService) -> None:
@@ -36,6 +39,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._last_window_height = 0
         self._surface_debug_wired = False
         self._shutting_down = False
+        self._radio_error_badge_id = 0
         self.set_title("Meshcore Console")
         self._apply_window_geometry()
         self.add_css_class("app-root")
@@ -210,6 +214,10 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._shutting_down = True
         logger.info("Shutdown requested, showing shutdown screen")
+
+        if self._radio_error_badge_id:
+            GLib.source_remove(self._radio_error_badge_id)
+            self._radio_error_badge_id = 0
 
         shutdown_screen = LoadingScreen(title="MeshCore Console", status="Shutting down...")
         self._content_stack.add_named(shutdown_screen, "shutdown")
@@ -652,14 +660,44 @@ class MainWindow(Adw.ApplicationWindow):
             settings.suppress_service_dialog = True
             self._service.update_settings(settings)
 
-    def _refresh_connection_state(self) -> None:
-        status = self._service.get_status()
-        status_text = "Connected" if status.connected else "Offline"
-        self._status_badge.set_text(status_text)
-        self._status_badge.set_state("ok" if status.connected else "offline")
+    def _set_status_badge(self, text: str, state: str) -> None:
+        self._status_badge.set_text(text)
+        self._status_badge.set_state(state)
         self._status_badge.update_property(
             [Gtk.AccessibleProperty.LABEL],
-            [f"Connection status: {status_text}"],
+            [f"Connection status: {text}"],
+        )
+
+    def _flash_radio_error(self) -> None:
+        """Show a transient error badge, then revert to the connection state.
+
+        Radio errors can arrive continuously (e.g. CRC noise), so the badge must
+        not latch — otherwise it permanently hides Connected/Offline.
+        """
+        self._set_status_badge("Radio Error", "warn")
+        if self._radio_error_badge_id:
+            GLib.source_remove(self._radio_error_badge_id)
+        self._radio_error_badge_id = GLib.timeout_add(
+            RADIO_ERROR_BADGE_MS, self._clear_radio_error_badge
+        )
+
+    def _clear_radio_error_badge(self) -> bool:
+        self._radio_error_badge_id = 0
+        status = self._service.get_status()
+        self._set_status_badge(
+            "Connected" if status.connected else "Offline",
+            "ok" if status.connected else "offline",
+        )
+        return GLib.SOURCE_REMOVE
+
+    def _refresh_connection_state(self) -> None:
+        if self._radio_error_badge_id:
+            GLib.source_remove(self._radio_error_badge_id)
+            self._radio_error_badge_id = 0
+        status = self._service.get_status()
+        self._set_status_badge(
+            "Connected" if status.connected else "Offline",
+            "ok" if status.connected else "offline",
         )
         self._connect_button.set_label("Disconnect" if status.connected else "Connect")
         self._advert_btn.set_sensitive(status.connected)
@@ -685,9 +723,9 @@ class MainWindow(Adw.ApplicationWindow):
                 self._refresh_connection_state()
             elif etype == "radio_error":
                 msg = (event.get("data") or {}).get("message", "Unknown radio error")
-                self._toast_overlay.add_toast(Adw.Toast.new(msg))
-                self._status_badge.set_text("Radio Error")
-                self._status_badge.set_state("warn")
+                if self._service.get_settings().show_radio_error_toasts:
+                    self._toast_overlay.add_toast(Adw.Toast.new(msg))
+                self._flash_radio_error()
         self._service.flush_stores()
 
     def _safety_net_pump(self) -> bool:

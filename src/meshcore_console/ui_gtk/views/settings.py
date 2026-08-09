@@ -316,10 +316,17 @@ class SettingsView(Gtk.Box):
         self._log_level_combo.connect("changed", self._on_log_level_changed)
         grid.attach(self._log_level_combo, 1, 0, 1, 1)
 
+        # Radio warnings are retained in logs and the header status indicator;
+        # this controls only the intrusive bottom-of-window toast alerts.
+        grid.attach(self._grid_label("Radio Error Toasts"), 0, 1, 1, 1)
+        radio_toast_switch = self._grid_switch("show_radio_error_toasts")
+        radio_toast_switch.set_tooltip_text("Show radio warnings as popup alerts")
+        grid.attach(radio_toast_switch, 1, 1, 1, 1)
+
         # Export logs button
         export_btn = Gtk.Button.new_with_label("Export Logs")
         export_btn.connect("clicked", self._on_export_logs)
-        grid.attach(export_btn, 0, 1, 2, 1)
+        grid.attach(export_btn, 0, 2, 2, 1)
 
         panel.append(grid)
         return panel
@@ -526,6 +533,7 @@ class SettingsView(Gtk.Box):
 
         # Logging
         self._log_level_combo.set_active_id(settings.log_level)
+        self._set_switch("show_radio_error_toasts", settings.show_radio_error_toasts)
 
     def _collect_settings(self, allow_partial: bool = False) -> MeshcoreSettings:
         current = self._service.get_settings()
@@ -578,6 +586,7 @@ class SettingsView(Gtk.Box):
 
         # Logging
         out.log_level = self._log_level_combo.get_active_id() or "INFO"
+        out.show_radio_error_toasts = self._switches["show_radio_error_toasts"].get_active()
 
         return out
 
