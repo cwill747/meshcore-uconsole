@@ -67,15 +67,19 @@ class GpsProvider(Protocol):
 class UConsoleGps:
     """GPS provider for uConsole AIO board.
 
-    The AIO V2 board provides GPS via the Pi's UART at /dev/ttyS0.
+    The AIO V2 board provides GPS via the Pi's UART, /dev/ttyS0 on older
+    CM4-based units and /dev/ttyAMA0 on CM5-based units. The port can be
+    overridden via the constructor (Settings > GPS Device) or the
+    MESHCORE_GPS_DEVICE environment variable.
     GPIO 27 is used to enable/disable the GPS module.
     """
 
     GPIO_ENABLE_PIN = 27
-    SERIAL_PORT = "/dev/ttyS0"
+    SERIAL_PORT = "/dev/ttyS0"  # Default; see GPS_SERIAL_CANDIDATES
     BAUD_RATE = 9600
 
-    def __init__(self) -> None:
+    def __init__(self, serial_port: str | None = None) -> None:
+        self._serial_port = serial_port or self.SERIAL_PORT
         self._callback: Callable[[float, float], None] | None = None
         self._error_callback: Callable[[str], None] | None = None
         self._running = False
@@ -114,17 +118,17 @@ class UConsoleGps:
             import serial  # type: ignore[import-not-found]
 
             self._serial = serial.Serial(
-                self.SERIAL_PORT,
+                self._serial_port,
                 self.BAUD_RATE,
                 timeout=1.0,
             )
             self._running = True
-            logger.debug("GPS: opened %s at %d baud", self.SERIAL_PORT, self.BAUD_RATE)
+            logger.debug("GPS: opened %s at %d baud", self._serial_port, self.BAUD_RATE)
         except ImportError:
             self._report_error("pyserial not installed - GPS unavailable")
         except PermissionError:
             self._report_error(
-                f"Permission denied on {self.SERIAL_PORT} - add user to dialout group"
+                f"Permission denied on {self._serial_port} - add user to dialout group"
             )
         except OSError as e:
             self._report_error(f"Serial port error: {e}")
@@ -538,19 +542,37 @@ class NullGps:
         return False
 
 
-def create_gps_provider() -> GpsProvider:
+# Serial ports probed when no explicit device is configured. /dev/ttyS0 is
+# the GPS UART on CM4-based uConsoles; CM5-based units expose it at
+# /dev/ttyAMA0 instead (#82).
+GPS_SERIAL_CANDIDATES: tuple[str, ...] = ("/dev/ttyS0", "/dev/ttyAMA0")
+
+
+def create_gps_provider(serial_port: str | None = None) -> GpsProvider:
     """Create the appropriate GPS provider for the current environment.
 
     Priority:
     1. MESHCORE_MOCK=1 → MockGps
-    2. gpsd reachable (unless MESHCORE_GPSD_DISABLE=1) → GpsdProvider
-    3. /dev/ttyS0 exists → UConsoleGps
-    4. Fallback → NullGps (returns None; callers use settings fixed position)
+    2. Explicit device (``serial_port`` arg, e.g. from Settings, or the
+       MESHCORE_GPS_DEVICE env var) → UConsoleGps on that port
+    3. gpsd reachable (unless MESHCORE_GPSD_DISABLE=1) → GpsdProvider
+    4. First existing candidate port (/dev/ttyS0, /dev/ttyAMA0) → UConsoleGps
+    5. Fallback → NullGps (returns None; callers use settings fixed position)
     """
     if os.environ.get("MESHCORE_MOCK", "0") == "1":
         from meshcore_console.mock import MockGps
 
         return MockGps()
+
+    # An explicitly configured device wins over auto-detection. Use it even
+    # if it doesn't exist yet (e.g. USB GPS plugged in later); start() will
+    # surface a visible error if the port can't be opened.
+    configured = (serial_port or os.environ.get("MESHCORE_GPS_DEVICE", "")).strip()
+    if configured:
+        if not Path(configured).exists():
+            logger.warning("GPS: configured device %s not present (yet)", configured)
+        logger.info("GPS: using configured device %s", configured)
+        return UConsoleGps(serial_port=configured)
 
     # Check for gpsd
     if os.environ.get("MESHCORE_GPSD_DISABLE", "0") != "1":
@@ -560,9 +582,11 @@ def create_gps_provider() -> GpsProvider:
             logger.info("GPS: gpsd detected at %s:%d, using GpsdProvider", host, port)
             return GpsdProvider(host=host, port=port)
 
-    # Check if we're on a Pi with GPS hardware
-    if Path("/dev/ttyS0").exists():
-        return UConsoleGps()
+    # Check if we're on a Pi with GPS hardware (CM4: ttyS0, CM5: ttyAMA0)
+    for candidate in GPS_SERIAL_CANDIDATES:
+        if Path(candidate).exists():
+            logger.info("GPS: auto-detected serial device %s", candidate)
+            return UConsoleGps(serial_port=candidate)
 
     logger.debug("GPS: no hardware detected, using NullGps")
     return NullGps()

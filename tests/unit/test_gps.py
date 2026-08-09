@@ -148,3 +148,42 @@ def test_create_gps_provider_falls_back_to_serial() -> None:
         mock_path.return_value.exists.return_value = True
         provider = create_gps_provider()
         assert isinstance(provider, UConsoleGps)
+
+
+def test_create_gps_provider_uses_configured_device() -> None:
+    """Issue #82: an explicitly configured port must be used, even over gpsd."""
+    env = {"MESHCORE_MOCK": "0"}
+    with (
+        patch.dict(os.environ, env, clear=False),
+        patch("meshcore_console.platform.gps._gpsd_available", return_value=True),
+    ):
+        provider = create_gps_provider(serial_port="/dev/ttyAMA0")
+        assert isinstance(provider, UConsoleGps)
+        assert provider._serial_port == "/dev/ttyAMA0"
+
+
+def test_create_gps_provider_env_var_device() -> None:
+    env = {"MESHCORE_MOCK": "0", "MESHCORE_GPS_DEVICE": "/dev/ttyUSB0"}
+    with (
+        patch.dict(os.environ, env, clear=False),
+        patch("meshcore_console.platform.gps._gpsd_available", return_value=False),
+    ):
+        provider = create_gps_provider()
+        assert isinstance(provider, UConsoleGps)
+        assert provider._serial_port == "/dev/ttyUSB0"
+
+
+def test_create_gps_provider_autodetects_cm5_port() -> None:
+    """Issue #82: fall back to /dev/ttyAMA0 (CM5) when /dev/ttyS0 is absent."""
+    env = {"MESHCORE_MOCK": "0", "MESHCORE_GPS_DEVICE": ""}
+    with (
+        patch.dict(os.environ, env, clear=False),
+        patch("meshcore_console.platform.gps._gpsd_available", return_value=False),
+        patch("meshcore_console.platform.gps.Path") as mock_path,
+    ):
+        mock_path.side_effect = lambda p: type(
+            "P", (), {"exists": staticmethod(lambda p=p: p == "/dev/ttyAMA0")}
+        )()
+        provider = create_gps_provider()
+        assert isinstance(provider, UConsoleGps)
+        assert provider._serial_port == "/dev/ttyAMA0"

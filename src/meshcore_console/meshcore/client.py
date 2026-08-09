@@ -69,7 +69,6 @@ class MeshcoreClient(MeshcoreService):
         self._message_store = message_store or MessageStore(self._db)
         self._peer_store = peer_store or PeerStore(self._db)
         self._channel_store = channel_store or UIChannelStore(self._db)
-        self._gps_provider = gps_provider or create_gps_provider()
         self._repeater_password_store = RepeaterPasswordStore(self._db)
         self._channel_secrets = ChannelDatabase(self._db)
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
@@ -81,6 +80,11 @@ class MeshcoreClient(MeshcoreService):
         self._settings = self._settings_store.load()
         if node_name != "uconsole-node":
             self._settings.node_name = node_name
+        # Built after the settings load so the configured gps_device takes effect.
+        self._gps_provider_injected = gps_provider is not None
+        self._gps_provider = gps_provider or create_gps_provider(
+            serial_port=self._settings.gps_device
+        )
         self._session = session if session is not None else self._new_session()
         self._config = runtime_config_from_settings(self._settings)
 
@@ -812,9 +816,19 @@ class MeshcoreClient(MeshcoreService):
 
     def update_settings(self, settings: MeshcoreSettings) -> None:
         updated = settings.clone()
+        gps_device_changed = updated.gps_device != self._settings.gps_device
         self._settings = updated
         self._settings_store.save(updated)
         self._config = runtime_config_from_settings(self._settings)
+
+        # Rebuild the GPS provider if the device path changed, so the setting
+        # takes effect without an app restart. A provider injected by a test or
+        # mock is left alone.
+        if gps_device_changed and not self._gps_provider_injected:
+            self._gps_provider.stop()
+            self._gps_provider = create_gps_provider(serial_port=updated.gps_device)
+            if self._connected:
+                self._gps_provider.start()
 
         # Prepare a fresh session so the next connect() picks up new config,
         # but do NOT restart the radio here — the user must restart the app
