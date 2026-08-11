@@ -9,7 +9,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gio, Gtk
 
 from meshcore_console.core.services import MeshcoreService
-from meshcore_console.meshcore.config import parse_pin_list
+from meshcore_console.meshcore.config import hardware_env_overrides, parse_pin_list
 from meshcore_console.meshcore.logging_setup import (
     VALID_LEVELS,
     export_logs_to_path,
@@ -254,6 +254,7 @@ class SettingsView(Gtk.Box):
         preset_box.append(preset_label)
         self._hw_preset = Gtk.ComboBoxText.new()
         self._hw_preset.append("uconsole", "uConsole (AIO)")
+        self._hw_preset.append("hg-aiov2", "uConsole HG AIOv2")
         self._hw_preset.append("waveshare", "Waveshare")
         self._hw_preset.append("meshadv-mini", "meshadv-mini")
         self._hw_preset.append("custom", "Custom")
@@ -329,12 +330,25 @@ class SettingsView(Gtk.Box):
 
         found = available_gpio_chips()
         available = ", ".join(str(c) for c in found) if found else "none found"
-        return (
-            f"GPIO chips on this host: {available}. "
-            f"EN Pins is a comma-separated list, blank if unused. "
-            f"Poll IRQ swaps edge interrupts for a polling thread, for kernels "
-            f"that reject edge requests."
-        )
+        lines = [
+            f"GPIO chips on this host: {available}.",
+            "EN Pins is a comma-separated list of pins driven HIGH at init, "
+            "blank if unused. The HackerGadgets AIOv2 LoRa enable pin is 27.",
+            "Poll IRQ swaps edge interrupts for a polling thread, for kernels "
+            "that reject edge requests.",
+        ]
+
+        # An env var wins over these fields, so say so. Otherwise an edit here
+        # looks like it does nothing (#85).
+        overrides = sorted(set(hardware_env_overrides().values()))
+        if overrides:
+            names = ", ".join(overrides)
+            verb = "is" if len(overrides) == 1 else "are"
+            lines.append(
+                f"Note: {names} {verb} set in the environment. The environment "
+                f"overrides the values saved here."
+            )
+        return " ".join(lines)
 
     def _build_logging_panel(self) -> Gtk.Box:
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)

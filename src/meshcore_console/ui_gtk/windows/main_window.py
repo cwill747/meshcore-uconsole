@@ -563,7 +563,7 @@ class MainWindow(Adw.ApplicationWindow):
             report,
             on_retry=self._on_conflict_retry,
             on_stop_service=self._on_conflict_stop_service,
-            on_settings=lambda: self.navigate_to("settings"),
+            on_settings=self._on_conflict_settings,
         )
         self._content_stack.add_named(screen, "conflict")
         self._content_stack.set_visible_child_name("conflict")
@@ -572,6 +572,16 @@ class MainWindow(Adw.ApplicationWindow):
         settings = self._service.get_settings()
         if report.has_service_conflict and not settings.suppress_service_dialog:
             self._show_service_conflict_dialog(report)
+
+    def _on_conflict_settings(self) -> None:
+        """Open the settings screen from the conflict screen.
+
+        ``navigate_to`` switches the inner page stack only. The conflict
+        screen sits in the outer content stack, so this must leave that stack
+        as well or the button looks dead (#85).
+        """
+        self._content_stack.set_visible_child_name("main")
+        self.navigate_to("settings")
 
     def _on_conflict_retry(self) -> None:
         """Retry connection from the conflict screen."""

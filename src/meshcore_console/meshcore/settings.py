@@ -90,7 +90,7 @@ def apply_preset(settings: MeshcoreSettings, preset: str) -> MeshcoreSettings:
     return updated
 
 
-HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
+HARDWARE_PRESETS: dict[str, dict[str, int | bool | str]] = {
     "uconsole": {
         "bus_id": 1,
         "cs_id": 0,
@@ -103,6 +103,23 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
         "is_waveshare": False,
         "use_dio2_rf": True,
         "use_dio3_tcxo": True,
+        "en_pins": "",
+    },
+    # Same wiring as the plain uConsole board, plus the LoRa power-enable pin
+    # that the HackerGadgets AIOv2 puts on GPIO 27 (#85).
+    "hg-aiov2": {
+        "bus_id": 1,
+        "cs_id": 0,
+        "cs_pin": -1,
+        "reset_pin": 25,
+        "busy_pin": 24,
+        "irq_pin": 26,
+        "txen_pin": -1,
+        "rxen_pin": -1,
+        "is_waveshare": False,
+        "use_dio2_rf": True,
+        "use_dio3_tcxo": True,
+        "en_pins": "27",
     },
     "waveshare": {
         "bus_id": 0,
@@ -116,6 +133,7 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
         "is_waveshare": True,
         "use_dio2_rf": False,
         "use_dio3_tcxo": False,
+        "en_pins": "",
     },
     "meshadv-mini": {
         "bus_id": 0,
@@ -129,6 +147,7 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
         "is_waveshare": False,
         "use_dio2_rf": False,
         "use_dio3_tcxo": False,
+        "en_pins": "",
     },
 }
 

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from meshcore_console.meshcore.config import (
     HardwareRadioConfig,
+    apply_hardware_env_overrides,
+    hardware_env_overrides,
     load_hardware_config_from_env,
     parse_pin_list,
     runtime_config_from_settings,
@@ -55,17 +57,19 @@ def test_defaults_are_unchanged_for_cm4() -> None:
 
 
 def test_hardware_presets_do_not_clobber_gpio_chip() -> None:
-    """gpio_chip is a property of the SoC/kernel, not of the radio board."""
+    """gpio_chip is a property of the SoC/kernel, not of the radio board.
+
+    en_pins is the opposite: the enable line belongs to the board, so each
+    preset states it (#85).
+    """
     settings = MeshcoreSettings()
     settings.gpio_chip = 15
     settings.use_gpiod_backend = True
-    settings.en_pins = "16"
 
-    for preset in ("uconsole", "waveshare", "meshadv-mini"):
+    for preset in ("uconsole", "hg-aiov2", "waveshare", "meshadv-mini"):
         updated = apply_hardware_preset(settings, preset)
         assert updated.gpio_chip == 15, preset
         assert updated.use_gpiod_backend is True, preset
-        assert updated.en_pins == "16", preset
 
 
 # --- settings -> radio kwargs ----------------------------------------------
@@ -157,3 +161,94 @@ def test_settings_round_trip_through_store(tmp_path) -> None:
     assert loaded.use_gpiod_backend is True
     assert loaded.en_pins == "16,17"
     conn.close()
+
+
+# --- env overrides beat the persisted settings (#85) -----------------------
+
+
+def test_env_overrides_the_persisted_settings(monkeypatch) -> None:
+    """The GTK app reads the settings DB, so the env layer has to apply there."""
+    monkeypatch.setenv("MESHCORE_GPIO_CHIP", "15")
+    monkeypatch.setenv("MESHCORE_USE_GPIOD_BACKEND", "1")
+    monkeypatch.setenv("MESHCORE_EN_PINS", "27")
+
+    settings = MeshcoreSettings()
+    settings.gpio_chip = 0
+    settings.use_gpiod_backend = False
+    settings.en_pins = ""
+
+    hardware = runtime_config_from_settings(settings).hardware
+    assert hardware is not None
+    assert hardware.gpio_chip == 15
+    assert hardware.use_gpiod_backend is True
+    assert hardware.en_pins == (27,)
+
+
+def test_settings_win_when_the_env_is_unset() -> None:
+    settings = MeshcoreSettings()
+    settings.gpio_chip = 15
+
+    hardware = runtime_config_from_settings(settings).hardware
+    assert hardware is not None
+    assert hardware.gpio_chip == 15
+
+
+def test_unparsable_env_value_keeps_the_settings_value(monkeypatch) -> None:
+    monkeypatch.setenv("MESHCORE_GPIO_CHIP", "not-a-number")
+
+    settings = MeshcoreSettings()
+    settings.gpio_chip = 15
+
+    hardware = runtime_config_from_settings(settings).hardware
+    assert hardware is not None
+    assert hardware.gpio_chip == 15
+
+
+def test_apply_hardware_env_overrides_leaves_untouched_fields(monkeypatch) -> None:
+    monkeypatch.setenv("MESHCORE_GPIO_CHIP", "15")
+
+    base = HardwareRadioConfig(gpio_chip=0, reset_pin=25, en_pins=(27,))
+    out = apply_hardware_env_overrides(base)
+
+    assert out.gpio_chip == 15
+    assert out.reset_pin == 25
+    assert out.en_pins == (27,)
+    assert base.gpio_chip == 0  # the caller's config is not mutated
+
+
+def test_hardware_env_overrides_reports_what_is_set(monkeypatch) -> None:
+    assert hardware_env_overrides() == {}
+
+    monkeypatch.setenv("MESHCORE_GPIO_CHIP", "15")
+    monkeypatch.setenv("MESHCORE_EN_PINS", "27")
+
+    assert hardware_env_overrides() == {
+        "gpio_chip": "MESHCORE_GPIO_CHIP",
+        "en_pins": "MESHCORE_EN_PINS",
+    }
+
+
+# --- board presets ---------------------------------------------------------
+
+
+def test_aiov2_preset_sets_the_lora_enable_pin() -> None:
+    """The HackerGadgets AIOv2 powers its LoRa module from GPIO 27 (#85)."""
+    settings = apply_hardware_preset(MeshcoreSettings(), "hg-aiov2")
+    assert settings.en_pins == "27"
+
+    hardware = runtime_config_from_settings(settings).hardware
+    assert hardware is not None
+    assert hardware.en_pins == (27,)
+
+
+def test_switching_away_from_the_aiov2_preset_clears_the_enable_pin() -> None:
+    settings = apply_hardware_preset(MeshcoreSettings(), "hg-aiov2")
+    settings = apply_hardware_preset(settings, "uconsole")
+    assert settings.en_pins == ""
+
+
+def test_aiov2_preset_keeps_the_uconsole_pinout() -> None:
+    aiov2 = apply_hardware_preset(MeshcoreSettings(), "hg-aiov2")
+    uconsole = apply_hardware_preset(MeshcoreSettings(), "uconsole")
+    for pin in ("bus_id", "cs_id", "cs_pin", "reset_pin", "busy_pin", "irq_pin"):
+        assert getattr(aiov2, pin) == getattr(uconsole, pin)

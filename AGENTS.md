@@ -159,7 +159,13 @@ All commands below assume you are inside `nix develop`.
 | `MESHCORE_GPS_DEVICE` | GPS serial port; overrides auto-detection and gpsd (also in Settings > GPS Device) |
 | `MESHCORE_GPIO_CHIP` | `/dev/gpiochipN` number (default: 0; also in Settings > Hardware) |
 | `MESHCORE_USE_GPIOD_BACKEND=1` | Poll for IRQ edges instead of using kernel edge interrupts |
-| `MESHCORE_EN_PINS` | Comma-separated GPIO pins driven HIGH at init to power the radio |
+| `MESHCORE_EN_PINS` | Comma-separated GPIO pins driven HIGH at init to power the radio (HG AIOv2: `27`) |
+
+Every hardware variable above overrides the matching value in Settings >
+Hardware. `_HARDWARE_ENV_OVERRIDES` in `meshcore/config.py` holds the whole
+table, and `runtime_config_from_settings()` applies it, so the CLI, the GTK app
+and `doctor` all agree on the values the radio gets. The settings screen says
+which variables are set, because an edit there cannot beat them (#85).
 
 ### GPIO Chip Selection
 
@@ -171,6 +177,16 @@ configured chip and lists what the host actually has:
 ```text
 [FAIL] gpiochip: Configured GPIO chip /dev/gpiochip0 not found — available: 11, 12, 13, 14, 15. ...
 ```
+
+### Board Presets
+
+`HARDWARE_PRESETS` in `meshcore/settings.py` owns the per-board pinout,
+including `en_pins`: the LoRa power-enable line belongs to the board, so every
+preset states it, and a switch between boards clears a stale pin. The
+`hg-aiov2` preset is the uConsole pinout plus enable pin 27.
+
+`gpio_chip` is deliberately *not* in any preset. It follows the SoC and the
+kernel (CM4 vs CM5), not the radio board, so a preset must never clobber it.
 
 Note that `use_gpiod_backend` does **not** switch openhop_core to libgpiod while
 python-periphery is installed — the library only swaps in its libgpiod wrapper

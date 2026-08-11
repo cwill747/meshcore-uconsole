@@ -144,7 +144,18 @@ If `doctor` fails on SPI/GPIO, confirm these before retrying:
 > uConsole internal display. If this has happened, remove `dtparam=spi=on`
 > from `/boot/firmware/config.txt` via SSH and reboot.
 
-Hardware overrides can be supplied via env vars when running `meshcore-console`.
-Notable radio bring-up flags:
+Hardware overrides can be supplied via env vars when running `meshcore-console`
+or the GTK app. An env var wins over the value saved in Settings > Hardware, so
+a saved setting that stops the radio from starting stays recoverable from the
+command line. Notable radio bring-up flags:
 - `MESHCORE_USE_DIO2_RF=1` (default in this repo)
 - `MESHCORE_USE_DIO3_TCXO=1` (default in this repo)
+- `MESHCORE_GPIO_CHIP=15` — which `/dev/gpiochipN` carries the 40-pin header.
+  It is 0 on CM4, but 15 on CM5 and Pi 5 kernels, where the header hangs off
+  the RP1. `doctor` lists the chips your host actually has.
+- `MESHCORE_EN_PINS=27` — GPIO pins driven HIGH at init to power the radio.
+  The HackerGadgets AIOv2 enable pin is 27; the **uConsole HG AIOv2** board
+  preset sets this for you.
+- `MESHCORE_USE_GPIOD_BACKEND=1` — poll for IRQ edges instead of asking the
+  kernel for edge interrupts. Try this if the radio connects but receives
+  nothing, which happens on kernels that reject the edge request.

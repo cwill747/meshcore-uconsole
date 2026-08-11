@@ -71,7 +71,12 @@ def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: igno
 
 
 def _doctor_hardware_config() -> Any:
-    """Load the persisted hardware config, falling back to env defaults."""
+    """Return the hardware config that the radio will actually use.
+
+    This is the persisted configuration with the environment applied on top,
+    the same combination that ``runtime_config_from_settings`` gives the GTK
+    app, so ``doctor`` never reports a chip that the radio will not open.
+    """
     from meshcore_console.meshcore.config import (
         load_hardware_config_from_env,
         runtime_config_from_settings,
@@ -95,6 +100,7 @@ def _doctor_hardware_config() -> Any:
 
 
 def _doctor() -> int:
+    from meshcore_console.meshcore.config import hardware_env_overrides
     from meshcore_console.platform.conflicts import available_gpio_chips
 
     hardware = _doctor_hardware_config()
@@ -109,14 +115,16 @@ def _doctor() -> int:
         )
     )
 
+    overrides = hardware_env_overrides()
+    chip_source = " (from MESHCORE_GPIO_CHIP)" if "gpio_chip" in overrides else ""
     chip_path = f"/dev/gpiochip{hardware.gpio_chip}"
     if os.path.exists(chip_path):
-        gpiochip_detail = f"Expected GPIO chip {chip_path}"
+        gpiochip_detail = f"Expected GPIO chip {chip_path}{chip_source}"
     else:
         found = available_gpio_chips()
         available = ", ".join(str(c) for c in found) if found else "none"
         gpiochip_detail = (
-            f"Configured GPIO chip {chip_path} not found — available: {available}. "
+            f"Configured GPIO chip {chip_path}{chip_source} not found — available: {available}. "
             f"Set it in Settings > Hardware or via MESHCORE_GPIO_CHIP "
             f"(CM5/Pi 5 kernels usually put the 40-pin header on 15, not 0)."
         )
