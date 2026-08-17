@@ -12,11 +12,11 @@ from .settings import (
     apply_hardware_preset,
     apply_preset,
 )
-from .session import PyMCCoreSession
+from .session import OpenHopCoreSession
 
 __all__ = [
     "MeshcoreClient",
-    "PyMCCoreSession",
+    "OpenHopCoreSession",
     "HardwareRadioConfig",
     "RuntimeRadioConfig",
     "MeshcoreSettings",

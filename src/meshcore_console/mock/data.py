@@ -244,7 +244,7 @@ def create_mock_boot_events() -> list[dict]:
 def create_mock_packet_events() -> list[dict]:
     """Create mock packet events for the analyzer view.
 
-    Packet types from pyMC_core (numeric ID -> name):
+    Packet types from openhop_core (numeric ID -> name):
         0: REQ       - Request
         1: RESPONSE  - Response to REQ or ANON_REQ
         2: TXT_MSG   - Plain text message (encrypted)

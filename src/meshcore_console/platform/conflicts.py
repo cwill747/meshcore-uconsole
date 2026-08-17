@@ -1,12 +1,13 @@
 """Pre-flight conflict detection for radio hardware.
 
 Detects processes (e.g. meshtasticd) or permission issues that would prevent
-pyMC_core from initialising SPI/GPIO.  Runs *before* any radio access so the
+openhop_core from initialising SPI/GPIO.  Runs *before* any radio access so the
 UI can show actionable guidance instead of a cryptic exit-code toast.
 """
 
 from __future__ import annotations
 
+import glob
 import logging
 import os
 import subprocess
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 class ConflictType(Enum):
     SERVICE = auto()
     GPIO_PIN = auto()
+    GPIO_CHIP = auto()
     SPI_DEVICE = auto()
     PERMISSION = auto()
 
@@ -160,13 +162,14 @@ def _check_spi_device(bus_id: int, cs_id: int) -> Conflict | None:
     return None
 
 
-def _check_gpio_pin(pin: int) -> Conflict | None:
+def _check_gpio_pin(pin: int, gpio_chip: int = 0) -> Conflict | None:
     """Probe a GPIO pin for availability using periphery."""
     try:
         from periphery import GPIO, GPIOError  # type: ignore[import-not-found]
 
+        chip_path = f"/dev/gpiochip{gpio_chip}"
         try:
-            gpio = GPIO("/dev/gpiochip0", pin, "in")
+            gpio = GPIO(chip_path, pin, "in")
             gpio.close()
         except GPIOError as exc:
             if "Device or resource busy" in str(exc):
@@ -196,6 +199,44 @@ def _check_gpio_pin(pin: int) -> Conflict | None:
     except ImportError:
         logger.debug("periphery not available, skipping GPIO check for pin %d", pin)
     return None
+
+
+def available_gpio_chips() -> list[int]:
+    """Return the numbers of the GPIO chips present on this host, ascending."""
+    chips: list[int] = []
+    for path in glob.glob("/dev/gpiochip*"):
+        suffix = path[len("/dev/gpiochip") :]
+        if suffix.isdigit():
+            chips.append(int(suffix))
+    return sorted(chips)
+
+
+def _check_gpio_chip(gpio_chip: int) -> Conflict | None:
+    """Verify the configured GPIO chip device exists."""
+    chip_path = f"/dev/gpiochip{gpio_chip}"
+    if os.path.exists(chip_path):
+        return None
+
+    found = available_gpio_chips()
+    if found:
+        available = ", ".join(str(c) for c in found)
+        remediation = (
+            f"Set the GPIO chip in Settings > Hardware to one of: {available} "
+            f"(or set MESHCORE_GPIO_CHIP). On CM5/Pi 5 kernels the 40-pin "
+            f"header is usually {found[-1]}, not 0."
+        )
+    else:
+        available = "none"
+        remediation = "No GPIO chips found — check that the kernel exposes /dev/gpiochip*."
+
+    return Conflict(
+        kind=ConflictType.GPIO_CHIP,
+        summary=f"GPIO chip {chip_path} not found",
+        detail=(
+            f"The configured GPIO chip {chip_path} does not exist. Available chips: {available}."
+        ),
+        remediation=remediation,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -228,14 +269,24 @@ def run_preflight_checks(hardware: object) -> ConflictReport:
     if conflict is not None:
         report.conflicts.append(conflict)
 
-    # 3. GPIO pin checks — only probe pins that are actually configured
+    # 3. GPIO chip check — a missing chip makes every pin probe below
+    # meaningless, so report it alone and skip them (#85)
+    gpio_chip = getattr(hardware, "gpio_chip", 0)
+    conflict = _check_gpio_chip(gpio_chip)
+    if conflict is not None:
+        report.conflicts.append(conflict)
+        logger.warning("Pre-flight: %s", conflict.summary)
+        return report
+
+    # 4. GPIO pin checks — only probe pins that are actually configured
     # (pins set to -1 are unused and should not be probed)
     pin_attrs = ["reset_pin", "busy_pin", "irq_pin", "cs_pin", "txen_pin", "rxen_pin"]
-    for attr in pin_attrs:
-        pin = getattr(hardware, attr, -1)
+    pins = [getattr(hardware, attr, -1) for attr in pin_attrs]
+    pins.extend(getattr(hardware, "en_pins", ()))
+    for pin in pins:
         if pin == -1:
             continue
-        conflict = _check_gpio_pin(pin)
+        conflict = _check_gpio_pin(pin, gpio_chip)
         if conflict is not None:
             report.conflicts.append(conflict)
 

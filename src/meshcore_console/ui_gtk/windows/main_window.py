@@ -270,14 +270,16 @@ class MainWindow(Adw.ApplicationWindow):
         *then* should be a ``(method_name, arg)`` tuple — e.g.
         ``("select_peer", peer_id)`` — or ``None`` to just switch pages.
         """
-        self._switch_to_page(page_name)
-        # Update nav buttons
+        # Update the nav buttons first. Deactivating the last active button
+        # makes _on_nav_button_toggled switch it back on, which switches the
+        # page with it, so a page change before this one gets undone (#85).
         if page_name == "settings":
             for btn in self._nav_buttons.values():
                 btn.set_active(False)
         elif page_name in self._nav_buttons:
             for name, btn in self._nav_buttons.items():
                 btn.set_active(name == page_name)
+        self._switch_to_page(page_name)
         self._focus_current_view()
         # Call target method if requested
         if then is not None:
@@ -563,7 +565,7 @@ class MainWindow(Adw.ApplicationWindow):
             report,
             on_retry=self._on_conflict_retry,
             on_stop_service=self._on_conflict_stop_service,
-            on_settings=lambda: self.navigate_to("settings"),
+            on_settings=self._on_conflict_settings,
         )
         self._content_stack.add_named(screen, "conflict")
         self._content_stack.set_visible_child_name("conflict")
@@ -572,6 +574,16 @@ class MainWindow(Adw.ApplicationWindow):
         settings = self._service.get_settings()
         if report.has_service_conflict and not settings.suppress_service_dialog:
             self._show_service_conflict_dialog(report)
+
+    def _on_conflict_settings(self) -> None:
+        """Open the settings screen from the conflict screen.
+
+        ``navigate_to`` switches the inner page stack only. The conflict
+        screen sits in the outer content stack, so this must leave that stack
+        as well or the button looks dead (#85).
+        """
+        self._content_stack.set_visible_child_name("main")
+        self.navigate_to("settings")
 
     def _on_conflict_retry(self) -> None:
         """Retry connection from the conflict screen."""
