@@ -512,6 +512,9 @@ class SettingsView(Gtk.Box):
             "rxen_pin",
         ):
             self._set_entry_int(key, getattr(updated, key))
+        # The enable pin belongs to the board, so the preset owns it too. Write
+        # it back to the entry, because _collect_settings reads the entry (#85).
+        self._set_entry("en_pins", updated.en_pins)
         self._set_switch("is_waveshare", updated.is_waveshare)
         self._set_switch("use_dio2_rf", updated.use_dio2_rf)
         self._set_switch("use_dio3_tcxo", updated.use_dio3_tcxo)

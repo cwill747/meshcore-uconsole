@@ -270,14 +270,16 @@ class MainWindow(Adw.ApplicationWindow):
         *then* should be a ``(method_name, arg)`` tuple — e.g.
         ``("select_peer", peer_id)`` — or ``None`` to just switch pages.
         """
-        self._switch_to_page(page_name)
-        # Update nav buttons
+        # Update the nav buttons first. Deactivating the last active button
+        # makes _on_nav_button_toggled switch it back on, which switches the
+        # page with it, so a page change before this one gets undone (#85).
         if page_name == "settings":
             for btn in self._nav_buttons.values():
                 btn.set_active(False)
         elif page_name in self._nav_buttons:
             for name, btn in self._nav_buttons.items():
                 btn.set_active(name == page_name)
+        self._switch_to_page(page_name)
         self._focus_current_view()
         # Call target method if requested
         if then is not None:
