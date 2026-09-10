@@ -44,3 +44,14 @@ def test_radio_error_toasts_default_to_disabled_and_round_trip(tmp_path) -> None
     store.save(MeshcoreSettings(show_radio_error_toasts=True))
     assert store.load().show_radio_error_toasts is True
     conn.close()
+
+
+def test_flood_region_defaults_empty_and_round_trips(tmp_path) -> None:
+    conn = open_db(str(tmp_path / "test.db"))
+    store = SettingsStore(conn)
+
+    assert MeshcoreSettings().flood_region == ""
+
+    store.save(MeshcoreSettings(flood_region="#germany"))
+    assert store.load().flood_region == "#germany"
+    conn.close()

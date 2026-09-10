@@ -144,7 +144,7 @@ def test_send_uses_the_name_stored_in_channel_secrets(
 
     sent: list[str] = []
 
-    async def capture(channel_name: str, message: str):
+    async def capture(channel_name: str, message: str, region_scope: str | None = None):
         sent.append(channel_name)
         return {"ok": True}
 
@@ -286,3 +286,37 @@ def test_open_db_runs_backfill_on_upgrade(tmp_path) -> None:
     assert row is not None, "open_db must repair pre-fix databases (#81)"
     assert row["secret"] == derive_channel_secret("bot")
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Region scoping (issue #90)
+# ---------------------------------------------------------------------------
+
+
+def test_region_scope_defaults_to_none(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.ensure_channel_secret("bot")
+    assert db.get_region_scope("bot") is None
+    assert db.get_region_scope("Public") is None
+
+
+def test_region_scope_round_trip(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.ensure_channel_secret("bot")
+    db.set_region_scope("bot", "#germany")
+    assert db.get_region_scope("bot") == "#germany"
+
+
+def test_region_scope_is_case_insensitive_on_channel_name(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.set_region_scope("PUBLIC", "#germany")
+    assert db.get_region_scope("public") == "#germany"
+    assert db.get_region_scope("#Public") == "#germany"
+
+
+def test_region_scope_can_be_cleared(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.ensure_channel_secret("bot")
+    db.set_region_scope("bot", "#germany")
+    db.set_region_scope("bot", None)
+    assert db.get_region_scope("bot") is None

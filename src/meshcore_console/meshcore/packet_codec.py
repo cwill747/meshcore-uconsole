@@ -295,11 +295,16 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
     raw_length = packet.get_raw_length()
     packet_hash = packet.get_packet_hash_hex(16)  # First 16 hex chars
 
+    # TRANSPORT_FLOOD / TRANSPORT_DIRECT packets carry two 16-bit transport
+    # codes used for region scoping (issue #90).
+    transport_codes = list(packet.transport_codes) if packet.has_transport_codes() else None
+
     return {
         "payload_type": payload_type,
         "payload_type_name": payload_type_name,
         "route_type": route_type,
         "route_type_name": route_type_name,
+        "transport_codes": transport_codes,
         "payload_len": packet.payload_len,
         "header": packet.header,
         "snr": packet.snr,

@@ -52,6 +52,7 @@ from .operations import (
     send_repeater_command,
     send_text,
 )
+from .region import normalize_region_scope, region_transport_key
 from .runtime import create_mesh_node, create_radio, import_openhop_core
 
 
@@ -514,6 +515,17 @@ class OpenHopCoreSession:
         elif mode:
             self._log(f"ignoring invalid path_hash_mode={mode} (must be 0-2)")
 
+        region = normalize_region_scope(self.config.flood_region)
+        if region:
+            try:
+                # The persisted default, not the transient send-scope override
+                # (dispatcher.flood_transport_key); per-channel scopes and
+                # explicit-unscoped sends take precedence over it.
+                self._node.dispatcher.default_flood_transport_key = region_transport_key(region)
+                self._log(f"flood region scope set to {region}")
+            except ValueError as exc:
+                self._log(f"ignoring invalid flood region {self.config.flood_region!r}: {exc}")
+
         self._register_req_handler()
         self._register_discovery_handler()
 
@@ -608,11 +620,18 @@ class OpenHopCoreSession:
             raise RuntimeError("Session is not started.")
         return await send_text(node=self._node, peer_name=peer_name, message=message)
 
-    async def send_group_text(self, channel_name: str, message: str) -> object:
+    async def send_group_text(
+        self, channel_name: str, message: str, region_scope: str | None = None
+    ) -> object:
         """Broadcast a text message to a group/public channel."""
         if self._node is None:
             raise RuntimeError("Session is not started.")
-        return await send_group_text(node=self._node, channel_name=channel_name, message=message)
+        return await send_group_text(
+            node=self._node,
+            channel_name=channel_name,
+            message=message,
+            region_scope=region_scope,
+        )
 
     async def send_advert(
         self,

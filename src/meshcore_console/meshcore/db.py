@@ -97,6 +97,11 @@ MIGRATIONS: list[tuple[str, ...]] = [
     # expressed in SQL, so the work happens in _backfill_channel_secrets();
     # this entry exists only to bump the schema version.
     (),
+    # v7 -> v8: add region_scope column to channel_secrets for per-channel
+    # region scoping (issue #90). NULL means "use the app default scope".
+    # The ALTER runs in _add_region_scope_column() so it stays idempotent
+    # when schema_version is behind the actual schema.
+    (),
 ]
 
 
@@ -158,6 +163,13 @@ def _backfill_channel_secrets(conn: sqlite3.Connection) -> None:
         logger.info("Backfilled channel secret for #%s (issue #81)", name)
 
 
+def _add_region_scope_column(conn: sqlite3.Connection) -> None:
+    """Add channel_secrets.region_scope if it is missing (issue #90)."""
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(channel_secrets)")]
+    if "region_scope" not in columns:
+        conn.execute("ALTER TABLE channel_secrets ADD COLUMN region_scope TEXT")
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Run any outstanding migrations."""
     current = _get_version(conn)
@@ -172,6 +184,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # added in v5) are guaranteed to exist.
     if current < 7:
         _backfill_channel_secrets(conn)
+    if current < 8:
+        _add_region_scope_column(conn)
     conn.execute("UPDATE schema_version SET version = ?", (target,))
     conn.commit()
 

@@ -107,6 +107,27 @@ class ChannelDatabase:
         self._conn.commit()
         return True
 
+    def get_region_scope(self, name: str) -> str | None:
+        """Return the region scope for a channel, or None if unset."""
+        row = self._conn.execute(
+            "SELECT region_scope FROM channel_secrets WHERE name = ? COLLATE NOCASE",
+            (normalize_channel_name(name),),
+        ).fetchone()
+        return row[0] if row is not None and row[0] else None
+
+    def set_region_scope(self, name: str, scope: str | None) -> None:
+        """Set or clear the region scope for a channel.
+
+        The channel must already have a secret row; callers ensure that with
+        ``ensure_channel_secret``. Pass None to clear the scope so the channel
+        inherits the app default scope again.
+        """
+        self._conn.execute(
+            "UPDATE channel_secrets SET region_scope = ? WHERE name = ? COLLATE NOCASE",
+            (scope, normalize_channel_name(name)),
+        )
+        self._conn.commit()
+
     def get_channels(self) -> list[dict[str, str]]:
         """Return channels in the format expected by openhop_core GroupTextHandler."""
         rows = self._conn.execute("SELECT name, secret FROM channel_secrets").fetchall()

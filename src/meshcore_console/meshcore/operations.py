@@ -38,9 +38,23 @@ async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> 
     return {"success": success, "crc": ack_crc}
 
 
-async def send_group_text(*, node: MeshNodeProtocol, channel_name: str, message: str) -> dict:
-    """Broadcast a text message to a group/public channel via PacketBuilder."""
+async def send_group_text(
+    *,
+    node: MeshNodeProtocol,
+    channel_name: str,
+    message: str,
+    region_scope: str | None = None,
+) -> dict:
+    """Broadcast a text message to a group/public channel via PacketBuilder.
+
+    If ``region_scope`` is set, the packet is scoped to that region before
+    dispatch. The scoped packet keeps its route type, so the dispatcher's
+    app-wide default scope does not overwrite it. If ``region_scope`` is
+    None, the dispatcher applies the default scope, if one is configured.
+    """
     from openhop_core.protocol.packet_builder import PacketBuilder
+
+    from .region import apply_region_scope
 
     if node.channel_db is None:
         raise RuntimeError("No channel database configured")
@@ -53,8 +67,10 @@ async def send_group_text(*, node: MeshNodeProtocol, channel_name: str, message:
         sender_name=node.node_name,
         channels_config=channels_config,
     )
+    if region_scope:
+        apply_region_scope(pkt, region_scope)
     success = await node.dispatcher.send_packet(pkt, wait_for_ack=False)
-    return {"success": success, "group": channel_name}
+    return {"success": success, "group": channel_name, "region_scope": region_scope}
 
 
 async def request_telemetry(

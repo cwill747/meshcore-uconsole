@@ -10,6 +10,7 @@ from meshcore_console.core.enums import EventType, PayloadType
 from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.config import runtime_config_from_settings
+from meshcore_console.meshcore.region import normalize_region_scope
 from meshcore_console.meshcore.settings import MeshcoreSettings
 
 from .data import (
@@ -38,6 +39,7 @@ class MockMeshcoreClient(MeshcoreService):
 
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
         self._saved_passwords: dict[str, str] = {}
+        self._channel_scopes: dict[str, str] = {}
 
         # Initialize mock state
         self._channels = create_mock_channels()
@@ -112,6 +114,16 @@ class MockMeshcoreClient(MeshcoreService):
     def mark_channel_read(self, channel_id: str) -> None:
         if channel_id in self._channels:
             self._channels[channel_id].unread_count = 0
+
+    def get_channel_region_scope(self, channel_id: str) -> str | None:
+        return self._channel_scopes.get(channel_id)
+
+    def set_channel_region_scope(self, channel_id: str, scope: str | None) -> None:
+        normalized = normalize_region_scope(scope)
+        if normalized is None:
+            self._channel_scopes.pop(channel_id, None)
+        else:
+            self._channel_scopes[channel_id] = normalized
 
     def send_message(self, peer_id: str, body: str) -> Message:
         existing = self._channels.get(peer_id.lower()) or self._channels.get(peer_id)

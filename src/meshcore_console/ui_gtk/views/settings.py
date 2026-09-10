@@ -234,6 +234,17 @@ class SettingsView(Gtk.Box):
         self._path_hash_combo.set_active_id("0")
         grid.attach(self._path_hash_combo, 1, 7, 3, 1)
 
+        # Row 8: Region scope for outgoing flood packets (issue #90)
+        grid.attach(self._grid_label("Region Scope"), 0, 8, 1, 1)
+        region_entry = self._grid_entry("flood_region", 14)
+        region_entry.set_placeholder_text("unscoped")
+        region_entry.set_tooltip_text(
+            "Region scope for outgoing flood packets, for example #germany. "
+            "Repeaters that filter by region only forward packets with a "
+            "matching scope. Leave empty to send unscoped floods."
+        )
+        grid.attach(region_entry, 1, 8, 2, 1)
+
         panel.append(grid)
         return panel
 
@@ -574,6 +585,7 @@ class SettingsView(Gtk.Box):
         self._set_entry_int("preamble_length", settings.preamble_length)
 
         self._path_hash_combo.set_active_id(str(settings.path_hash_mode))
+        self._set_entry("flood_region", settings.flood_region)
 
         # Hardware
         self._hw_preset.set_active_id(settings.hardware_preset)
@@ -624,6 +636,8 @@ class SettingsView(Gtk.Box):
 
         path_hash_id = self._path_hash_combo.get_active_id()
         out.path_hash_mode = int(path_hash_id) if path_hash_id else 0
+
+        out.flood_region = self._entries["flood_region"].get_text().strip()
 
         for key in (
             "spreading_factor",
