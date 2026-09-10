@@ -11,6 +11,7 @@ class RuntimeRadioConfig:
     node_name: str
     share_public_key: bool = True
     path_hash_mode: int = 0
+    flood_region: str = ""
     hardware: "HardwareRadioConfig | None" = None
 
 
@@ -179,5 +180,6 @@ def runtime_config_from_settings(settings: MeshcoreSettings) -> RuntimeRadioConf
         node_name=settings.node_name,
         share_public_key=True,
         path_hash_mode=settings.path_hash_mode,
+        flood_region=settings.flood_region,
         hardware=hardware,
     )

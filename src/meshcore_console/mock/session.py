@@ -74,12 +74,19 @@ class MockOpenHopCoreSession:
         self._emit_notify()
         return {"ok": True}
 
-    async def send_group_text(self, channel_name: str, message: str) -> MeshEventDict:
+    async def send_group_text(
+        self, channel_name: str, message: str, region_scope: str | None = None
+    ) -> MeshEventDict:
         """Mock broadcast to a group/public channel."""
         self._event_queue.put_nowait(
             {
                 "type": "mock_group_message_tx",
-                "data": {"channel_name": channel_name, "message": message, "ok": True},
+                "data": {
+                    "channel_name": channel_name,
+                    "message": message,
+                    "region_scope": region_scope,
+                    "ok": True,
+                },
             }
         )
         self._emit_notify()

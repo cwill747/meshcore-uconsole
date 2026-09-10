@@ -49,8 +49,13 @@ class ChannelDatabase:
             self.add_channel("Public", PUBLIC_CHANNEL_SECRET)
 
     def add_channel(self, name: str, secret: str) -> None:
+        # Upsert rather than INSERT OR REPLACE: the latter deletes the row and
+        # inserts a fresh one, which resets every column this method does not
+        # name. That silently dropped a channel's region_scope whenever a
+        # secret was re-imported (issue #90).
         self._conn.execute(
-            "INSERT OR REPLACE INTO channel_secrets (name, secret) VALUES (?, ?)",
+            "INSERT INTO channel_secrets (name, secret) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET secret = excluded.secret",
             (name, secret),
         )
         self._conn.commit()
@@ -106,6 +111,27 @@ class ChannelDatabase:
         self._conn.execute("DELETE FROM channel_secrets WHERE name = ?", (row[0],))
         self._conn.commit()
         return True
+
+    def get_region_scope(self, name: str) -> str | None:
+        """Return the region scope for a channel, or None if unset."""
+        row = self._conn.execute(
+            "SELECT region_scope FROM channel_secrets WHERE name = ? COLLATE NOCASE",
+            (normalize_channel_name(name),),
+        ).fetchone()
+        return row[0] if row is not None and row[0] else None
+
+    def set_region_scope(self, name: str, scope: str | None) -> None:
+        """Set or clear the region scope for a channel.
+
+        The channel must already have a secret row; callers ensure that with
+        ``ensure_channel_secret``. Pass None to clear the scope so the channel
+        inherits the app default scope again.
+        """
+        self._conn.execute(
+            "UPDATE channel_secrets SET region_scope = ? WHERE name = ? COLLATE NOCASE",
+            (scope, normalize_channel_name(name)),
+        )
+        self._conn.commit()
 
     def get_channels(self) -> list[dict[str, str]]:
         """Return channels in the format expected by openhop_core GroupTextHandler."""

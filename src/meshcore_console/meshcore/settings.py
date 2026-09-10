@@ -27,6 +27,7 @@ class MeshcoreSettings:
     tx_power: int = 22
     preamble_length: int = 17
     path_hash_mode: int = 0
+    flood_region: str = ""  # Default region scope for flood packets; empty = unscoped (#90)
 
     # Hardware (SPI/GPIO)
     hardware_preset: str = "uconsole"

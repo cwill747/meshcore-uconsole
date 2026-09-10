@@ -596,23 +596,36 @@ class MessagesView(Gtk.Box):
         y: float,
         row: Gtk.ListBoxRow,
     ) -> None:
-        """Show context menu on right-click for channel removal."""
+        """Show context menu on right-click for channel actions."""
         channel_id = getattr(row, "channel_id", None)
         logger.debug("UI: channel right-click channel_id=%s", channel_id)
-        if not channel_id or channel_id == "public":
+        if not channel_id:
             return
 
-        # Build a popover menu
-        menu = Gtk.PopoverMenu.new_from_model(None)
+        channel = next(
+            (c for c in self._service.list_channels() if c.channel_id == channel_id), None
+        )
+        is_group = channel is not None and channel.kind == "group"
+        can_remove = channel_id != "public"
+        if not is_group and not can_remove:
+            return
+
         action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
-        remove_btn = Gtk.Button.new_with_label("Remove channel")
-        remove_btn.add_css_class("flat")
-        remove_btn.connect("clicked", self._on_remove_channel_clicked, channel_id, menu)
-        action_box.append(remove_btn)
-
         popover = Gtk.Popover.new()
         popover.set_child(action_box)
+
+        if is_group:
+            scope_btn = Gtk.Button.new_with_label("Set region scope")
+            scope_btn.add_css_class("flat")
+            scope_btn.connect("clicked", self._on_set_region_scope_clicked, channel_id, popover)
+            action_box.append(scope_btn)
+
+        if can_remove:
+            remove_btn = Gtk.Button.new_with_label("Remove channel")
+            remove_btn.add_css_class("flat")
+            remove_btn.connect("clicked", self._on_remove_channel_clicked, channel_id, popover)
+            action_box.append(remove_btn)
+
         popover.set_parent(row)
         popover.set_position(Gtk.PositionType.RIGHT)
         popover.set_pointing_to(Gdk.Rectangle())
@@ -651,6 +664,61 @@ class MessagesView(Gtk.Box):
             if self._selected_channel_id == channel_id:
                 self._selected_channel_id = "public"
             self._reload_channels()
+
+    def _on_set_region_scope_clicked(
+        self, _button: Gtk.Button, channel_id: str, popover: Gtk.Popover
+    ) -> None:
+        """Show a dialog to set or clear the region scope for a channel."""
+        logger.debug("UI: set region scope clicked channel_id=%s", channel_id)
+        popover.popdown()
+
+        display_name = self._get_channel_display_name(channel_id)
+        current = self._service.get_channel_region_scope(channel_id) or ""
+        dialog = build_alert_dialog(
+            self.get_root(),
+            f"Region scope for {display_name}",
+            "Repeaters that filter by region only forward messages with a "
+            "matching scope. Leave empty to use the default scope from Settings.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("set", "Set")
+        dialog.set_response_appearance("set", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("set")
+        dialog.set_close_response("cancel")
+
+        entry = Gtk.Entry.new()
+        entry.set_placeholder_text("#region")
+        entry.set_text(current)
+        entry.set_hexpand(True)
+        entry.set_margin_start(12)
+        entry.set_margin_end(12)
+        entry.set_margin_top(8)
+        entry.set_margin_bottom(8)
+        entry.connect("activate", lambda _e: dialog.response("set"))
+
+        dialog.set_extra_child(entry)
+        dialog.connect("response", self._on_region_scope_response, channel_id, entry)
+        present_dialog(dialog, self.get_root())
+        entry.grab_focus()
+
+    def _on_region_scope_response(
+        self, _dialog: Adw.AlertDialog, response: str, channel_id: str, entry: Gtk.Entry
+    ) -> None:
+        if response != "set":
+            return
+        text = entry.get_text().strip()
+        logger.debug("UI: region scope set channel_id=%s scope=%s", channel_id, text or None)
+        try:
+            self._service.set_channel_region_scope(channel_id, text or None)
+        except ValueError as exc:
+            # Nothing is persisted: a scope the radio cannot hash would break
+            # every send on this channel.
+            logger.warning("Invalid region scope %r: %s", text, exc)
+            error = build_alert_dialog(self.get_root(), "Invalid region scope", str(exc))
+            error.add_response("ok", "OK")
+            error.set_default_response("ok")
+            error.set_close_response("ok")
+            present_dialog(error, self.get_root())
 
     def _on_add_channel_clicked(self, _button: Gtk.Button) -> None:
         """Show a dialog to add a new hashtag channel by name."""

@@ -14,6 +14,7 @@ from meshcore_console.core.radio import rssi_to_signal_percent
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.types import MeshEventDict, SendResultDict
 from meshcore_console.meshcore.channel_db import ChannelDatabase
+from meshcore_console.meshcore.region import normalize_region_scope
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.db import open_db
 from meshcore_console.meshcore.logging_setup import install_radio_error_handler
@@ -293,6 +294,22 @@ class MeshcoreClient(MeshcoreService):
             self._channels[channel_id].unread_count = 0
             self._channel_store.reset_unread(channel_id)
 
+    def get_channel_region_scope(self, channel_id: str) -> str | None:
+        """Return the region scope for a group channel, or None if unset."""
+        channel = self._channels.get(channel_id)
+        if channel is None or channel.kind != "group":
+            return None
+        name = channel.display_name.lstrip("#") or channel.channel_id
+        return self._channel_secrets.get_region_scope(name)
+
+    def set_channel_region_scope(self, channel_id: str, scope: str | None) -> None:
+        """Set or clear the region scope for a group channel."""
+        channel = self._channels.get(channel_id)
+        if channel is None or channel.kind != "group":
+            return
+        name = self._ensure_channel_secret(channel)
+        self._channel_secrets.set_region_scope(name, normalize_region_scope(scope))
+
     def send_message(self, peer_id: str, body: str) -> Message:
         if not self._connected:
             self.connect()
@@ -322,7 +339,12 @@ class MeshcoreClient(MeshcoreService):
             # channel by. Done on every send, not just for newly created
             # channels, so a channel that predates issue #81 is repaired too.
             channel_name = self._ensure_channel_secret(self._channels[channel_id])
-            self._run_async(self._session.send_group_text(channel_name=channel_name, message=body))
+            region_scope = self._channel_secrets.get_region_scope(channel_name)
+            self._run_async(
+                self._session.send_group_text(
+                    channel_name=channel_name, message=body, region_scope=region_scope
+                )
+            )
         else:
             # Use the original-case peer name from the channel so openhop_core
             # can find the contact in the contact book (case-sensitive lookup).

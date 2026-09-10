@@ -46,6 +46,7 @@ class PacketRecord:
     payload_len: int | None = None
     header_byte: int | None = None
     channel_name: str = ""
+    transport_codes: list[int] | None = None
 
 
 class AnalyzerView(Gtk.Box):
@@ -425,6 +426,10 @@ class AnalyzerView(Gtk.Box):
         if header_byte is not None:
             header_byte = int(header_byte)
 
+        # Region-scoping transport codes (TRANSPORT_FLOOD / TRANSPORT_DIRECT)
+        raw_codes = data.get("transport_codes")
+        transport_codes = [int(c) for c in raw_codes] if raw_codes else None
+
         # Use stored timestamp if available, otherwise current time
         timestamp, date = self._parse_event_timestamp(event)
 
@@ -448,6 +453,7 @@ class AnalyzerView(Gtk.Box):
             payload_len=payload_len,
             header_byte=header_byte,
             channel_name=channel_name,
+            transport_codes=transport_codes,
         )
 
     @staticmethod
@@ -837,6 +843,15 @@ class AnalyzerView(Gtk.Box):
         route_label.add_css_class("route-hop")
         route_label.set_halign(Gtk.Align.START)
         block.set_content(route_label)
+
+        # Region-scoping transport codes: codes[0] is the scope code, codes[1]
+        # is reserved for the home region (issue #90).
+        if packet.transport_codes:
+            codes = " ".join(f"0x{c:04X}" for c in packet.transport_codes)
+            codes_label = Gtk.Label(label=f"Transport codes: {codes}")
+            codes_label.add_css_class("panel-muted")
+            codes_label.set_halign(Gtk.Align.START)
+            block.set_content(codes_label)
 
         # Show actual path if there are hops
         if packet.path_hops:

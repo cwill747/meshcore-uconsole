@@ -54,7 +54,7 @@ EXPECTED_TABLES = {
 EXPECTED_COLUMNS = {
     "settings": ["key", "value"],
     "channels": ["channel_id", "display_name", "unread_count", "peer_name", "kind"],
-    "channel_secrets": ["name", "secret"],
+    "channel_secrets": ["name", "secret", "region_scope"],
     "peers": [
         "peer_id",
         "display_name",

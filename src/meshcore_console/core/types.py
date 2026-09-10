@@ -34,6 +34,7 @@ class PacketData:
     payload_type_name: str | None
     route_type: int | None
     route_type_name: str | None
+    transport_codes: list[int] | None  # Two 16-bit codes on TRANSPORT_* routes
     payload_len: int | None
     header: object | None
     snr: float | None
@@ -125,6 +126,7 @@ class DispatcherProtocol(Protocol):
     """Protocol for openhop_core dispatcher."""
 
     protocol_response_handler: Any
+    default_flood_transport_key: bytes | None  # Default region scope key for flood packets
 
     def set_raw_packet_callback(self, cb: Callable[..., Awaitable[None]]) -> None:
         """Set callback for raw packets."""

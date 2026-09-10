@@ -16,6 +16,7 @@ from meshcore_console.meshcore.logging_setup import (
     get_rf_noise_counts,
     set_stderr_level,
 )
+from meshcore_console.meshcore.region import normalize_region_scope
 from meshcore_console.meshcore.settings import (
     MeshcoreSettings,
     apply_hardware_preset,
@@ -235,6 +236,17 @@ class SettingsView(Gtk.Box):
         self._path_hash_combo.append("2", "3-byte (21 hops)")
         self._path_hash_combo.set_active_id("0")
         grid.attach(self._path_hash_combo, 1, 7, 3, 1)
+
+        # Row 8: Region scope for outgoing flood packets (issue #90)
+        grid.attach(self._grid_label("Region Scope"), 0, 8, 1, 1)
+        region_entry = self._grid_entry("flood_region", 14)
+        region_entry.set_placeholder_text("unscoped")
+        region_entry.set_tooltip_text(
+            "Region scope for outgoing flood packets, for example #germany. "
+            "Repeaters that filter by region only forward packets with a "
+            "matching scope. Leave empty to send unscoped floods."
+        )
+        grid.attach(region_entry, 1, 8, 2, 1)
 
         panel.append(grid)
         return panel
@@ -613,6 +625,7 @@ class SettingsView(Gtk.Box):
         self._set_entry_int("preamble_length", settings.preamble_length)
 
         self._path_hash_combo.set_active_id(str(settings.path_hash_mode))
+        self._set_entry("flood_region", settings.flood_region)
 
         # Hardware
         self._hw_preset.set_active_id(settings.hardware_preset)
@@ -663,6 +676,11 @@ class SettingsView(Gtk.Box):
 
         path_hash_id = self._path_hash_combo.get_active_id()
         out.path_hash_mode = int(path_hash_id) if path_hash_id else 0
+
+        # Normalizing raises ValueError for a name openhop_core cannot hash,
+        # which _on_save reports instead of persisting a scope that would
+        # break every send.
+        out.flood_region = normalize_region_scope(self._entries["flood_region"].get_text()) or ""
 
         for key in (
             "spreading_factor",

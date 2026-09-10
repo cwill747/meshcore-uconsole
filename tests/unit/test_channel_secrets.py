@@ -144,7 +144,7 @@ def test_send_uses_the_name_stored_in_channel_secrets(
 
     sent: list[str] = []
 
-    async def capture(channel_name: str, message: str):
+    async def capture(channel_name: str, message: str, region_scope: str | None = None):
         sent.append(channel_name)
         return {"ok": True}
 
@@ -286,3 +286,61 @@ def test_open_db_runs_backfill_on_upgrade(tmp_path) -> None:
     assert row is not None, "open_db must repair pre-fix databases (#81)"
     assert row["secret"] == derive_channel_secret("bot")
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Region scoping (issue #90)
+# ---------------------------------------------------------------------------
+
+
+def test_region_scope_defaults_to_none(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.ensure_channel_secret("bot")
+    assert db.get_region_scope("bot") is None
+    assert db.get_region_scope("Public") is None
+
+
+def test_region_scope_round_trip(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.ensure_channel_secret("bot")
+    db.set_region_scope("bot", "#germany")
+    assert db.get_region_scope("bot") == "#germany"
+
+
+def test_region_scope_is_case_insensitive_on_channel_name(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.set_region_scope("PUBLIC", "#germany")
+    assert db.get_region_scope("public") == "#germany"
+    assert db.get_region_scope("#Public") == "#germany"
+
+
+def test_region_scope_can_be_cleared(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.ensure_channel_secret("bot")
+    db.set_region_scope("bot", "#germany")
+    db.set_region_scope("bot", None)
+    assert db.get_region_scope("bot") is None
+
+
+def test_add_channel_preserves_region_scope(conn) -> None:
+    """Re-importing a secret must not drop the channel's scope (issue #90).
+
+    INSERT OR REPLACE deletes the row first, which reset region_scope to NULL.
+    """
+    db = ChannelDatabase(conn)
+    db.ensure_channel_secret("bot")
+    db.set_region_scope("bot", "#germany")
+
+    new_secret = "aabbccddeeff00112233445566778899"
+    db.add_channel("bot", new_secret)
+
+    assert db.get_region_scope("bot") == "#germany"
+    assert db.get_channel("bot")["secret"] == new_secret
+
+
+def test_add_channel_still_updates_an_existing_secret(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.add_channel("bot", "1111")
+    db.add_channel("bot", "2222")
+    assert db.get_channel("bot")["secret"] == "2222"
+    assert [c["name"] for c in db.get_channels()].count("bot") == 1
