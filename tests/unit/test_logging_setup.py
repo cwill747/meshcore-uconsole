@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 import pytest
@@ -168,11 +169,53 @@ def test_radio_error_handler_counts_noise_instead_of_reporting_it() -> None:
     log_mod._rf_noise_counter.reset()
 
 
-def test_rf_noise_counter_logs_a_summary(caplog: pytest.LogCaptureFixture) -> None:
-    counter = RfNoiseCounter(summary_seconds=0.0)
+def test_rf_noise_counter_flush_summarises_the_open_window(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    counter = RfNoiseCounter(summary_seconds=3600.0)
+    try:
+        with caplog.at_level(logging.INFO, logger="meshcore_console.radio_noise"):
+            counter.record("crc")
+            counter.record("crc")
+            counter.record("header")
+            counter.flush()
+        assert counter.totals() == {"crc": 2, "header": 1}
+        assert len(caplog.records) == 1
+        assert "2 crc" in caplog.records[0].message
+        assert "1 header" in caplog.records[0].message
+    finally:
+        counter.reset()
+
+
+def test_rf_noise_counter_flush_is_quiet_with_no_noise(caplog: pytest.LogCaptureFixture) -> None:
+    counter = RfNoiseCounter(summary_seconds=3600.0)
+    with caplog.at_level(logging.INFO, logger="meshcore_console.radio_noise"):
+        counter.flush()
+        counter.flush()
+    assert caplog.records == []
+
+
+def test_rf_noise_counter_reports_a_burst_that_stops(caplog: pytest.LogCaptureFixture) -> None:
+    """A burst shorter than the window must still reach the log (PR #93 review)."""
+    counter = RfNoiseCounter(summary_seconds=0.05)
+    try:
+        with caplog.at_level(logging.INFO, logger="meshcore_console.radio_noise"):
+            counter.record("crc")
+            # No further events: only the window timer can write the summary.
+            deadline = time.monotonic() + 5.0
+            while not caplog.records and time.monotonic() < deadline:
+                time.sleep(0.01)
+        assert len(caplog.records) == 1
+        assert "1 crc" in caplog.records[0].message
+    finally:
+        counter.reset()
+
+
+def test_rf_noise_counter_reset_cancels_the_window(caplog: pytest.LogCaptureFixture) -> None:
+    counter = RfNoiseCounter(summary_seconds=0.05)
     with caplog.at_level(logging.INFO, logger="meshcore_console.radio_noise"):
         counter.record("crc")
-        counter.record("crc")
-    assert counter.totals() == {"crc": 2}
-    assert len(caplog.records) == 2
-    assert "RX noise" in caplog.records[0].message
+        counter.reset()
+        time.sleep(0.2)
+    assert counter.totals() == {}
+    assert caplog.records == []

@@ -149,7 +149,13 @@ def classify_rf_noise(message: str) -> str | None:
 
 
 class RfNoiseCounter:
-    """Counts RF reception noise and writes a periodic rate summary."""
+    """Counts RF reception noise and writes a periodic rate summary.
+
+    The first event opens a window. A timer closes the window
+    *summary_seconds* later and writes the summary, whether or not more noise
+    arrives, so a short burst is always reported and the window boundary does
+    not depend on the next packet.
+    """
 
     def __init__(self, summary_seconds: float = NOISE_SUMMARY_SECONDS) -> None:
         self._summary_seconds = summary_seconds
@@ -157,18 +163,35 @@ class RfNoiseCounter:
         self._totals: dict[str, int] = {}
         self._window: dict[str, int] = {}
         self._window_start = time.monotonic()
+        self._timer: threading.Timer | None = None
 
     def record(self, category: str) -> None:
-        """Count one noise event and log a summary once per window."""
+        """Count one noise event and open a summary window if none is open."""
         with self._lock:
             self._totals[category] = self._totals.get(category, 0) + 1
             self._window[category] = self._window.get(category, 0) + 1
-            elapsed = time.monotonic() - self._window_start
-            if elapsed < self._summary_seconds:
+            if self._timer is not None:
                 return
-            summary = ", ".join(f"{count} {name}" for name, count in sorted(self._window.items()))
-            self._window = {}
             self._window_start = time.monotonic()
+            self._timer = threading.Timer(self._summary_seconds, self.flush)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def flush(self) -> None:
+        """Write the open window to the log and close it.
+
+        The window timer calls this. Call it directly to report a window early,
+        such as at shutdown.
+        """
+        with self._lock:
+            timer, self._timer = self._timer, None
+            if timer is not None:
+                timer.cancel()
+            if not self._window:
+                return
+            counts, self._window = self._window, {}
+            elapsed = time.monotonic() - self._window_start
+        summary = ", ".join(f"{count} {name}" for name, count in sorted(counts.items()))
         _noise_logger.info("RX noise in the last %.0fs: %s", elapsed, summary)
 
     def totals(self) -> dict[str, int]:
@@ -178,9 +201,12 @@ class RfNoiseCounter:
 
     def reset(self) -> None:
         with self._lock:
+            timer, self._timer = self._timer, None
             self._totals = {}
             self._window = {}
             self._window_start = time.monotonic()
+        if timer is not None:
+            timer.cancel()
 
 
 _rf_noise_counter = RfNoiseCounter()
@@ -244,6 +270,11 @@ class RadioErrorHandler(logging.Handler):
             self._callback(message)
         except Exception:  # noqa: BLE001
             pass
+
+    def close(self) -> None:
+        """Report the open noise window before logging shuts down."""
+        _rf_noise_counter.flush()
+        super().close()
 
 
 def install_radio_error_handler(callback: Callable[[str], None]) -> RadioErrorHandler:
