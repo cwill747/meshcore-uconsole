@@ -12,6 +12,8 @@ import logging
 import os
 import shutil
 import sys
+import threading
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable
@@ -58,6 +60,7 @@ def configure_logging(console_level: str | None = None) -> None:
     _stderr_handler = logging.StreamHandler(sys.stderr)
     _stderr_handler.setLevel(getattr(logging, effective_level))
     _stderr_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    _stderr_handler.addFilter(RfNoiseFilter(_stderr_handler))
     root.addHandler(_stderr_handler)
 
     # Rotating file handler
@@ -109,25 +112,169 @@ def export_logs_to_stdout() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Radio error interception
+# Radio log classification
 # ---------------------------------------------------------------------------
 
 _RADIO_LOGGER_SUBSTRINGS = ("SX1262", "openhop_core", "meshcore_console.meshcore.session")
 
+# Reception noise that every LoRa radio reports when a transmitter is weak,
+# distant, or collides with another one. The radio driver logs these at
+# WARNING, but they are not device faults, so they must not raise the
+# "Radio Error" badge or a toast (issue #91).
+_RF_NOISE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("crc", "crc error"),
+    ("header", "header error"),
+    ("header", "corrupted header"),
+    ("empty", "empty packet received"),
+)
+
+# How often the counter writes a noise summary to the log.
+NOISE_SUMMARY_SECONDS = 60.0
+
+_noise_logger = logging.getLogger("meshcore_console.radio_noise")
+
+
+def is_radio_logger(name: str) -> bool:
+    """Return True if *name* is a radio-layer logger."""
+    return any(sub in name for sub in _RADIO_LOGGER_SUBSTRINGS)
+
+
+def classify_rf_noise(message: str) -> str | None:
+    """Return the noise category of *message*, or ``None`` for a real error."""
+    lowered = message.lower()
+    for category, pattern in _RF_NOISE_PATTERNS:
+        if pattern in lowered:
+            return category
+    return None
+
+
+class RfNoiseCounter:
+    """Counts RF reception noise and writes a periodic rate summary.
+
+    The first event opens a window. A timer closes the window
+    *summary_seconds* later and writes the summary, whether or not more noise
+    arrives, so a short burst is always reported and the window boundary does
+    not depend on the next packet.
+    """
+
+    def __init__(self, summary_seconds: float = NOISE_SUMMARY_SECONDS) -> None:
+        self._summary_seconds = summary_seconds
+        self._lock = threading.Lock()
+        self._totals: dict[str, int] = {}
+        self._window: dict[str, int] = {}
+        self._window_start = time.monotonic()
+        self._timer: threading.Timer | None = None
+
+    def record(self, category: str) -> None:
+        """Count one noise event and open a summary window if none is open."""
+        with self._lock:
+            self._totals[category] = self._totals.get(category, 0) + 1
+            self._window[category] = self._window.get(category, 0) + 1
+            if self._timer is not None:
+                return
+            self._window_start = time.monotonic()
+            self._timer = threading.Timer(self._summary_seconds, self.flush)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def flush(self) -> None:
+        """Write the open window to the log and close it.
+
+        The window timer calls this. Call it directly to report a window early,
+        such as at shutdown.
+        """
+        with self._lock:
+            timer, self._timer = self._timer, None
+            if timer is not None:
+                timer.cancel()
+            if not self._window:
+                return
+            counts, self._window = self._window, {}
+            elapsed = time.monotonic() - self._window_start
+        summary = ", ".join(f"{count} {name}" for name, count in sorted(counts.items()))
+        _noise_logger.info("RX noise in the last %.0fs: %s", elapsed, summary)
+
+    def totals(self) -> dict[str, int]:
+        """Return the counts since start, keyed by category."""
+        with self._lock:
+            return dict(self._totals)
+
+    def reset(self) -> None:
+        with self._lock:
+            timer, self._timer = self._timer, None
+            self._totals = {}
+            self._window = {}
+            self._window_start = time.monotonic()
+        if timer is not None:
+            timer.cancel()
+
+
+_rf_noise_counter = RfNoiseCounter()
+
+
+def get_rf_noise_counts() -> dict[str, int]:
+    """Return the RF reception noise counts since start, keyed by category."""
+    return _rf_noise_counter.totals()
+
+
+class RfNoiseFilter(logging.Filter):
+    """Drops RF reception noise from the handler it is attached to.
+
+    The rotating file handler keeps every record for bug reports, so only the
+    console handler uses this filter. Set *handler* to the guarded handler to
+    show the noise again at DEBUG level, where the operator asks for
+    everything.
+    """
+
+    def __init__(self, handler: logging.Handler | None = None) -> None:
+        super().__init__()
+        self._handler = handler
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if self._handler is not None and self._handler.level <= logging.DEBUG:
+            return True
+        if record.levelno != logging.WARNING or not is_radio_logger(record.name):
+            return True
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001
+            return True
+        return classify_rf_noise(message) is None
+
+
+# ---------------------------------------------------------------------------
+# Radio error interception
+# ---------------------------------------------------------------------------
+
 
 class RadioErrorHandler(logging.Handler):
-    """Intercepts WARNING+ log messages from radio-layer loggers."""
+    """Intercepts WARNING+ log messages from radio-layer loggers.
+
+    Reception noise is counted instead of reported, so a busy or noisy band
+    does not flood the UI with radio errors.
+    """
 
     def __init__(self, callback: Callable[[str], None]) -> None:
         super().__init__(level=logging.WARNING)
         self._callback = callback
 
     def emit(self, record: logging.LogRecord) -> None:
-        if any(sub in record.name for sub in _RADIO_LOGGER_SUBSTRINGS):
-            try:
-                self._callback(record.getMessage())
-            except Exception:  # noqa: BLE001
-                pass
+        if not is_radio_logger(record.name):
+            return
+        try:
+            message = record.getMessage()
+            category = classify_rf_noise(message)
+            if category is not None:
+                _rf_noise_counter.record(category)
+                return
+            self._callback(message)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def close(self) -> None:
+        """Report the open noise window before logging shuts down."""
+        _rf_noise_counter.flush()
+        super().close()
 
 
 def install_radio_error_handler(callback: Callable[[str], None]) -> RadioErrorHandler:

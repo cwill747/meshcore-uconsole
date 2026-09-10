@@ -6,13 +6,14 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gio, Gtk
+from gi.repository import GLib, Gio, Gtk
 
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.config import hardware_env_overrides, parse_pin_list
 from meshcore_console.meshcore.logging_setup import (
     VALID_LEVELS,
     export_logs_to_path,
+    get_rf_noise_counts,
     set_stderr_level,
 )
 from meshcore_console.meshcore.settings import (
@@ -46,6 +47,7 @@ class SettingsView(Gtk.Box):
         self._entries: dict[str, Gtk.Entry] = {}
         self._switches: dict[str, Gtk.Switch] = {}
         self._public_key_label: Gtk.Label | None = None
+        self._rf_noise_timer_id = 0
 
         scroll = Gtk.ScrolledWindow.new()
         scroll.set_vexpand(True)
@@ -380,13 +382,50 @@ class SettingsView(Gtk.Box):
         radio_toast_switch.set_tooltip_text("Show radio warnings as popup alerts")
         grid.attach(radio_toast_switch, 1, 1, 1, 1)
 
+        # Reception noise counters. A weak or distant transmitter causes CRC
+        # and header errors, so they are reported here, not as radio errors.
+        grid.attach(self._grid_label("RX Noise"), 0, 2, 1, 1)
+        self._rf_noise_label = Gtk.Label(label="None")
+        self._rf_noise_label.add_css_class("panel-muted")
+        self._rf_noise_label.set_halign(Gtk.Align.START)
+        self._rf_noise_label.set_tooltip_text(
+            "CRC and header errors received since start. Weak, distant, or "
+            "colliding transmitters cause these. The radio is still healthy."
+        )
+        grid.attach(self._rf_noise_label, 1, 2, 1, 1)
+
         # Export logs button
         export_btn = Gtk.Button.new_with_label("Export Logs")
         export_btn.connect("clicked", self._on_export_logs)
-        grid.attach(export_btn, 0, 2, 2, 1)
+        grid.attach(export_btn, 0, 3, 2, 1)
 
         panel.append(grid)
+        panel.connect("map", self._on_logging_panel_map)
+        panel.connect("unmap", self._on_logging_panel_unmap)
         return panel
+
+    def _on_logging_panel_map(self, _panel: Gtk.Widget) -> None:
+        self._refresh_rf_noise()
+        if not self._rf_noise_timer_id:
+            self._rf_noise_timer_id = GLib.timeout_add_seconds(2, self._on_rf_noise_tick)
+
+    def _on_logging_panel_unmap(self, _panel: Gtk.Widget) -> None:
+        if self._rf_noise_timer_id:
+            GLib.source_remove(self._rf_noise_timer_id)
+            self._rf_noise_timer_id = 0
+
+    def _on_rf_noise_tick(self) -> bool:
+        self._refresh_rf_noise()
+        return True  # GLib.SOURCE_CONTINUE
+
+    def _refresh_rf_noise(self) -> None:
+        counts = get_rf_noise_counts()
+        if not counts:
+            self._rf_noise_label.set_text("None")
+            return
+        self._rf_noise_label.set_text(
+            "   ".join(f"{name} {count}" for name, count in sorted(counts.items()))
+        )
 
     def _on_log_level_changed(self, combo: Gtk.ComboBoxText) -> None:
         level = combo.get_active_id()
