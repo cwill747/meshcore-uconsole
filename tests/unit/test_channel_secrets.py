@@ -320,3 +320,27 @@ def test_region_scope_can_be_cleared(conn) -> None:
     db.set_region_scope("bot", "#germany")
     db.set_region_scope("bot", None)
     assert db.get_region_scope("bot") is None
+
+
+def test_add_channel_preserves_region_scope(conn) -> None:
+    """Re-importing a secret must not drop the channel's scope (issue #90).
+
+    INSERT OR REPLACE deletes the row first, which reset region_scope to NULL.
+    """
+    db = ChannelDatabase(conn)
+    db.ensure_channel_secret("bot")
+    db.set_region_scope("bot", "#germany")
+
+    new_secret = "aabbccddeeff00112233445566778899"
+    db.add_channel("bot", new_secret)
+
+    assert db.get_region_scope("bot") == "#germany"
+    assert db.get_channel("bot")["secret"] == new_secret
+
+
+def test_add_channel_still_updates_an_existing_secret(conn) -> None:
+    db = ChannelDatabase(conn)
+    db.add_channel("bot", "1111")
+    db.add_channel("bot", "2222")
+    assert db.get_channel("bot")["secret"] == "2222"
+    assert [c["name"] for c in db.get_channels()].count("bot") == 1

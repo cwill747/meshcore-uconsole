@@ -515,16 +515,18 @@ class OpenHopCoreSession:
         elif mode:
             self._log(f"ignoring invalid path_hash_mode={mode} (must be 0-2)")
 
-        region = normalize_region_scope(self.config.flood_region)
-        if region:
-            try:
+        # Normalization validates, so it stays inside the try: a settings row
+        # written by an older build must not stop the radio from connecting.
+        try:
+            region = normalize_region_scope(self.config.flood_region)
+            if region:
                 # The persisted default, not the transient send-scope override
                 # (dispatcher.flood_transport_key); per-channel scopes and
                 # explicit-unscoped sends take precedence over it.
                 self._node.dispatcher.default_flood_transport_key = region_transport_key(region)
                 self._log(f"flood region scope set to {region}")
-            except ValueError as exc:
-                self._log(f"ignoring invalid flood region {self.config.flood_region!r}: {exc}")
+        except ValueError as exc:
+            self._log(f"ignoring invalid flood region {self.config.flood_region!r}: {exc}")
 
         self._register_req_handler()
         self._register_discovery_handler()

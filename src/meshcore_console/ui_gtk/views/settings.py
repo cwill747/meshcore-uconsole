@@ -15,6 +15,7 @@ from meshcore_console.meshcore.logging_setup import (
     export_logs_to_path,
     set_stderr_level,
 )
+from meshcore_console.meshcore.region import normalize_region_scope
 from meshcore_console.meshcore.settings import (
     MeshcoreSettings,
     apply_hardware_preset,
@@ -637,7 +638,10 @@ class SettingsView(Gtk.Box):
         path_hash_id = self._path_hash_combo.get_active_id()
         out.path_hash_mode = int(path_hash_id) if path_hash_id else 0
 
-        out.flood_region = self._entries["flood_region"].get_text().strip()
+        # Normalizing raises ValueError for a name openhop_core cannot hash,
+        # which _on_save reports instead of persisting a scope that would
+        # break every send.
+        out.flood_region = normalize_region_scope(self._entries["flood_region"].get_text()) or ""
 
         for key in (
             "spreading_factor",

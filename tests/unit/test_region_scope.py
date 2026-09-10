@@ -87,3 +87,29 @@ def test_scoped_packet_survives_serialization_round_trip() -> None:
     parsed.read_from(bytes(wire))
     assert parsed.has_transport_codes()
     assert parsed.transport_codes == pkt.transport_codes
+
+
+def test_normalize_region_scope_rejects_non_ascii() -> None:
+    """A name openhop_core cannot hash must never reach the database: as a
+    default it would be dropped on connect, as a channel scope it would raise
+    on every send."""
+    for name in ("münchen", "#münchen", "日本"):
+        with pytest.raises(ValueError, match="ASCII"):
+            normalize_region_scope(name)
+
+
+def test_normalize_region_scope_rejects_overlong_name() -> None:
+    # 63 characters plus the '#' is the limit, so 64 is one too many.
+    with pytest.raises(ValueError, match="too long"):
+        normalize_region_scope("a" * 64)
+
+
+def test_normalize_region_scope_allows_maximum_length_name() -> None:
+    name = "a" * 63
+    assert normalize_region_scope(name) == f"#{name}"
+    assert len(normalize_region_scope(name)) == 64
+
+
+def test_region_transport_key_rejects_non_ascii() -> None:
+    with pytest.raises(ValueError, match="ASCII"):
+        region_transport_key("münchen")

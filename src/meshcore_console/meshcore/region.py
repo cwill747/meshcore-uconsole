@@ -15,11 +15,23 @@ from __future__ import annotations
 
 from typing import Any
 
+# openhop_core hashes the canonical name as ASCII and rejects more than 64
+# characters, the '#' included. Mirror both limits here.
+MAX_REGION_SCOPE_LEN = 64
+
 
 def normalize_region_scope(name: str | None) -> str | None:
     """Return the canonical ``#name`` form of a region scope.
 
     Returns None for an empty or blank name, which means "no scope".
+
+    Every path that persists a scope goes through this function, so it also
+    validates: a name openhop_core cannot hash must never reach the database.
+    Otherwise a saved default is dropped on the next connection, and a saved
+    channel scope breaks every send on that channel.
+
+    Raises:
+        ValueError: if the name is not ASCII, or is too long.
     """
     if not name:
         return None
@@ -28,6 +40,13 @@ def normalize_region_scope(name: str | None) -> str | None:
         return None
     if not clean.startswith("#"):
         clean = f"#{clean}"
+    if not clean.isascii():
+        raise ValueError(f"region scope must use ASCII characters only: {clean!r}")
+    if len(clean) > MAX_REGION_SCOPE_LEN:
+        raise ValueError(
+            f"region scope is too long: {len(clean)} characters "
+            f"(maximum {MAX_REGION_SCOPE_LEN}, including the '#')"
+        )
     return clean
 
 

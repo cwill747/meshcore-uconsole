@@ -708,7 +708,17 @@ class MessagesView(Gtk.Box):
             return
         text = entry.get_text().strip()
         logger.debug("UI: region scope set channel_id=%s scope=%s", channel_id, text or None)
-        self._service.set_channel_region_scope(channel_id, text or None)
+        try:
+            self._service.set_channel_region_scope(channel_id, text or None)
+        except ValueError as exc:
+            # Nothing is persisted: a scope the radio cannot hash would break
+            # every send on this channel.
+            logger.warning("Invalid region scope %r: %s", text, exc)
+            error = build_alert_dialog(self.get_root(), "Invalid region scope", str(exc))
+            error.add_response("ok", "OK")
+            error.set_default_response("ok")
+            error.set_close_response("ok")
+            present_dialog(error, self.get_root())
 
     def _on_add_channel_clicked(self, _button: Gtk.Button) -> None:
         """Show a dialog to add a new hashtag channel by name."""

@@ -49,8 +49,13 @@ class ChannelDatabase:
             self.add_channel("Public", PUBLIC_CHANNEL_SECRET)
 
     def add_channel(self, name: str, secret: str) -> None:
+        # Upsert rather than INSERT OR REPLACE: the latter deletes the row and
+        # inserts a fresh one, which resets every column this method does not
+        # name. That silently dropped a channel's region_scope whenever a
+        # secret was re-imported (issue #90).
         self._conn.execute(
-            "INSERT OR REPLACE INTO channel_secrets (name, secret) VALUES (?, ?)",
+            "INSERT INTO channel_secrets (name, secret) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET secret = excluded.secret",
             (name, secret),
         )
         self._conn.commit()
