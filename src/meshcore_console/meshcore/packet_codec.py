@@ -33,15 +33,15 @@ def repair_utf8(text: str) -> str:
 
 
 try:
-    from pymc_core.protocol.utils import PAYLOAD_TYPES, ROUTE_TYPES
+    from openhop_core.protocol.utils import PAYLOAD_TYPES, ROUTE_TYPES
 except ImportError:
     PAYLOAD_TYPES = {}
     ROUTE_TYPES = {}
 
 try:
-    from pymc_core.protocol.utils import (
-        decode_appdata as _pymc_decode_appdata,
-        parse_advert_payload as _pymc_parse_advert,
+    from openhop_core.protocol.utils import (
+        decode_appdata as _openhop_decode_appdata,
+        parse_advert_payload as _openhop_parse_advert,
     )
 
     _HAS_PYMC_PARSER = True
@@ -50,7 +50,7 @@ except ImportError:
 
 
 def _extract_sender_name(packet: Any) -> str | None:
-    """Extract sender name from packet.decrypted (the only source on pyMC_core Packet)."""
+    """Extract sender name from packet.decrypted (the only source on openhop_core Packet)."""
     decrypted = getattr(packet, "decrypted", None)
     if not decrypted:
         return None
@@ -62,21 +62,21 @@ def _extract_sender_name(packet: Any) -> str | None:
 
 
 def _extract_sender_id(packet: Any) -> str | None:
-    """Extract sender ID from packet — not available on pyMC_core Packet directly."""
+    """Extract sender ID from packet — not available on openhop_core Packet directly."""
     return None
 
 
 def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
     """Parse an ADVERT payload to extract name and location.
 
-    Delegates to pyMC_core's canonical parser when available, with a
-    built-in fallback for environments where pyMC_core is not installed.
+    Delegates to openhop_core's canonical parser when available, with a
+    built-in fallback for environments where openhop_core is not installed.
     """
-    # --- Primary path: use pyMC_core's parser (authoritative) ----------
+    # --- Primary path: use openhop_core's parser (authoritative) ----------
     if _HAS_PYMC_PARSER:
         try:
-            parsed = _pymc_parse_advert(payload_bytes)
-            decoded = _pymc_decode_appdata(parsed["appdata"])
+            parsed = _openhop_parse_advert(payload_bytes)
+            decoded = _openhop_decode_appdata(parsed["appdata"])
             result: dict[str, Any] = {"sender_pubkey": parsed["pubkey"]}
             flags = decoded.get("flags", 0)
             result["advert_type"] = flags & 0x0F
@@ -92,7 +92,7 @@ def _parse_advert_payload(payload_bytes: bytes) -> dict[str, Any]:
         except ValueError:
             pass  # malformed advert payload — fall through to manual parser
 
-    # --- Fallback: manual parser (for mock / no pyMC_core) -------------
+    # --- Fallback: manual parser (for mock / no openhop_core) -------------
     result = {}
 
     PUB_KEY_SIZE = 32
@@ -191,7 +191,7 @@ def packet_to_dict(packet: Any) -> PacketDataDict:
     sender_id = _extract_sender_id(packet)
 
     # For ADVERT packets, try to parse the payload for name/location
-    # Check both name and numeric type (ADVERT is type 4 in pymc_core)
+    # Check both name and numeric type (ADVERT is type 4 in openhop_core)
     advert_info: dict[str, Any] = {}
     is_advert = payload_type_name == "ADVERT" or payload_type == 4
     if is_advert and payload_bytes_val:

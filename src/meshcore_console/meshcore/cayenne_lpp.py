@@ -1,7 +1,7 @@
 """CayenneLPP encoder/decoder for telemetry payloads.
 
 Uses the pycayennelpp library for encoding/decoding, and provides
-``decode_cayenne_lpp_payload`` matching the interface pymc_core's
+``decode_cayenne_lpp_payload`` matching the interface openhop_core's
 ProtocolResponseHandler expects from ``utils.cayenne_lpp_helpers``.
 """
 
@@ -37,7 +37,7 @@ def encode_telemetry(
 def decode_cayenne_lpp_payload(hex_string: str) -> dict:
     """Decode a CayenneLPP hex payload into structured sensor data.
 
-    Matches the signature expected by pymc_core's
+    Matches the signature expected by openhop_core's
     ``utils.cayenne_lpp_helpers.decode_cayenne_lpp_payload``.
 
     Returns:

@@ -112,7 +112,7 @@ def export_logs_to_stdout() -> None:
 # Radio error interception
 # ---------------------------------------------------------------------------
 
-_RADIO_LOGGER_SUBSTRINGS = ("SX1262", "pyMC", "meshcore_console.meshcore.session")
+_RADIO_LOGGER_SUBSTRINGS = ("SX1262", "openhop_core", "meshcore_console.meshcore.session")
 
 
 class RadioErrorHandler(logging.Handler):

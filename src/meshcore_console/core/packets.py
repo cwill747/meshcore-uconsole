@@ -278,7 +278,7 @@ _ALL_HANDLERS: list[PacketTypeHandler] = [
 
 _BY_NAME: dict[str, PacketTypeHandler] = {h.name.value: h for h in _ALL_HANDLERS}
 
-# Numeric payload type -> handler (from pyMC_core protocol)
+# Numeric payload type -> handler (from openhop_core protocol)
 _NUMERIC_MAP: dict[int, PacketTypeHandler] = {
     0: _BY_NAME["REQ"],
     1: _BY_NAME["RESPONSE"],

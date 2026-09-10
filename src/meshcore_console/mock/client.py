@@ -20,7 +20,7 @@ from .data import (
     create_mock_peers,
 )
 from .gps import MockGps
-from .session import MockPyMCCoreSession
+from .session import MockOpenHopCoreSession
 
 
 class MockMeshcoreClient(MeshcoreService):
@@ -29,7 +29,7 @@ class MockMeshcoreClient(MeshcoreService):
     def __init__(self, node_name: str = "uconsole-node") -> None:
         self._settings = MeshcoreSettings(node_name=node_name)
         self._config = runtime_config_from_settings(self._settings)
-        self._session = MockPyMCCoreSession(self._config)
+        self._session = MockOpenHopCoreSession(self._config)
         self._gps_provider = MockGps()
         self._connected = True
         self._event_notify: Callable[[], None] | None = None
@@ -239,7 +239,7 @@ class MockMeshcoreClient(MeshcoreService):
                 return
 
     def request_telemetry(self, peer_name: str) -> dict:
-        """Return synthetic telemetry data matching pymc_core's format."""
+        """Return synthetic telemetry data matching openhop_core's format."""
         import time
 
         loc = self._gps_provider.get_location()

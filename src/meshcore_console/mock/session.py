@@ -1,4 +1,4 @@
-"""Mock pyMC_core session for UI development."""
+"""Mock openhop_core session for UI development."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from meshcore_console.meshcore.config import RuntimeRadioConfig
 from .data import MOCK_PEER_LOCATIONS, create_mock_packet_events
 
 
-class MockPyMCCoreSession:
-    """Low-level mock of the pyMC session API for UI development."""
+class MockOpenHopCoreSession:
+    """Low-level mock of the openhop_core session API for UI development."""
 
     def __init__(self, config: RuntimeRadioConfig) -> None:
         self.config = config
@@ -129,7 +129,7 @@ class MockPyMCCoreSession:
             "connected": self._connected,
             "node_name": self.config.node_name,
             "board": "mock",
-            "pymc_core_version": "mock",
+            "openhop_core_version": "mock",
         }
 
     def get_public_key(self) -> str | None:
@@ -156,7 +156,7 @@ class MockPyMCCoreSession:
         snr = random.uniform(-5.0, 12.0)
         path_hops = [] if is_repeater else ["relay-001"]
 
-        # ADV_TYPE_REPEATER = 2 per pyMC_core; client nodes are 0.
+        # ADV_TYPE_REPEATER = 2 per openhop_core; client nodes are 0.
         advert_type = 2 if is_repeater else 0
 
         event = {

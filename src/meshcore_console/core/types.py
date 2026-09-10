@@ -1,7 +1,7 @@
 """Type definitions for meshcore_console.
 
 This module provides TypedDicts for packet/event data and Protocol stubs
-for pyMC_core types to enable static typing without runtime dependencies.
+for openhop_core types to enable static typing without runtime dependencies.
 """
 
 from __future__ import annotations
@@ -87,21 +87,21 @@ class SessionStatus:
     connected: bool
     node_name: str
     board: str
-    pymc_core_version: str
+    openhop_core_version: str
 
 
 SessionStatusDict = dict[str, Any]
 
 
 # =============================================================================
-# Protocol stubs for pyMC_core types
+# Protocol stubs for openhop_core types
 # =============================================================================
-# These protocols define the interface we use from pyMC_core without
+# These protocols define the interface we use from openhop_core without
 # requiring the actual library to be installed (for mock mode, macOS dev).
 
 
 class SX1262RadioProtocol(Protocol):
-    """Protocol for pyMC_core SX1262Radio."""
+    """Protocol for openhop_core SX1262Radio."""
 
     def begin(self) -> bool:
         """Initialize the radio hardware. Returns True on success."""
@@ -113,7 +113,7 @@ class SX1262RadioProtocol(Protocol):
 
 
 class LocalIdentityProtocol(Protocol):
-    """Protocol for pyMC_core LocalIdentity.
+    """Protocol for openhop_core LocalIdentity.
 
     Opaque handle representing the node's identity.
     """
@@ -122,7 +122,7 @@ class LocalIdentityProtocol(Protocol):
 
 
 class DispatcherProtocol(Protocol):
-    """Protocol for pyMC_core dispatcher."""
+    """Protocol for openhop_core dispatcher."""
 
     protocol_response_handler: Any
 
@@ -138,9 +138,9 @@ class DispatcherProtocol(Protocol):
 
 
 class MeshNodeProtocol(Protocol):
-    """Protocol for pyMC_core MeshNode.
+    """Protocol for openhop_core MeshNode.
 
-    As of pyMC_core 1.0.10, MeshNode exposes low-level primitives
+    MeshNode exposes low-level primitives
     (send_packet, dispatcher, identity, contacts, etc.) and packet
     construction is done via PacketBuilder.
     """
@@ -165,13 +165,13 @@ class MeshNodeProtocol(Protocol):
 
 
 class EventSubscriberProtocol(Protocol):
-    """Protocol for pyMC_core EventSubscriber."""
+    """Protocol for openhop_core EventSubscriber."""
 
     pass
 
 
 class EventServiceProtocol(Protocol):
-    """Protocol for pyMC_core EventService."""
+    """Protocol for openhop_core EventService."""
 
     def subscribe_all(self, subscriber: EventSubscriberProtocol) -> None:
         """Subscribe to all events."""

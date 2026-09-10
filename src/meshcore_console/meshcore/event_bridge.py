@@ -70,7 +70,7 @@ def attach_dispatcher_callbacks(
             }
         )
 
-    # NOTE: set_packet_received_callback does not exist in pyMC_core.
+    # NOTE: set_packet_received_callback does not exist in openhop_core.
     # Use set_raw_packet_callback (the real API) and emit both event types
     # so downstream consumers (e.g. AnalyzerView) receive "packet" events.
 

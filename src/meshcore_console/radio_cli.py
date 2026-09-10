@@ -8,7 +8,7 @@ import time
 from typing import Any
 
 from meshcore_console.meshcore.config import load_runtime_config
-from meshcore_console.meshcore.session import PyMCCoreSession
+from meshcore_console.meshcore.session import OpenHopCoreSession
 
 
 def _add_global_args(p: argparse.ArgumentParser) -> None:
@@ -29,7 +29,7 @@ def _add_global_args(p: argparse.ArgumentParser) -> None:
 
 def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     """Register all CLI subcommands on an existing subparsers action."""
-    doctor = sub.add_parser("doctor", help="Check host prerequisites for pyMC_core radio access")
+    doctor = sub.add_parser("doctor", help="Check host prerequisites for openhop_core radio access")
     _add_global_args(doctor)
 
     listen = sub.add_parser("listen", help="Start node and print incoming events")
@@ -70,7 +70,41 @@ def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: igno
     )
 
 
+def _doctor_hardware_config() -> Any:
+    """Return the hardware config that the radio will actually use.
+
+    This is the persisted configuration with the environment applied on top,
+    the same combination that ``runtime_config_from_settings`` gives the GTK
+    app, so ``doctor`` never reports a chip that the radio will not open.
+    """
+    from meshcore_console.meshcore.config import (
+        load_hardware_config_from_env,
+        runtime_config_from_settings,
+    )
+
+    try:
+        from meshcore_console.meshcore.db import open_db
+        from meshcore_console.meshcore.settings_store import SettingsStore
+
+        conn = open_db()
+        try:
+            settings = SettingsStore(conn).load()
+        finally:
+            conn.close()
+        hardware = runtime_config_from_settings(settings).hardware
+        if hardware is not None:
+            return hardware
+    except Exception:  # noqa: BLE001
+        pass
+    return load_hardware_config_from_env()
+
+
 def _doctor() -> int:
+    from meshcore_console.meshcore.config import hardware_env_overrides
+    from meshcore_console.platform.conflicts import available_gpio_chips
+
+    hardware = _doctor_hardware_config()
+
     checks: list[tuple[str, bool, str]] = []
     checks.append(("linux", os.uname().sysname == "Linux", "Expected Linux host"))
     checks.append(
@@ -80,16 +114,28 @@ def _doctor() -> int:
             "Expected SPI1 device /dev/spidev1.0 — ensure dtoverlay=spi1-1cs is in /boot/firmware/config.txt",
         )
     )
-    checks.append(
-        ("gpiochip", os.path.exists("/dev/gpiochip0"), "Expected GPIO chip /dev/gpiochip0")
-    )
+
+    overrides = hardware_env_overrides()
+    chip_source = " (from MESHCORE_GPIO_CHIP)" if "gpio_chip" in overrides else ""
+    chip_path = f"/dev/gpiochip{hardware.gpio_chip}"
+    if os.path.exists(chip_path):
+        gpiochip_detail = f"Expected GPIO chip {chip_path}{chip_source}"
+    else:
+        found = available_gpio_chips()
+        available = ", ".join(str(c) for c in found) if found else "none"
+        gpiochip_detail = (
+            f"Configured GPIO chip {chip_path}{chip_source} not found — available: {available}. "
+            f"Set it in Settings > Hardware or via MESHCORE_GPIO_CHIP "
+            f"(CM5/Pi 5 kernels usually put the 40-pin header on 15, not 0)."
+        )
+    checks.append(("gpiochip", os.path.exists(chip_path), gpiochip_detail))
 
     try:
-        import pymc_core  # noqa: F401
+        import openhop_core  # noqa: F401
 
-        checks.append(("pymc_core", True, "Python module import succeeded"))
+        checks.append(("openhop_core", True, "Python module import succeeded"))
     except Exception as exc:  # noqa: BLE001
-        checks.append(("pymc_core", False, f"Import failed: {exc}"))
+        checks.append(("openhop_core", False, f"Import failed: {exc}"))
 
     ok = True
     for name, passed, detail in checks:
@@ -106,7 +152,7 @@ def _debug(enabled: bool, message: str) -> None:
 
 
 async def _run_listen(
-    session: PyMCCoreSession, duration: int, debug: bool, start_timeout: float
+    session: OpenHopCoreSession, duration: int, debug: bool, start_timeout: float
 ) -> int:
     _debug(debug, "starting mesh node")
     await asyncio.wait_for(session.start(), timeout=start_timeout)
@@ -128,7 +174,7 @@ async def _run_listen(
 
 
 async def _run_send(
-    session: PyMCCoreSession,
+    session: OpenHopCoreSession,
     peer: str,
     message: str,
     debug: bool,
@@ -153,7 +199,7 @@ async def _run_send(
 
 
 async def _run_advert(
-    session: PyMCCoreSession,
+    session: OpenHopCoreSession,
     *,
     name: str | None,
     lat: float,
@@ -241,7 +287,7 @@ async def _async_main(args: argparse.Namespace) -> int:
         return _doctor()
 
     config = load_runtime_config(node_name=args.node_name)
-    session = PyMCCoreSession(config, logger=lambda msg: _debug(args.debug, f"session: {msg}"))
+    session = OpenHopCoreSession(config, logger=lambda msg: _debug(args.debug, f"session: {msg}"))
 
     if args.command == "listen":
         return await _run_listen(session, args.duration, args.debug, args.start_timeout)

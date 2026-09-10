@@ -9,6 +9,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gio, Gtk
 
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.meshcore.config import hardware_env_overrides, parse_pin_list
 from meshcore_console.meshcore.logging_setup import (
     VALID_LEVELS,
     export_logs_to_path,
@@ -253,6 +254,7 @@ class SettingsView(Gtk.Box):
         preset_box.append(preset_label)
         self._hw_preset = Gtk.ComboBoxText.new()
         self._hw_preset.append("uconsole", "uConsole (AIO)")
+        self._hw_preset.append("hg-aiov2", "uConsole HG AIOv2")
         self._hw_preset.append("waveshare", "Waveshare")
         self._hw_preset.append("meshadv-mini", "meshadv-mini")
         self._hw_preset.append("custom", "Custom")
@@ -300,8 +302,53 @@ class SettingsView(Gtk.Box):
         grid.attach(self._grid_label("DIO3 TCXO"), 4, 3, 1, 1)
         grid.attach(self._grid_switch("use_dio3_tcxo"), 5, 3, 1, 1)
 
+        # GPIO chip / backend row — the header is on gpiochip0 for CM4 but
+        # gpiochip15 on CM5 and Pi 5 kernels (#85)
+        grid.attach(self._grid_label("GPIO Chip"), 0, 4, 1, 1)
+        grid.attach(self._grid_entry("gpio_chip", 3), 1, 4, 1, 1)
+        grid.attach(self._grid_label("EN Pins"), 2, 4, 1, 1)
+        grid.attach(self._grid_entry("en_pins", 7), 3, 4, 1, 1)
+        grid.attach(self._grid_label("Poll IRQ"), 4, 4, 1, 1)
+        grid.attach(self._grid_switch("use_gpiod_backend"), 5, 4, 1, 1)
+
         panel.append(grid)
+
+        hint = Gtk.Label(label=self._gpio_chip_hint())
+        hint.add_css_class("panel-muted")
+        hint.set_halign(Gtk.Align.START)
+        hint.set_wrap(True)
+        hint.set_max_width_chars(48)
+        hint.set_size_request(360, -1)
+        panel.append(hint)
+
         return panel
+
+    @staticmethod
+    def _gpio_chip_hint() -> str:
+        """Show which GPIO chips this host actually has, to make #85 self-service."""
+        from meshcore_console.platform.conflicts import available_gpio_chips
+
+        found = available_gpio_chips()
+        available = ", ".join(str(c) for c in found) if found else "none found"
+        lines = [
+            f"GPIO chips on this host: {available}.",
+            "EN Pins is a comma-separated list of pins driven HIGH at init, "
+            "blank if unused. The HackerGadgets AIOv2 LoRa enable pin is 27.",
+            "Poll IRQ swaps edge interrupts for a polling thread, for kernels "
+            "that reject edge requests.",
+        ]
+
+        # An env var wins over these fields, so say so. Otherwise an edit here
+        # looks like it does nothing (#85).
+        overrides = sorted(set(hardware_env_overrides().values()))
+        if overrides:
+            names = ", ".join(overrides)
+            verb = "is" if len(overrides) == 1 else "are"
+            lines.append(
+                f"Note: {names} {verb} set in the environment. The environment "
+                f"overrides the values saved here."
+            )
+        return " ".join(lines)
 
     def _build_logging_panel(self) -> Gtk.Box:
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -465,6 +512,9 @@ class SettingsView(Gtk.Box):
             "rxen_pin",
         ):
             self._set_entry_int(key, getattr(updated, key))
+        # The enable pin belongs to the board, so the preset owns it too. Write
+        # it back to the entry, because _collect_settings reads the entry (#85).
+        self._set_entry("en_pins", updated.en_pins)
         self._set_switch("is_waveshare", updated.is_waveshare)
         self._set_switch("use_dio2_rf", updated.use_dio2_rf)
         self._set_switch("use_dio3_tcxo", updated.use_dio3_tcxo)
@@ -536,11 +586,14 @@ class SettingsView(Gtk.Box):
             "irq_pin",
             "txen_pin",
             "rxen_pin",
+            "gpio_chip",
         ):
             self._set_entry_int(key, getattr(settings, key))
+        self._set_entry("en_pins", settings.en_pins)
         self._set_switch("is_waveshare", settings.is_waveshare)
         self._set_switch("use_dio2_rf", settings.use_dio2_rf)
         self._set_switch("use_dio3_tcxo", settings.use_dio3_tcxo)
+        self._set_switch("use_gpiod_backend", settings.use_gpiod_backend)
 
         # Logging
         self._log_level_combo.set_active_id(settings.log_level)
@@ -585,6 +638,7 @@ class SettingsView(Gtk.Box):
             "irq_pin",
             "txen_pin",
             "rxen_pin",
+            "gpio_chip",
         ):
             val = self._parse_int(key, allow_partial)
             if val is not None:
@@ -595,6 +649,8 @@ class SettingsView(Gtk.Box):
         out.is_waveshare = self._switches["is_waveshare"].get_active()
         out.use_dio2_rf = self._switches["use_dio2_rf"].get_active()
         out.use_dio3_tcxo = self._switches["use_dio3_tcxo"].get_active()
+        out.use_gpiod_backend = self._switches["use_gpiod_backend"].get_active()
+        out.en_pins = ",".join(str(p) for p in parse_pin_list(self._entries["en_pins"].get_text()))
 
         # Logging
         out.log_level = self._log_level_combo.get_active_id() or "INFO"

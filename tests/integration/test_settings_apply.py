@@ -3,7 +3,7 @@ from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.db import open_db
 from meshcore_console.meshcore.settings import MeshcoreSettings
 from meshcore_console.meshcore.settings_store import SettingsStore
-from meshcore_console.mock import MockPyMCCoreSession
+from meshcore_console.mock import MockOpenHopCoreSession
 
 
 def test_client_updates_and_persists_settings(tmp_path) -> None:
@@ -11,8 +11,8 @@ def test_client_updates_and_persists_settings(tmp_path) -> None:
     store = SettingsStore(conn)
     base_settings = MeshcoreSettings()
     client = MeshcoreClient(
-        session=MockPyMCCoreSession(runtime_config_from_settings(base_settings)),
-        require_pymc=False,
+        session=MockOpenHopCoreSession(runtime_config_from_settings(base_settings)),
+        require_openhop=False,
         settings_store=store,
     )
 

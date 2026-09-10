@@ -41,6 +41,19 @@ class MeshcoreSettings:
     is_waveshare: bool = False
     use_dio2_rf: bool = True
     use_dio3_tcxo: bool = True
+    # Which /dev/gpiochipN carries the 40-pin header.  0 on CM4, but 15 on CM5
+    # and Pi 5 kernels where the header hangs off the RP1 (#85).
+    gpio_chip: int = 0
+    # Selects openhop_core's "gpiod" GPIO backend.  Despite the name this does
+    # not switch to libgpiod while python-periphery is installed (the library
+    # only swaps in its libgpiod wrapper when periphery is *absent*); what it
+    # actually changes is edge detection, from kernel edge interrupts to a
+    # polling thread.  That is the useful part: some kernels reject the edge
+    # request outright, leaving the radio connected but deaf (#85).
+    use_gpiod_backend: bool = False
+    # Comma-separated GPIO pins driven HIGH at init to power the radio, for
+    # boards with a LoRa power-enable line (e.g. HG AIOv2).  Empty = none (#85).
+    en_pins: str = ""
 
     def clone(self) -> "MeshcoreSettings":
         return replace(self)
@@ -77,7 +90,7 @@ def apply_preset(settings: MeshcoreSettings, preset: str) -> MeshcoreSettings:
     return updated
 
 
-HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
+HARDWARE_PRESETS: dict[str, dict[str, int | bool | str]] = {
     "uconsole": {
         "bus_id": 1,
         "cs_id": 0,
@@ -90,6 +103,23 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
         "is_waveshare": False,
         "use_dio2_rf": True,
         "use_dio3_tcxo": True,
+        "en_pins": "",
+    },
+    # Same wiring as the plain uConsole board, plus the LoRa power-enable pin
+    # that the HackerGadgets AIOv2 puts on GPIO 27 (#85).
+    "hg-aiov2": {
+        "bus_id": 1,
+        "cs_id": 0,
+        "cs_pin": -1,
+        "reset_pin": 25,
+        "busy_pin": 24,
+        "irq_pin": 26,
+        "txen_pin": -1,
+        "rxen_pin": -1,
+        "is_waveshare": False,
+        "use_dio2_rf": True,
+        "use_dio3_tcxo": True,
+        "en_pins": "27",
     },
     "waveshare": {
         "bus_id": 0,
@@ -103,6 +133,7 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
         "is_waveshare": True,
         "use_dio2_rf": False,
         "use_dio3_tcxo": False,
+        "en_pins": "",
     },
     "meshadv-mini": {
         "bus_id": 0,
@@ -116,6 +147,7 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool]] = {
         "is_waveshare": False,
         "use_dio2_rf": False,
         "use_dio3_tcxo": False,
+        "en_pins": "",
     },
 }
 

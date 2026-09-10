@@ -534,9 +534,9 @@ version = "1.11.0"
 source = { editable = "." }
 dependencies = [
     { name = "gpsdclient" },
+    { name = "openhop-core" },
+    { name = "openhop-core", extra = ["hardware"], marker = "sys_platform == 'linux'" },
     { name = "pycayennelpp" },
-    { name = "pymc-core" },
-    { name = "pymc-core", extra = ["hardware"], marker = "sys_platform == 'linux'" },
     { name = "pynmea2" },
     { name = "segno" },
 ]
@@ -560,10 +560,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "gpsdclient", specifier = ">=1.3" },
+    { name = "openhop-core", specifier = ">=1.1.1" },
+    { name = "openhop-core", extras = ["hardware"], marker = "sys_platform == 'linux'", specifier = ">=1.1.1" },
     { name = "pycayennelpp", specifier = ">=2.4.0" },
     { name = "pygobject", marker = "extra == 'gtk'", specifier = ">=3.48" },
-    { name = "pymc-core", specifier = ">=1.0.10" },
-    { name = "pymc-core", extras = ["hardware"], marker = "sys_platform == 'linux'", specifier = ">=1.0.10" },
     { name = "pynmea2", specifier = ">=1.18.0" },
     { name = "segno", specifier = ">=1.6.0" },
 ]
@@ -635,6 +635,28 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9e5958945e01910052158313224ada5ce1fb2e1113b8/nodeenv-1.10.0.tar.gz", hash = "sha256:996c191ad80897d076bdfba80a41994c2b47c68e224c542b48feba42ba00f8bb", size = 55611, upload-time = "2025-12-20T14:08:54.006Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
+]
+
+[[package]]
+name = "openhop-core"
+version = "1.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pycryptodome" },
+    { name = "pynacl" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ce/60/4a81a09a69fe374f85e45f00443c8ef2798ab5d502fdb1af3e0aacc0c815/openhop_core-1.1.1.tar.gz", hash = "sha256:bcf363248d116d590e62dbe88e8aafccf38d1271e7d44adfca1be8c40f43b46c", size = 356450, upload-time = "2026-06-24T21:26:17.232Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/79/085fc9ac0dea9db646b3b1eda47b05394eb6d2d948dd7d5a0da54fa6185d/openhop_core-1.1.1-py3-none-any.whl", hash = "sha256:dec24bdd39c2134e0ba721c77fb6c05996c5aa1c0357c687b5a9574c6728a5da", size = 287401, upload-time = "2026-06-24T21:26:15.856Z" },
+]
+
+[package.optional-dependencies]
+hardware = [
+    { name = "pyserial", marker = "sys_platform == 'linux'" },
+    { name = "python-periphery", marker = "sys_platform == 'linux'" },
+    { name = "pyusb", marker = "sys_platform == 'linux'" },
+    { name = "spidev", marker = "sys_platform == 'linux'" },
 ]
 
 [[package]]
@@ -788,28 +810,6 @@ dependencies = [
     { name = "pycairo" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d3/a5/68f883df1d8442e3b267cb92105a4b2f0de819bd64ac9981c2d680d3f49f/pygobject-3.54.5.tar.gz", hash = "sha256:b6656f6348f5245606cf15ea48c384c7f05156c75ead206c1b246c80a22fb585", size = 1274658, upload-time = "2025-10-18T13:45:03.121Z" }
-
-[[package]]
-name = "pymc-core"
-version = "1.0.10"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pycryptodome" },
-    { name = "pynacl" },
-    { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/78/72/d4747766cd6f3858382f838da47c51f27dc22c7fa879c6be4b105fd79782/pymc_core-1.0.10.tar.gz", hash = "sha256:e135fe7d6d918ae83a30ae1a915ebd5a270dd87a053a9dc8e9df8c670a31d1a5", size = 263681, upload-time = "2026-04-24T15:00:57.821Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ed/5f/7b99f0266ea38b92c327070ad07a71ce0acaead243976dec7ee6c0c6d9ea/pymc_core-1.0.10-py3-none-any.whl", hash = "sha256:6a50670d8e37ab13927c19d406d212fe0e2ecf1c3187f0555591b2fd245b9003", size = 233519, upload-time = "2026-04-24T15:00:55.742Z" },
-]
-
-[package.optional-dependencies]
-hardware = [
-    { name = "pyserial", marker = "sys_platform == 'linux'" },
-    { name = "python-periphery", marker = "sys_platform == 'linux'" },
-    { name = "pyusb", marker = "sys_platform == 'linux'" },
-    { name = "spidev", marker = "sys_platform == 'linux'" },
-]
 
 [[package]]
 name = "pynacl"

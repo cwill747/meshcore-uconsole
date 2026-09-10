@@ -1,6 +1,6 @@
-"""Contact book adapter for pyMC_core.
+"""Contact book adapter for openhop_core.
 
-pyMC_core handlers (TextMessageHandler, LoginResponseHandler, etc.) expect
+openhop_core handlers (TextMessageHandler, LoginResponseHandler, etc.) expect
 a contact book object with:
   - .contacts  — iterable of objects with .public_key (hex str) and .name
   - .get_by_name(name) — return a contact or None
@@ -15,9 +15,9 @@ from dataclasses import dataclass
 
 @dataclass
 class Contact:
-    """Single contact entry compatible with pyMC_core handler expectations.
+    """Single contact entry compatible with openhop_core handler expectations.
 
-    Note: slots=False is intentional — pyMC_core sets dynamic attributes
+    Note: slots=False is intentional — openhop_core sets dynamic attributes
     (e.g. out_path) on contacts when processing adverts.
     """
 
@@ -28,7 +28,7 @@ class Contact:
 
 
 class ContactBook:
-    """In-memory contact book that satisfies the pyMC_core contacts interface."""
+    """In-memory contact book that satisfies the openhop_core contacts interface."""
 
     def __init__(self) -> None:
         self.contacts: list[Contact] = []

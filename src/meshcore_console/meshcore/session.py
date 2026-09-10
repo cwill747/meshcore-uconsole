@@ -26,7 +26,7 @@ from meshcore_console.core.types import (
 from .cayenne_lpp import encode_telemetry
 from . import cayenne_lpp as _cayenne_lpp_mod
 
-# pymc_core's ProtocolResponseHandler tries ``from utils.cayenne_lpp_helpers
+# openhop_core's ProtocolResponseHandler tries ``from utils.cayenne_lpp_helpers
 # import decode_cayenne_lpp_payload`` which isn't shipped.  Register our
 # module under that name so the import succeeds.
 import sys as _sys
@@ -52,11 +52,11 @@ from .operations import (
     send_repeater_command,
     send_text,
 )
-from .runtime import create_mesh_node, create_radio, import_pymc_core
+from .runtime import create_mesh_node, create_radio, import_openhop_core
 
 
-class PyMCCoreSession:
-    """Async wrapper around pymc_core MeshNode lifecycle."""
+class OpenHopCoreSession:
+    """Async wrapper around openhop_core MeshNode lifecycle."""
 
     def __init__(self, config: RuntimeRadioConfig, logger: LoggerCallback | None = None) -> None:
         self.config = config
@@ -107,8 +107,8 @@ class PyMCCoreSession:
         When another node sends a CONTROL discovery request, we reply with
         our public key and node type so they can discover us.
         """
-        from pymc_core.protocol.constants import ADVERT_FLAG_IS_CHAT_NODE
-        from pymc_core.protocol.packet_builder import PacketBuilder
+        from openhop_core.protocol.constants import ADVERT_FLAG_IS_CHAT_NODE
+        from openhop_core.protocol.packet_builder import PacketBuilder
 
         assert self._node is not None
         assert self._identity is not None
@@ -195,7 +195,7 @@ class PyMCCoreSession:
     def _register_req_handler(self) -> None:
         """Register handlers for incoming REQ and ANON_REQ packets.
 
-        pyMC_core's register_default_handlers() does not register a handler
+        openhop_core's register_default_handlers() does not register a handler
         for PAYLOAD_TYPE_REQ (0x00), so incoming requests are silently
         dropped.  We register ProtocolRequestHandler here and wrap it so
         that any generated RESPONSE packet is actually transmitted.
@@ -207,9 +207,9 @@ class PyMCCoreSession:
         """
         import struct
 
-        from pymc_core.node.handlers.protocol_request import ProtocolRequestHandler
-        from pymc_core.protocol import CryptoUtils, Identity, PacketBuilder
-        from pymc_core.protocol.constants import (
+        from openhop_core.node.handlers.protocol_request import ProtocolRequestHandler
+        from openhop_core.protocol import CryptoUtils, Identity, PacketBuilder
+        from openhop_core.protocol.constants import (
             PAYLOAD_TYPE_ANON_REQ,
             PAYLOAD_TYPE_REQ,
             PAYLOAD_TYPE_RESPONSE,
@@ -408,7 +408,7 @@ class PyMCCoreSession:
     async def _poll_hw_threads(self, timeout: float = 5.0) -> None:
         """Wait for hardware threads spawned during start() to exit.
 
-        pyMC_core's GPIOPinManager creates OS threads for edge detection and
+        openhop_core's GPIOPinManager creates OS threads for edge detection and
         IRQ handling.  These threads hold GPIO line file descriptors; the
         kernel only releases the lines once the threads (and their fds) are
         gone.
@@ -442,14 +442,14 @@ class PyMCCoreSession:
         if self._node is not None and self._node_task is not None and not self._node_task.done():
             return
 
-        self._log("importing pymc_core modules")
-        SX1262Radio, EventService, EventSubscriber, MeshNode, LocalIdentity = import_pymc_core()
+        self._log("importing openhop_core modules")
+        SX1262Radio, EventService, EventSubscriber, MeshNode, LocalIdentity = import_openhop_core()
         hardware_config = self.config.hardware or load_hardware_config_from_env()
 
         self._log(f"radio config {hardware_config.to_log_string()}")
 
         # Snapshot threads before hardware init so we can track GPIO/IRQ threads
-        # spawned by pyMC_core and wait for them during stop().
+        # spawned by openhop_core and wait for them during stop().
         pre_threads = {t.ident for t in threading.enumerate()}
 
         self._log("creating SX1262Radio")
@@ -459,7 +459,7 @@ class PyMCCoreSession:
             self._log,
         )
 
-        # Retry begin() with backoff — pymc_core calls sys.exit(1) when a
+        # Retry begin() with backoff — openhop_core calls sys.exit(1) when a
         # GPIO pin is still held by the previous session's edge-detection
         # thread (stuck in gpio.poll(30s)).  Retrying gives the kernel time
         # to release the line after the old fd is closed.
@@ -553,7 +553,7 @@ class PyMCCoreSession:
 
         # Best-effort radio cleanup for reconnect stability on Linux GPIO/SPI.
         #
-        # pymc_core's GPIOPinManager.cleanup_all() joins edge-detection threads
+        # openhop_core's GPIOPinManager.cleanup_all() joins edge-detection threads
         # (2.0s timeout) BEFORE closing pin file descriptors.  Since those
         # threads block in gpio.poll(30.0), the join always times out.
         # Pre-closing the fds unblocks the threads so cleanup_all()'s join
@@ -690,15 +690,15 @@ class PyMCCoreSession:
             "connected": self._node is not None,
             "node_name": self.config.node_name,
             "board": "hackergadgets-aio",
-            "pymc_core_version": self._get_pymc_version(),
+            "openhop_core_version": self._get_openhop_version(),
         }
 
     @staticmethod
-    def _get_pymc_version() -> str:
+    def _get_openhop_version() -> str:
         try:
-            import pymc_core
+            import openhop_core
 
-            return pymc_core.__version__
+            return openhop_core.__version__
         except Exception:
             return "unknown"
 
@@ -710,7 +710,7 @@ class PyMCCoreSession:
         """Return this node's public key as a hex string, or None if unavailable."""
         if self._identity is None:
             return None
-        # pyMC_core LocalIdentity exposes get_shared_public_key()
+        # openhop_core LocalIdentity exposes get_shared_public_key()
         get_pk = getattr(self._identity, "get_shared_public_key", None)
         pk = get_pk() if callable(get_pk) else None
         if pk is None:

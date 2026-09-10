@@ -8,9 +8,9 @@ GTK4/Libadwaita mesh radio console application targeting Raspberry Pi (uConsole 
 
 **Target hardware:** Raspberry Pi CM4 in uConsole, 1280x720 display, Wayland compositor.
 
-**Stack:** Python 3.11+, GTK4, Libadwaita, PyGObject, pyMC_core (radio driver).
+**Stack:** Python 3.11+, GTK4, Libadwaita, PyGObject, openhop_core (radio driver).
 
-**pyMC_core API reference:** https://rightup.github.io/pyMC_core/api/core/
+**openhop_core API reference:** https://openhop-dev.github.io/openhop_core/api/core/
 
 ## Repository Layout
 
@@ -19,7 +19,7 @@ src/meshcore_console/
   app.py                 # GTK application composition root
   main.py                # Console entrypoint
   core/                  # Domain models + service interfaces
-  meshcore/              # pyMC_core integration adapter (event_bridge, packet_codec)
+  meshcore/              # openhop_core integration adapter (event_bridge, packet_codec)
   platform/              # Platform helpers (GPIO/SPI/device info)
   ui_gtk/                # GTK views, windows, widgets, CSS
     views/               # Main UI panels (analyzer, messages, settings, etc.)
@@ -38,7 +38,7 @@ packaging/deb/           # Debian package metadata
 ```
 Radio Hardware
     ↓
-pyMC_core dispatcher callbacks
+openhop_core dispatcher callbacks
     ↓
 event_bridge.py (attach_dispatcher_callbacks)
     ↓
@@ -157,6 +157,42 @@ All commands below assume you are inside `nix develop`.
 | `MESHCORE_GPSD_HOST` | gpsd hostname (default: 127.0.0.1) |
 | `MESHCORE_GPSD_PORT` | gpsd port (default: 2947) |
 | `MESHCORE_GPS_DEVICE` | GPS serial port; overrides auto-detection and gpsd (also in Settings > GPS Device) |
+| `MESHCORE_GPIO_CHIP` | `/dev/gpiochipN` number (default: 0; also in Settings > Hardware) |
+| `MESHCORE_USE_GPIOD_BACKEND=1` | Poll for IRQ edges instead of using kernel edge interrupts |
+| `MESHCORE_EN_PINS` | Comma-separated GPIO pins driven HIGH at init to power the radio (HG AIOv2: `27`) |
+
+Every hardware variable above overrides the matching value in Settings >
+Hardware. `_HARDWARE_ENV_OVERRIDES` in `meshcore/config.py` holds the whole
+table, and `runtime_config_from_settings()` applies it, so the CLI, the GTK app
+and `doctor` all agree on the values the radio gets. The settings screen says
+which variables are set, because an edit there cannot beat them (#85).
+
+### GPIO Chip Selection
+
+The 40-pin header is `/dev/gpiochip0` on CM4, but **`/dev/gpiochip15` on CM5 and
+Pi 5 kernels**, where the header hangs off the RP1 (issue #85).  A wrong chip
+number means the radio never initialises.  `meshcore-console doctor` reports the
+configured chip and lists what the host actually has:
+
+```text
+[FAIL] gpiochip: Configured GPIO chip /dev/gpiochip0 not found — available: 11, 12, 13, 14, 15. ...
+```
+
+### Board Presets
+
+`HARDWARE_PRESETS` in `meshcore/settings.py` owns the per-board pinout,
+including `en_pins`: the LoRa power-enable line belongs to the board, so every
+preset states it, and a switch between boards clears a stale pin. The
+`hg-aiov2` preset is the uConsole pinout plus enable pin 27.
+
+`gpio_chip` is deliberately *not* in any preset. It follows the SoC and the
+kernel (CM4 vs CM5), not the radio board, so a preset must never clobber it.
+
+Note that `use_gpiod_backend` does **not** switch openhop_core to libgpiod while
+python-periphery is installed — the library only swaps in its libgpiod wrapper
+when periphery is absent.  What the flag actually changes is edge detection,
+from kernel edge interrupts to a polling thread, which is a workaround for
+kernels that reject the edge request outright.
 
 ### Initial Setup (macOS)
 
@@ -192,7 +228,7 @@ uv sync
 
 5. **Wayland-specific issues** - Test on actual Pi hardware. Some behaviors differ between XWayland (macOS) and native Wayland.
 
-6. **pyMC_core API calls** - pyMC_core is a known dependency. Call its APIs directly without defensive `getattr`/`hasattr` fallbacks or manual reimplementations. If a pyMC_core method exists (e.g. `packet.get_raw_length()`), call it and let exceptions propagate naturally. Do not duplicate its logic as a fallback — if the API breaks, we want to know immediately, not silently use a stale copy.
+6. **openhop_core API calls** - openhop_core is a known dependency. Call its APIs directly without defensive `getattr`/`hasattr` fallbacks or manual reimplementations. If an openhop_core method exists (e.g. `packet.get_raw_length()`), call it and let exceptions propagate naturally. Do not duplicate its logic as a fallback — if the API breaks, we want to know immediately, not silently use a stale copy.
 
 ## UI Framework Assessment
 
