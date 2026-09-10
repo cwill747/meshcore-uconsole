@@ -3,7 +3,16 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pytest
+
 import meshcore_console.meshcore.logging_setup as log_mod
+from meshcore_console.meshcore.logging_setup import (
+    RadioErrorHandler,
+    RfNoiseCounter,
+    RfNoiseFilter,
+    classify_rf_noise,
+    is_radio_logger,
+)
 
 
 def _reset_module() -> None:
@@ -87,3 +96,83 @@ def test_export_logs_concatenates(tmp_path: Path, monkeypatch) -> None:
     # Verify chronological order (backup.2 before backup.1 before current)
     lines = content.strip().split("\n")
     assert lines == ["line-from-backup-2", "line-from-backup-1", "line-from-current"]
+
+
+# ---------------------------------------------------------------------------
+# Radio log classification (issue #91)
+# ---------------------------------------------------------------------------
+
+CRC_MESSAGE = (
+    "[RX] CRC error #1 - RSSI=-113dBm, SNR=-7.0dB, SignalRSSI=-119dBm, "
+    "Length=55, NoiseFloor=-113.8dBm, DeviceErrors=0x0000, IRQ=0x0042, RawData=0c110ee3"
+)
+HEADER_MESSAGE = "[RX] Header error detected (0x0022) - corrupted header, restoring RX mode"
+REAL_ERROR = "Radio stayed busy - cannot start transmission"
+
+
+def _record(name: str, message: str, level: int = logging.WARNING) -> logging.LogRecord:
+    return logging.LogRecord(name, level, __file__, 1, message, None, None)
+
+
+@pytest.mark.parametrize(
+    ("message", "category"),
+    [
+        (CRC_MESSAGE, "crc"),
+        (HEADER_MESSAGE, "header"),
+        ("[RX] Empty packet received", "empty"),
+        (REAL_ERROR, None),
+        ("[RX] RX timeout detected", None),
+    ],
+)
+def test_classify_rf_noise(message: str, category: str | None) -> None:
+    assert classify_rf_noise(message) == category
+
+
+def test_is_radio_logger() -> None:
+    assert is_radio_logger("SX1262_wrapper")
+    assert is_radio_logger("meshcore_console.meshcore.session")
+    assert not is_radio_logger("meshcore_console.ui_gtk.views.settings")
+
+
+def test_rf_noise_filter_drops_noise_and_keeps_errors() -> None:
+    noise_filter = RfNoiseFilter()
+    assert not noise_filter.filter(_record("SX1262_wrapper", CRC_MESSAGE))
+    assert not noise_filter.filter(_record("SX1262_wrapper", HEADER_MESSAGE))
+    assert noise_filter.filter(_record("SX1262_wrapper", REAL_ERROR))
+    # Records from other loggers pass through untouched.
+    assert noise_filter.filter(_record("meshcore_console.app", CRC_MESSAGE))
+
+
+def test_rf_noise_filter_yields_at_debug_level() -> None:
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    noise_filter = RfNoiseFilter(handler)
+    assert noise_filter.filter(_record("SX1262_wrapper", CRC_MESSAGE))
+
+    handler.setLevel(logging.INFO)
+    assert not noise_filter.filter(_record("SX1262_wrapper", CRC_MESSAGE))
+
+
+def test_radio_error_handler_counts_noise_instead_of_reporting_it() -> None:
+    log_mod._rf_noise_counter.reset()
+    seen: list[str] = []
+    handler = RadioErrorHandler(seen.append)
+
+    handler.emit(_record("SX1262_wrapper", CRC_MESSAGE))
+    handler.emit(_record("SX1262_wrapper", HEADER_MESSAGE))
+    handler.emit(_record("SX1262_wrapper", REAL_ERROR))
+    handler.emit(_record("meshcore_console.ui_gtk", REAL_ERROR))
+
+    assert seen == [REAL_ERROR]
+    assert log_mod.get_rf_noise_counts() == {"crc": 1, "header": 1}
+    log_mod._rf_noise_counter.reset()
+
+
+def test_rf_noise_counter_logs_a_summary(caplog: pytest.LogCaptureFixture) -> None:
+    counter = RfNoiseCounter(summary_seconds=0.0)
+    with caplog.at_level(logging.INFO, logger="meshcore_console.radio_noise"):
+        counter.record("crc")
+        counter.record("crc")
+    assert counter.totals() == {"crc": 2}
+    assert len(caplog.records) == 2
+    assert "RX noise" in caplog.records[0].message
