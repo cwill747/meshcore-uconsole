@@ -12,7 +12,11 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from meshcore_console.core.models import Channel, Message
 from meshcore_console.core.radio import snr_to_quality
 from meshcore_console.core.services import MeshcoreService
-from meshcore_console.ui_gtk.compat import build_alert_dialog, present_dialog
+from meshcore_console.ui_gtk.compat import (
+    activate_dialog_response,
+    build_alert_dialog,
+    present_dialog,
+)
 from meshcore_console.ui_gtk.helpers import clear_children, clear_listbox, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
@@ -694,7 +698,7 @@ class MessagesView(Gtk.Box):
         entry.set_margin_end(12)
         entry.set_margin_top(8)
         entry.set_margin_bottom(8)
-        entry.connect("activate", lambda _e: dialog.response("set"))
+        entry.connect("activate", lambda _e: activate_dialog_response(dialog, "set"))
 
         dialog.set_extra_child(entry)
         dialog.connect("response", self._on_region_scope_response, channel_id, entry)
@@ -744,7 +748,7 @@ class MessagesView(Gtk.Box):
         row.append(prefix)
         row.append(entry)
         entry.set_hexpand(True)
-        entry.connect("activate", lambda _e: dialog.response("add"))
+        entry.connect("activate", lambda _e: activate_dialog_response(dialog, "add"))
 
         dialog.set_extra_child(row)
         dialog.connect("response", self._on_add_channel_response, entry)

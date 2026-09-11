@@ -49,8 +49,8 @@ def build_alert_dialog(parent: Gtk.Widget, heading: str, body: str | None = None
     Uses ``Adw.AlertDialog`` (libadwaita >= 1.5) when available, otherwise
     ``Adw.MessageDialog`` (available since 1.2). Both expose the same
     ``add_response`` / ``set_response_appearance`` / ``set_default_response`` /
-    ``set_close_response`` / ``set_extra_child`` / ``response`` API, so callers
-    are otherwise identical. Present the result with :func:`present_dialog`.
+    ``set_close_response`` / ``set_extra_child`` API, so callers are otherwise
+    identical. Present the result with :func:`present_dialog`.
     """
     if HAS_ALERT_DIALOG:
         return Adw.AlertDialog.new(heading, body)
@@ -67,3 +67,11 @@ def present_dialog(dialog, parent: Gtk.Widget) -> None:
         dialog.present(parent)
     else:
         dialog.present()
+
+
+def activate_dialog_response(dialog, response: str) -> None:
+    """Activate a dialog response programmatically across libadwaita versions."""
+    if HAS_ALERT_DIALOG:
+        dialog.choose_response(response)
+    else:
+        dialog.response(response)
