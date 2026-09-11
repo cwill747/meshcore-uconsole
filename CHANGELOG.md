@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.12.0 (2026-09-11)
+
+### Feat
+
+- Add region scoping support (#90) (#94)
+- Add setting to disable radio error toasts (#80) (#86)
+- Add repeater admin view with login, CLI, and password storage
+
+### Fix
+
+- **ui**: support alert dialog response activation (#96)
+- Treat CRC and header errors as RF noise, not radio faults (#91) (#93)
+- Make the GPIO chip, IRQ backend, and enable pins configurable (#85) (#89)
+- Derive and store channel secrets for hashtag channels (#81) (#87)
+- Make the GPS serial port configurable (#82) (#88)
+- **ui**: render on libadwaita 1.2 (Debian bookworm) (#84)
+- Replace telemetry button with valid firmware CLI command (#79)
+- Replace hallucinated repeater admin commands with real ones (#78)
+- Set contact routing path so repeater admin login works (#77)
+- Address review comments on repeater admin PR
+
 ## v1.11.0 (2026-05-17)
 
 ### Feat
