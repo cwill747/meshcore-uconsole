@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import time
 
 from meshcore_console.core.types import (
@@ -23,11 +24,21 @@ def _resolve_contact(node: MeshNodeProtocol, peer_name: str) -> object:
     raise RuntimeError(f"Contact '{peer_name}' not found")
 
 
+def _text_message_contact(contact: object) -> object:
+    """Return a PacketBuilder-compatible contact without changing the contact book."""
+    out_path = getattr(contact, "out_path", None)
+    if not isinstance(out_path, (bytes, bytearray)):
+        return contact
+    normalized = copy.copy(contact)
+    setattr(normalized, "out_path", list(out_path))
+    return normalized
+
+
 async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> dict:
     """Send a direct text message to a peer via PacketBuilder."""
     from openhop_core.protocol.packet_builder import PacketBuilder
 
-    contact = _resolve_contact(node, peer_name)
+    contact = _text_message_contact(_resolve_contact(node, peer_name))
 
     pkt, ack_crc = PacketBuilder.create_text_message(
         contact=contact,
@@ -217,7 +228,7 @@ async def send_repeater_command(
     """Send a CLI command to a repeater and wait for the response."""
     from openhop_core.protocol.packet_builder import PacketBuilder
 
-    contact = _resolve_contact(node, peer_name)
+    contact = _text_message_contact(_resolve_contact(node, peer_name))
 
     text_handler = node.dispatcher.text_message_handler
     response_event = asyncio.Event()

@@ -23,7 +23,7 @@ class Contact:
 
     name: str
     public_key: str  # 64-char hex string
-    out_path: bytes | None = None
+    out_path: list[int] | bytes | None = None
     out_path_len: int = -1  # -1 = unknown → flood; 0 = direct; >0 = encoded hop count
 
 
