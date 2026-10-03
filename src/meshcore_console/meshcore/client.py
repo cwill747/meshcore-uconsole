@@ -1057,11 +1057,11 @@ class MeshcoreClient(MeshcoreService):
             contact = book.get_by_name(peer.display_name)
             if contact is not None and peer.last_path is not None:
                 if not peer.last_path:
-                    contact.out_path = b""
+                    contact.out_path = []
                     contact.out_path_len = 0
                 else:
                     hash_size = len(peer.last_path[0]) // 2 or 1
-                    contact.out_path = bytes.fromhex("".join(peer.last_path))
+                    contact.out_path = list(bytes.fromhex("".join(peer.last_path)))
                     contact.out_path_len = ((hash_size - 1) << 6) | len(peer.last_path)
 
     def _sync_contact_to_book(
@@ -1079,7 +1079,7 @@ class MeshcoreClient(MeshcoreService):
         if path_len_encoded is not None:
             contact = book.get_by_name(name)
             if contact is not None:
-                contact.out_path = inbound_path or b""
+                contact.out_path = list(inbound_path or b"")
                 contact.out_path_len = path_len_encoded
 
     def set_event_notify(self, notify_fn: Callable[[], None]) -> None:
