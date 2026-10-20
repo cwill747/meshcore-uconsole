@@ -282,15 +282,27 @@ class MeshcoreClient(MeshcoreService):
             # The Public channel's shared secret is fixed by the MeshCore spec;
             # overwriting it would silently split the network for this node.
             raise ValueError("The Public channel secret cannot be replaced")
-        normalized_id = name
-        self._channel_secrets.add_channel(name, clean_secret)
+        existing = self._channels.get(name)
+        if existing is not None and existing.kind == "dm":
+            # A private channel and a DM would share one conversation ID, and
+            # replies would silently follow the older channel's kind — a
+            # private reply could then broadcast to the group (or vice versa).
+            raise ValueError(
+                f"A direct message named '{name}' already exists; choose a different channel name"
+            )
+        # The secrets table's primary key is case-sensitive while lookups are
+        # not, so re-importing a channel stored under a different casing (e.g.
+        # 'Emergency' via the CLI) must update that row instead of inserting a
+        # second one the sender may never pick.
+        stored_name = self._channel_secrets.resolve_name(name) or name
+        self._channel_secrets.add_channel(stored_name, clean_secret)
         channel = Channel(
-            channel_id=normalized_id,
+            channel_id=name,
             display_name=f"#{name}",
             unread_count=0,
             kind="group",
         )
-        self._channels[normalized_id] = channel
+        self._channels[name] = channel
         self._channel_store.add_or_update(channel)
         return channel
 

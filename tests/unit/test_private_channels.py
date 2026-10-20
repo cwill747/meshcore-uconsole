@@ -168,3 +168,58 @@ def test_mock_client_import_channel() -> None:
 
     with pytest.raises(ValueError):
         client.import_channel("bad", "#bad", "xyz")
+
+
+# ---------------------------------------------------------------------------
+# Review round 1 (PR #103): secret redaction, case-insensitive re-import,
+# and DM-name collision
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_channel_secret_error_does_not_leak_key() -> None:
+    """A near-miss key must not be echoed into the error (it gets logged)."""
+    near_miss = "00112233445566778899aabbccddeef"
+    with pytest.raises(ValueError) as excinfo:
+        normalize_channel_secret(near_miss)
+    assert near_miss not in str(excinfo.value)
+
+
+def test_import_channel_updates_existing_row_case_insensitively(tmp_path, monkeypatch) -> None:
+    """Re-importing a channel stored as 'Emergency' must update that row,
+    not insert a second 'emergency' row the sender may never select."""
+    from meshcore_console.meshcore.channel_db import ChannelDatabase
+
+    client, db_conn = _client(tmp_path, monkeypatch, "recase.db")
+    db = ChannelDatabase(db_conn)
+    db.add_channel("Emergency", "a" * 32)
+
+    new_secret = "b" * 32
+    client.import_channel("emergency", "#emergency", new_secret)
+
+    rows = db.get_channels()
+    assert [r["name"] for r in rows].count("Emergency") == 1
+    assert not any(r["name"].lower() == "emergency" and r["name"] != "Emergency" for r in rows)
+    assert db.resolve_name("emergency") == "Emergency"
+    assert db.get_channel("Emergency")["secret"] == new_secret
+
+
+def test_import_channel_rejects_name_colliding_with_dm(tmp_path, monkeypatch) -> None:
+    """Adding #ops while a DM with peer 'ops' exists must not silently
+    convert the DM into a group channel."""
+    client, _db_conn = _client(tmp_path, monkeypatch, "dmcollide.db")
+    client.ensure_channel("ops", "ops")  # a DM
+
+    with pytest.raises(ValueError, match="direct message"):
+        client.import_channel("ops", "#ops", "00112233445566778899aabbccddeeff")
+
+    assert client._channels["ops"].kind == "dm"
+
+
+def test_mock_client_import_channel_rejects_name_colliding_with_dm() -> None:
+    from meshcore_console.mock.client import MockMeshcoreClient
+
+    client = MockMeshcoreClient()
+    client.ensure_channel("alice", "alice")
+    with pytest.raises(ValueError, match="direct message"):
+        client.import_channel("alice", "#alice", "00112233445566778899aabbccddeeff")
+    assert client._channels["alice"].kind == "dm"

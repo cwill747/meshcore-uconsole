@@ -26,9 +26,9 @@ def normalize_channel_secret(secret: str) -> str:
     if clean.startswith("0x"):
         clean = clean[2:]
     if len(clean) != 32 or any(c not in "0123456789abcdef" for c in clean):
-        raise ValueError(
-            f"Channel secret must be 32 hex characters (a 16-byte AES key), got {secret.strip()!r}"
-        )
+        # Never echo the supplied value: callers log this message and near-miss
+        # keys are trivially reconstructable, so the log would leak the PSK.
+        raise ValueError("Channel secret must be 32 hex characters (a 16-byte AES key)")
     return clean
 
 

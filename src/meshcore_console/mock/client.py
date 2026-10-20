@@ -113,6 +113,11 @@ class MockMeshcoreClient(MeshcoreService):
             raise ValueError("Channel name is required")
         if name == "public":
             raise ValueError("The Public channel secret cannot be replaced")
+        existing = self._channels.get(name)
+        if existing is not None and existing.kind == "dm":
+            raise ValueError(
+                f"A direct message named '{name}' already exists; choose a different channel name"
+            )
         self._channel_secrets[name] = clean_secret
         channel = Channel(
             channel_id=name,
