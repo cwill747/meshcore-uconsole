@@ -53,6 +53,13 @@ class MessagesView(Gtk.Box):
         channel_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         channel_panel.set_size_request(layout.messages_channel_width, -1)
 
+        # Wrap the channel list in a ScrolledWindow so many channels scroll
+        # instead of growing the panel's natural height past the screen (#92).
+        # Matches the pattern used by the Peers/Admin list columns.
+        channel_scroll = Gtk.ScrolledWindow.new()
+        channel_scroll.set_vexpand(True)
+        channel_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
         self._channel_list = Gtk.ListBox.new()
         self._channel_list.add_css_class("panel-card")
         self._channel_list.add_css_class("channel-list")
@@ -60,7 +67,8 @@ class MessagesView(Gtk.Box):
         self._channel_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self._channel_list.connect("row-selected", self._on_channel_selected)
         self._channel_list.set_vexpand(True)
-        channel_panel.append(self._channel_list)
+        channel_scroll.set_child(self._channel_list)
+        channel_panel.append(channel_scroll)
 
         add_channel_btn = Gtk.Button.new()
         add_channel_btn.set_child(Gtk.Label(label="+ Add Channel"))
