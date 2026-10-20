@@ -725,9 +725,15 @@ class MessagesView(Gtk.Box):
             present_dialog(error, self.get_root())
 
     def _on_add_channel_clicked(self, _button: Gtk.Button) -> None:
-        """Show a dialog to add a new hashtag channel by name."""
+        """Show a dialog to add a hashtag channel by name, optionally with a
+        private secret key (issue #101)."""
         logger.debug("UI: add channel clicked")
-        dialog = build_alert_dialog(self.get_root(), "Add Channel", None)
+        dialog = build_alert_dialog(
+            self.get_root(),
+            "Add Channel",
+            "Leave the key empty for a public hashtag channel, or paste the "
+            "channel's 32-character secret to join a private one.",
+        )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("add", "Add")
         dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
@@ -750,13 +756,30 @@ class MessagesView(Gtk.Box):
         entry.set_hexpand(True)
         entry.connect("activate", lambda _e: activate_dialog_response(dialog, "add"))
 
-        dialog.set_extra_child(row)
-        dialog.connect("response", self._on_add_channel_response, entry)
+        secret_entry = Gtk.Entry.new()
+        secret_entry.set_placeholder_text("secret key (optional)")
+        secret_entry.set_visibility(False)
+        secret_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        secret_entry.set_margin_start(12)
+        secret_entry.set_margin_end(12)
+        secret_entry.set_margin_bottom(8)
+        secret_entry.connect("activate", lambda _e: activate_dialog_response(dialog, "add"))
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.append(row)
+        box.append(secret_entry)
+
+        dialog.set_extra_child(box)
+        dialog.connect("response", self._on_add_channel_response, entry, secret_entry)
         present_dialog(dialog, self.get_root())
         entry.grab_focus()
 
     def _on_add_channel_response(
-        self, _dialog: Adw.AlertDialog, response: str, entry: Gtk.Entry
+        self,
+        _dialog: Adw.AlertDialog,
+        response: str,
+        entry: Gtk.Entry,
+        secret_entry: Gtk.Entry,
     ) -> None:
         if response != "add":
             return
@@ -765,7 +788,21 @@ class MessagesView(Gtk.Box):
             return
         channel_id = raw.lower()
         display_name = f"#{channel_id}"
-        self._service.ensure_channel(channel_id, display_name)
+        secret = secret_entry.get_text().strip()
+        if secret:
+            # Private channel: store the supplied PSK verbatim (issue #101).
+            try:
+                self._service.import_channel(channel_id, display_name, secret)
+            except ValueError as exc:
+                logger.warning("Invalid channel secret: %s", exc)
+                error = build_alert_dialog(self.get_root(), "Invalid channel secret", str(exc))
+                error.add_response("ok", "OK")
+                error.set_default_response("ok")
+                error.set_close_response("ok")
+                present_dialog(error, self.get_root())
+                return
+        else:
+            self._service.ensure_channel(channel_id, display_name)
         self._selected_channel_id = channel_id
         self._reload_channels()
 

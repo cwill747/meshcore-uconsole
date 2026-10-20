@@ -28,6 +28,13 @@ class MeshcoreService(Protocol):
         """Ensure a channel exists, creating it if necessary."""
         ...
 
+    def import_channel(self, channel_id: str, display_name: str, secret: str) -> Channel:
+        """Create a private channel with an explicit PSK (issue #101).
+
+        Raises ValueError if the secret is not 32 hex characters.
+        """
+        ...
+
     def remove_channel(self, channel_id: str) -> bool:
         """Remove a channel and its messages. Returns False if channel cannot be removed."""
         ...

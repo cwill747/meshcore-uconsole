@@ -239,13 +239,22 @@ async def _run_advert(
 
 def _import_channel(name: str, secret: str) -> int:
     from meshcore_console.core.models import Channel
-    from meshcore_console.meshcore.channel_db import ChannelDatabase
+    from meshcore_console.meshcore.channel_db import (
+        ChannelDatabase,
+        normalize_channel_secret,
+    )
     from meshcore_console.meshcore.db import open_db
     from meshcore_console.meshcore.state_store import UIChannelStore
 
     conn = open_db()
     channel_db = ChannelDatabase(conn)
-    channel_db.add_channel(name, secret)
+    try:
+        clean_secret = normalize_channel_secret(secret)
+    except ValueError as exc:
+        print(json.dumps({"status": "error", "error": str(exc)}))
+        conn.close()
+        return 1
+    channel_db.add_channel(name, clean_secret)
     # Also create the UI channel entry so it appears in the channel list
     channel_id = name.lower()
     channel_store = UIChannelStore(conn)

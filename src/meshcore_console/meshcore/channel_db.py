@@ -14,6 +14,24 @@ def normalize_channel_name(name: str) -> str:
     return name.strip().lstrip("#").strip().lower()
 
 
+def normalize_channel_secret(secret: str) -> str:
+    """Validate and normalize a private-channel PSK (issue #101).
+
+    MeshCore channel secrets are 16-byte AES keys, entered as 32 hex chars
+    (the same shape as ``PUBLIC_CHANNEL_SECRET``). Anything else is rejected
+    with ``ValueError`` so a typo cannot silently produce a channel that
+    encrypts with a key nobody else holds.
+    """
+    clean = secret.strip().lower()
+    if clean.startswith("0x"):
+        clean = clean[2:]
+    if len(clean) != 32 or any(c not in "0123456789abcdef" for c in clean):
+        raise ValueError(
+            f"Channel secret must be 32 hex characters (a 16-byte AES key), got {secret.strip()!r}"
+        )
+    return clean
+
+
 def derive_channel_secret(name: str) -> str:
     """Derive the deterministic secret for a hashtag channel.
 

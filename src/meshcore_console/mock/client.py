@@ -40,6 +40,7 @@ class MockMeshcoreClient(MeshcoreService):
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
         self._saved_passwords: dict[str, str] = {}
         self._channel_scopes: dict[str, str] = {}
+        self._channel_secrets: dict[str, str] = {}
 
         # Initialize mock state
         self._channels = create_mock_channels()
@@ -97,6 +98,29 @@ class MockMeshcoreClient(MeshcoreService):
             kind="group" if is_group else "dm",
         )
         self._channels[normalized_id] = channel
+        return channel
+
+    def import_channel(self, channel_id: str, display_name: str, secret: str) -> Channel:
+        """Create a private channel with an explicit PSK (issue #101)."""
+        from meshcore_console.meshcore.channel_db import (
+            normalize_channel_name,
+            normalize_channel_secret,
+        )
+
+        clean_secret = normalize_channel_secret(secret)
+        name = normalize_channel_name(display_name or channel_id)
+        if not name:
+            raise ValueError("Channel name is required")
+        if name == "public":
+            raise ValueError("The Public channel secret cannot be replaced")
+        self._channel_secrets[name] = clean_secret
+        channel = Channel(
+            channel_id=name,
+            display_name=f"#{name}",
+            unread_count=0,
+            kind="group",
+        )
+        self._channels[name] = channel
         return channel
 
     def list_messages_for_channel(self, channel_id: str, limit: int = 50) -> list[Message]:
