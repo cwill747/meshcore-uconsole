@@ -157,16 +157,23 @@ def discovered_event(name: str, key: str = KEY) -> dict:
     }
 
 
+_advert_clock = [1_700_000_000]
+
+
 def advert_event(name: str, key: str = KEY) -> dict:
+    """A verified advert, as openhop_core's AdvertHandler publishes it."""
+    _advert_clock[0] += 1
     return {
-        "type": EventType.PACKET,
+        "type": EventType.MESH_NODE_DISCOVERED,
         "data": {
-            "payload_type_name": "ADVERT",
-            "sender_name": name,
-            "sender_id": key[:16],
-            "sender_pubkey": key,
-            "advert_type": NODE_TYPE_REPEATER,
-            "path_hops": ["13"],
+            "name": name,
+            "public_key": key,
+            "contact_type": NODE_TYPE_REPEATER,
+            "lat": 0.0,
+            "lon": 0.0,
+            "advert_timestamp": _advert_clock[0],
+            "inbound_path": bytes.fromhex("13"),
+            "path_len_encoded": 1,
             "rssi": -40,
             "snr": 9.0,
         },

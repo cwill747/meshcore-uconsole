@@ -55,6 +55,18 @@ RUN_ASYNC_CAP_S = 60.0
 CONNECT_TIMEOUT_S = 30.0
 
 
+def hops_from_path(path: bytes | None, path_len_encoded: int | None) -> list[str]:
+    """Hop hashes (hex) from a packet path; the path length byte carries the
+    hash size in bits 6-7 (size - 1) and the hop count in bits 0-5."""
+    if not path or not path_len_encoded:
+        return []
+    size = (path_len_encoded >> 6) + 1
+    count = path_len_encoded & 0x3F
+    return [
+        path[i * size : (i + 1) * size].hex() for i in range(count) if (i + 1) * size <= len(path)
+    ]
+
+
 async def _no_system_exit(coro: object) -> object:
     """openhop_core calls sys.exit() on fatal GPIO errors.  Raised inside a task
     that would stop the whole event loop thread; turn it into an error instead."""
@@ -90,6 +102,7 @@ class MeshcoreClient(MeshcoreService):
     ) -> None:
         self._connected = False
         self._connect_lock = threading.RLock()
+        self._advert_timestamps: dict[str, int] = {}  # newest advert per public key
         self._event_notify: Callable[[], None] | None = None
         # deque: worker threads append while the GTK thread drains it
         self._event_buffer: deque[MeshEventDict] = deque()
@@ -728,10 +741,12 @@ class MeshcoreClient(MeshcoreService):
         if event_type == EventType.RAW_PACKET:
             return
 
-        payload_type_name = data.get("payload_type_name", "")
-
-        # Check for ADVERT packets to add new peers
-        if payload_type_name == PayloadType.ADVERT or event_type in (
+        # Peers come only from adverts openhop_core has verified (signature,
+        # dedupe, own-advert filter) and published as mesh.network.node_discovered,
+        # plus the app's own discovery results.  Raw "packet" ADVERT events arrive
+        # before any of that: a forged or replayed advert used to rewrite a
+        # contact's key, route, position or name.
+        if event_type in (
             EventType.CONTACT_RECEIVED,
             EventType.ADVERT_RECEIVED,
             EventType.MESH_CONTACT_NEW,
@@ -759,18 +774,34 @@ class MeshcoreClient(MeshcoreService):
             return
         peer_name = repair_utf8(str(peer_name))
 
-        peer_id = data.get("sender_id") or data.get("peer_id")
         public_key = data.get("sender_pubkey") or data.get("public_key")
+        # node_discovered carries no sender_id; use the same key prefix that
+        # packet events call sender_id, so a peer keeps one row and id.
+        peer_id = (
+            data.get("sender_id")
+            or data.get("peer_id")
+            or (public_key[:16] if public_key else None)
+        )
 
         # Skip our own advert reflected back through a repeater.
         self_pubkey = self.get_self_public_key()
         if self_pubkey and public_key and self_pubkey == public_key:
             return
 
+        # Ignore replays: an advert is signed with its timestamp, so an old one
+        # replayed later still verifies, and would roll name/position/route back.
+        advert_ts = data.get("advert_timestamp")
+        if public_key and advert_ts is not None:
+            if advert_ts <= self._advert_timestamps.get(public_key, -1):
+                return
+            self._advert_timestamps[public_key] = advert_ts
+
         if public_key and peer_name not in self._peers:
             self._replace_placeholder(public_key, peer_name)
 
-        path_hops = data.get("path_hops", [])
+        path_hops = data.get("path_hops") or hops_from_path(
+            data.get("inbound_path"), data.get("path_len_encoded")
+        )
         rssi_raw = data.get("rssi")
         snr_raw = data.get("snr")
 
