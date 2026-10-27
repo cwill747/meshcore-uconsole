@@ -52,6 +52,8 @@ class Message:
     path_hops: list[str] = field(default_factory=list)
     snr: float | None = None
     rssi: int | None = None
+    # Outgoing DMs: True once ACKed, False if no ACK came; None otherwise (not stored).
+    delivered: bool | None = None
 
 
 @dataclass(slots=True)

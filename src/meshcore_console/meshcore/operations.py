@@ -42,20 +42,40 @@ def _text_message_contact(contact: object) -> object:
     return normalized
 
 
-async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> dict:
-    """Send a direct text message to a peer via PacketBuilder."""
+DM_ATTEMPTS = 3
+
+
+async def send_text(
+    *, node: MeshNodeProtocol, peer_name: str, message: str, attempts: int = DM_ATTEMPTS
+) -> dict:
+    """Send a direct text message and wait for its ACK, retrying like the MeshCore apps.
+
+    Each retry carries the next attempt number with the same timestamp (the
+    receiver drops duplicates; the expected ACK changes with the attempt).  If
+    a known direct route fails twice, it is forgotten and the last attempt
+    floods.  ``success`` is True only when an ACK arrived.
+    """
     from openhop_core.protocol.packet_builder import PacketBuilder
 
-    contact = _text_message_contact(_resolve_contact(node, peer_name))
-
-    pkt, ack_crc = PacketBuilder.create_text_message(
-        contact=contact,
-        local_identity=node.identity,
-        message=message,
-        message_type=_route_type(contact),
-    )
-    success = await node.dispatcher.send_packet(pkt, wait_for_ack=True, expected_crc=ack_crc)
-    return {"success": success, "crc": ack_crc}
+    original = _resolve_contact(node, peer_name)
+    timestamp = int(time.time())
+    ack_crc = 0
+    for attempt in range(attempts):
+        if attempt == attempts - 1 and attempt > 0 and getattr(original, "out_path_len", -1) >= 0:
+            original.out_path_len = -1  # type: ignore[attr-defined]  # route went stale
+            original.out_path = []  # type: ignore[attr-defined]
+        contact = _text_message_contact(original)
+        pkt, ack_crc = PacketBuilder.create_text_message(
+            contact=contact,
+            local_identity=node.identity,
+            message=message,
+            attempt=attempt,
+            message_type=_route_type(contact),
+            timestamp=timestamp,
+        )
+        if await node.dispatcher.send_packet(pkt, wait_for_ack=True, expected_crc=ack_crc):
+            return {"success": True, "attempts": attempt + 1, "crc": ack_crc}
+    return {"success": False, "attempts": attempts, "crc": ack_crc}
 
 
 async def send_group_text(

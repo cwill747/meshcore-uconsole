@@ -187,6 +187,8 @@ class MockMeshcoreClient(MeshcoreService):
             body=body,
             channel_id=channel_id,
             created_at=datetime.now(UTC),
+            is_outgoing=True,
+            delivered=True if channel.kind == "dm" else None,
         )
         self._messages.append(message)
         if peer_id not in self._peers:

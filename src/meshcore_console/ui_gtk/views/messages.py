@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 import gi
 
@@ -34,6 +35,15 @@ from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF
 logger = logging.getLogger(__name__)
 
 
+def send_status_text(display: str, delivered: bool | None) -> str:
+    """What the compose status line says after a send."""
+    if delivered is None:
+        return f"Sent to {display}"  # channel messages are not acknowledged
+    if delivered:
+        return f"Delivered to {display}"
+    return f"Sent to {display}, but no acknowledgement came back"
+
+
 def messages_after(messages: list[Message], last_id: str | None) -> list[Message] | None:
     """The messages newer than the one with ``last_id``, oldest first.
 
@@ -57,6 +67,7 @@ class MessagesView(Gtk.Box):
         self._selected_channel_id = "public"
         self._last_message_id: str | None = None
         self._last_channel_count = 0
+        self._sending = False
         self._last_message_date: str | None = None
         self._selected_message: Message | None = None
 
@@ -288,7 +299,7 @@ class MessagesView(Gtk.Box):
         """Enable/disable compose area based on connection status."""
         connected = self._service.get_status().connected
         self._entry.set_sensitive(connected)
-        self._send_button.set_sensitive(connected)
+        self._send_button.set_sensitive(connected and not self._sending)
         self._emoji_btn.set_sensitive(connected)
         if connected:
             self._entry.set_placeholder_text("Type message and press Send")
@@ -849,17 +860,40 @@ class MessagesView(Gtk.Box):
         if not body:
             self._send_status.set_text("Enter a message before sending.")
             return
-        try:
-            self._service.send_message(peer_id=self._selected_channel_id, body=body)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Send failed: %s", exc)
-            self._send_status.set_text(f"Send failed: {exc}")
+        if self._sending:
             return
+        channel_id = self._selected_channel_id
+        display = self._get_channel_display_name(channel_id)
+        # A DM waits for its ACK, with retries: up to ~30 s.  Sending on the GTK
+        # thread froze the whole UI for that long.
+        self._sending = True
+        self._send_button.set_sensitive(False)
+        self._send_status.set_text(f"Sending to {display}...")
 
-        display = self._get_channel_display_name(self._selected_channel_id)
-        self._entry.set_text("")
-        self._send_status.set_text(f"Sent to {display}")
-        self._reload_messages()
+        def work() -> None:
+            try:
+                message = self._service.send_message(peer_id=channel_id, body=body)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Send failed: %s", exc)
+                GLib.idle_add(self._on_send_done, body, display, None, str(exc))
+                return
+            GLib.idle_add(self._on_send_done, body, display, message, None)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_send_done(
+        self, body: str, display: str, message: Message | None, error: str | None
+    ) -> bool:
+        self._sending = False
+        self._refresh_compose_state()
+        if message is None:
+            self._send_status.set_text(f"Send failed: {error}")  # the text stays in the entry
+            return False
+        if self._entry.get_text().strip() == body:
+            self._entry.set_text("")
+        self._send_status.set_text(send_status_text(display, message.delivered))
+        self._poll_messages()
+        return False
 
     def select_dm(self, peer_name: str) -> None:
         """Open the DM thread with a peer (from the Peers and Map views)."""

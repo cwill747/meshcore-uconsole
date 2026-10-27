@@ -251,3 +251,44 @@ def test_dm_floods_while_the_route_is_unknown() -> None:
     contact.out_path_len = 0  # direct neighbour
     run(send_text(node=node, peer_name="Bergblick", message="hi"))
     assert node.dispatcher.sent[1].is_route_direct()
+
+
+class AckAfter:
+    """send_packet that ACKs only from the n-th attempt on."""
+
+    def __init__(self, ack_from: int) -> None:
+        self.ack_from = ack_from
+        self.sent: list = []
+        self.crcs: list[int] = []
+
+    async def send_packet(self, packet, wait_for_ack=False, expected_crc=None, **_kw) -> bool:
+        self.sent.append(packet)
+        self.crcs.append(expected_crc)
+        return len(self.sent) >= self.ack_from
+
+
+def test_dm_retries_then_floods_when_the_direct_route_fails() -> None:
+    from meshcore_console.meshcore.operations import send_text
+
+    contact, _key = repeater_contact()  # direct, zero-hop route known
+    node = FakeNode(contact)
+    node.dispatcher = AckAfter(ack_from=3)
+
+    result = run(send_text(node=node, peer_name="Bergblick", message="hi"))
+
+    assert result["success"] is True and result["attempts"] == 3
+    sent = node.dispatcher.sent
+    assert sent[0].is_route_direct() and sent[1].is_route_direct()
+    assert not sent[2].is_route_direct()  # stale route dropped, last try floods
+    assert node.contacts.get_by_name("Bergblick").out_path_len == -1
+    assert len(set(node.dispatcher.crcs)) == 3  # each attempt expects its own ACK
+
+
+def test_dm_reports_no_ack() -> None:
+    from meshcore_console.meshcore.operations import send_text
+
+    contact, _key = repeater_contact()
+    node = FakeNode(contact)
+    node.dispatcher = AckAfter(ack_from=99)
+    result = run(send_text(node=node, peer_name="Bergblick", message="hi"))
+    assert result == {"success": False, "attempts": 3, "crc": node.dispatcher.crcs[-1]}

@@ -61,6 +61,8 @@ def _propagate_routing_fields(packet_data: dict, handler_data: dict) -> None:
 # listen-before-talk, airtime and the ACK).
 RUN_ASYNC_CAP_S = 60.0
 CONNECT_TIMEOUT_S = 30.0
+# Three DM attempts, each: listen-before-talk (up to 4 s), airtime, 5 s ACK wait.
+DM_SEND_TIMEOUT_S = 45.0
 
 
 def hops_from_path(path: bytes | None, path_len_encoded: int | None) -> list[str]:
@@ -473,16 +475,24 @@ class MeshcoreClient(MeshcoreService):
             # channels, so a channel that predates issue #81 is repaired too.
             channel_name = self._ensure_channel_secret(self._channels[channel_id])
             region_scope = self._channel_secrets.get_region_scope(channel_name)
-            self._run_async(
+            result = self._run_async(
                 self._session.send_group_text(
                     channel_name=channel_name, message=body, region_scope=region_scope
                 )
             )
+            if isinstance(result, dict) and result.get("success") is False:
+                raise RuntimeError("the radio did not transmit the message")
+            delivered = None  # channel messages are not acknowledged
         else:
             # Use the original-case peer name from the channel so openhop_core
             # can find the contact in the contact book (case-sensitive lookup).
             resolved_name = channel.peer_name or channel.display_name
-            self._run_async(self._session.send_text(peer_name=resolved_name, message=body))
+            result = self._run_async(
+                self._session.send_text(peer_name=resolved_name, message=body),
+                timeout=DM_SEND_TIMEOUT_S,
+            )
+            acked = result.get("success") if isinstance(result, dict) else None
+            delivered = None if acked is None else bool(acked)
         message = Message(
             message_id=str(uuid4()),
             sender_id=self._settings.node_name,
@@ -490,6 +500,7 @@ class MeshcoreClient(MeshcoreService):
             channel_id=channel_id,
             created_at=datetime.now(UTC),
             is_outgoing=True,
+            delivered=delivered,
         )
         self._messages.append(message)
         self._message_store.append(message)
