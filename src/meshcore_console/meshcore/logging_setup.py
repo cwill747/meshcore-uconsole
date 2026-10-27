@@ -18,8 +18,12 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable
 
-LOG_DIR = Path.home() / ".local" / "state" / "meshcore-uconsole"
-LOG_FILE = LOG_DIR / "app.log"
+from .paths import state_dir
+
+# None = the app's state directory (XDG_STATE_HOME/meshcore-uconsole, next to
+# the database), resolved when used; tests may point these elsewhere.
+LOG_DIR: Path | None = None
+LOG_FILE: Path | None = None
 LOG_FORMAT = "[%(name)s] %(message)s"
 FILE_LOG_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
 MAX_BYTES = 1_000_000  # 1 MB per file
@@ -29,6 +33,14 @@ VALID_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 _stderr_handler: logging.StreamHandler | None = None
 _configured = False
+
+
+def log_dir() -> Path:
+    return LOG_DIR if LOG_DIR is not None else state_dir()
+
+
+def log_file() -> Path:
+    return LOG_FILE if LOG_FILE is not None else log_dir() / "app.log"
 
 
 def configure_logging(console_level: str | None = None) -> None:
@@ -64,8 +76,8 @@ def configure_logging(console_level: str | None = None) -> None:
     root.addHandler(_stderr_handler)
 
     # Rotating file handler
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT)
+    log_dir().mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(log_file(), maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT))
     root.addHandler(file_handler)
@@ -84,13 +96,14 @@ def set_stderr_level(level_name: str) -> None:
 
 def get_log_files_chronological() -> list[Path]:
     """Return all log files oldest-first (backup.3 -> backup.1 -> current)."""
+    current = log_file()
     files: list[Path] = []
     for i in range(BACKUP_COUNT, 0, -1):
-        p = LOG_FILE.with_suffix(f".log.{i}")
+        p = current.with_suffix(f".log.{i}")
         if p.exists():
             files.append(p)
-    if LOG_FILE.exists():
-        files.append(LOG_FILE)
+    if current.exists():
+        files.append(current)
     return files
 
 
