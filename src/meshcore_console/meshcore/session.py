@@ -194,26 +194,23 @@ class OpenHopCoreSession:
         return _handle_telemetry
 
     def _register_req_handler(self) -> None:
-        """Register handlers for incoming REQ and ANON_REQ packets.
+        """Register a handler for incoming REQ packets.
 
         openhop_core's register_default_handlers() does not register a handler
         for PAYLOAD_TYPE_REQ (0x00), so incoming requests are silently
         dropped.  We register ProtocolRequestHandler here and wrap it so
         that any generated RESPONSE packet is actually transmitted.
 
-        ANON_REQ (0x07) packets carry the sender's public key inline, so
-        they don't require prior key exchange.  The default AnonReqResponseHandler
-        only handles login responses; we replace it with one that also handles
-        telemetry requests.
+        ANON_REQ (0x07) stays with openhop_core's own handler: in an anonymous
+        request 0x03 is ANON_REQ_TYPE_BASIC (clock), not a telemetry request,
+        and telemetry is only for senders already in the contact book.
         """
         import struct
 
         from openhop_core.node.handlers.protocol_request import ProtocolRequestHandler
-        from openhop_core.protocol import CryptoUtils, Identity, PacketBuilder
+        from openhop_core.protocol import CryptoUtils, Identity
         from openhop_core.protocol.constants import (
-            PAYLOAD_TYPE_ANON_REQ,
             PAYLOAD_TYPE_REQ,
-            PAYLOAD_TYPE_RESPONSE,
         )
 
         REQ_TYPE_GET_TELEMETRY_DATA = 0x03  # noqa: N806
@@ -312,88 +309,6 @@ class OpenHopCoreSession:
             )
 
         dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req)
-
-        # --- ANON_REQ handler ---
-        existing_anon = dispatcher._handler_instances.get(PAYLOAD_TYPE_ANON_REQ)
-
-        async def _handle_anon_req(pkt: Any) -> None:
-            if len(pkt.payload) < 34:
-                return
-
-            dest_hash = pkt.payload[0]
-            if dest_hash != our_hash:
-                # Not addressed to us — delegate to existing handler
-                # (e.g. login responses where dest_hash is a repeater)
-                if existing_anon is not None:
-                    await existing_anon(pkt)
-                return
-
-            client_pubkey = bytes(pkt.payload[1:33])
-            encrypted_data = bytes(pkt.payload[33:])
-            client_identity = Identity(client_pubkey)
-            shared_secret = client_identity.calc_shared_secret(our_privkey)
-            aes_key = shared_secret[:16]
-
-            try:
-                plaintext = CryptoUtils.mac_then_decrypt(
-                    aes_key,
-                    shared_secret,
-                    encrypted_data,
-                )
-            except Exception as e:
-                self._log(f"ANON_REQ decrypt failed: {e}")
-                if existing_anon is not None:
-                    await existing_anon(pkt)
-                return
-
-            if len(plaintext) < 5:
-                self._log("ANON_REQ payload too short")
-                if existing_anon is not None:
-                    await existing_anon(pkt)
-                return
-
-            timestamp = struct.unpack("<I", plaintext[0:4])[0]
-            req_type = plaintext[4]
-            req_data = plaintext[5:] if len(plaintext) > 5 else b""
-
-            handler_fn = request_handlers.get(req_type)
-            if handler_fn is None:
-                # Not a request type we handle (e.g. login) — delegate
-                if existing_anon is not None:
-                    await existing_anon(pkt)
-                return
-
-            contact = contact_book.get_by_key(client_pubkey)
-            sender = contact.name if contact else f"{client_pubkey[:4].hex()}..."
-            self._log(f"ANON_REQ from {sender} type=0x{req_type:02X} ts={timestamp}")
-
-            response_payload = handler_fn(contact, timestamp, req_data)
-            if response_payload is None:
-                self._log("ANON_REQ: handler returned no data")
-                return
-
-            reply_data = struct.pack("<I", timestamp) + response_payload
-            client_hash = client_pubkey[0]
-            path_list = list(pkt.path[: pkt.path_len]) if pkt.path_len > 0 else []
-
-            try:
-                response_pkt = PacketBuilder.create_path_return(
-                    dest_hash=client_hash,
-                    src_hash=our_hash,
-                    secret=shared_secret,
-                    path=path_list,
-                    extra_type=PAYLOAD_TYPE_RESPONSE,
-                    extra=bytes(reply_data),
-                )
-                self._log(
-                    f"ANON_REQ: sending PATH response to "
-                    f"0x{client_hash:02X} ({len(response_pkt.payload)} bytes)"
-                )
-                await dispatcher.send_packet(response_pkt, wait_for_ack=False)
-            except Exception as e:
-                self._log(f"ANON_REQ: failed to build/send response: {e}")
-
-        dispatcher.register_handler(PAYLOAD_TYPE_ANON_REQ, _handle_anon_req)
 
     async def _call_maybe_async(self, target: Any, name: str) -> None:
         fn = getattr(target, name, None)
