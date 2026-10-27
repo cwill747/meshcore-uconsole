@@ -563,28 +563,49 @@ class MeshcoreClient(MeshcoreService):
                 return name
         return None
 
-    def _replace_placeholder(self, public_key: str, real_name: str) -> None:
-        """A node discovery listed as ``Repeater 13ab5c7e`` has advertised its real
-        name: rename that peer (same peer_id, so the DB row is replaced, not doubled)."""
-        old = self._peer_name_for_key(public_key)
-        if old is None or old == real_name or not is_placeholder_for(old, public_key.lower()):
-            return
+    def _claim_name(self, public_key: str, name: str) -> str:
+        """The peer name to use for a verified advert of ``name`` by ``public_key``.
+
+        A name belongs to the first key seen with it.  Another key advertising
+        the same name gets a distinct name (``Alice (9f3a1c)``) instead of taking
+        over the contact: before, any node could advertise "Alice" with its own
+        key and receive the user's DMs to Alice (and a repeater's saved admin
+        password).  A known key advertising a new name is renamed in place, so a
+        renamed node (or a discovery placeholder) stays one peer.
+        """
+        owner = self._peers.get(name)
+        if (
+            owner is not None
+            and owner.public_key
+            and owner.public_key.lower() != public_key.lower()
+        ):
+            name = f"{name} ({public_key[:6].lower()})"
+        current = self._peer_name_for_key(public_key)
+        if current is not None and current != name:
+            self._rename_peer(current, name)
+        return name
+
+    def _rename_peer(self, old: str, new: str) -> None:
+        """Move a peer and everything keyed by its name (contact, login session,
+        DM thread, saved password) to a new name; the peer_id, and so the DB
+        row, favourite and history, stay the same."""
         peer = self._peers.pop(old)
-        peer.display_name = real_name
-        self._peers[real_name] = peer
+        peer.display_name = new
+        self._peers[new] = peer
+        self._peer_store.add_or_update(peer)
         if self._connected:  # the contact book exists only on a live session
             contact = self._session.contact_book.get_by_name(old)
             if contact is not None:
-                contact.name = real_name
+                contact.name = new
         if old in self._repeater_sessions:
-            self._repeater_sessions[real_name] = self._repeater_sessions.pop(old)
+            self._repeater_sessions[new] = self._repeater_sessions.pop(old)
         for channel in self._channels.values():
             if channel.kind == "dm" and channel.peer_name == old:
-                channel.peer_name = real_name
+                channel.peer_name = new
                 self._channel_store.add_or_update(channel)
         password = self._repeater_password_store.get_password(old)
         if password is not None:
-            self._repeater_password_store.save_password(real_name, password)
+            self._repeater_password_store.save_password(new, password)
             self._repeater_password_store.delete_password(old)
 
     def poll_events(self, limit: int = 50) -> list[MeshEventDict]:
@@ -796,8 +817,8 @@ class MeshcoreClient(MeshcoreService):
                 return
             self._advert_timestamps[public_key] = advert_ts
 
-        if public_key and peer_name not in self._peers:
-            self._replace_placeholder(public_key, peer_name)
+        if public_key:
+            peer_name = self._claim_name(public_key, peer_name)
 
         path_hops = data.get("path_hops") or hops_from_path(
             data.get("inbound_path"), data.get("path_len_encoded")

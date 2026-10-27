@@ -65,6 +65,8 @@ class ContactBook:
             return
         for i, existing in enumerate(self.contacts):
             if existing.name == entry.name:
+                if existing.public_key and existing.public_key != entry.public_key:
+                    return  # never rebind a contact's name to another key
                 existing.public_key = entry.public_key
                 if entry.out_path is not None:
                     existing.out_path = entry.out_path

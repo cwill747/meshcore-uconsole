@@ -196,13 +196,31 @@ def test_advert_renames_discovered_placeholder(tmp_path, monkeypatch) -> None:
     assert client.get_saved_repeater_password("Repeater 13ab5c7e") is None
 
 
-def test_advert_leaves_a_real_name_alone(tmp_path, monkeypatch) -> None:
-    """Only discovery placeholders are renamed; a node changing its name isn't
-    this feature's business."""
+def test_a_renamed_node_stays_one_peer(tmp_path, monkeypatch) -> None:
+    """A verified advert with a new name from a known key renames that peer in
+    place, keeping its favourite and saved password."""
     client = _client(tmp_path, monkeypatch)
     client._process_event_for_peers(advert_event("Bergblick"))
+    client.set_favorite(KEY[:16], True)
+    client._repeater_password_store.save_password("Bergblick", "pw")
+
     client._process_event_for_peers(advert_event("Talblick"))
-    assert "Bergblick" in {p.display_name for p in client.list_peers()}
+
+    (peer,) = client.list_peers()
+    assert peer.display_name == "Talblick" and peer.is_favorite
+    assert client.get_saved_repeater_password("Talblick") == "pw"
+
+
+def test_another_key_cannot_take_over_a_name(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    client._process_event_for_peers(advert_event("Bergblick", KEY))
+    client.set_favorite(KEY[:16], True)
+
+    client._process_event_for_peers(advert_event("Bergblick", OTHER))  # impostor
+
+    peers = {p.display_name: p for p in client.list_peers()}
+    assert peers["Bergblick"].public_key == KEY and peers["Bergblick"].is_favorite
+    assert peers["Bergblick (77cc00)"].public_key == OTHER
 
 
 def test_discovery_updates_a_known_peer_by_key(tmp_path, monkeypatch) -> None:
