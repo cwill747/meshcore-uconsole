@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote, urlencode
+
 import io
 from typing import TYPE_CHECKING
 
@@ -56,6 +58,15 @@ def _abbreviate_key(key: str) -> str:
     if len(key) <= 16:
         return key
     return f"{key[:8]}...{key[-8:]}"
+
+
+def contact_qr_data(node_name: str, public_key: str | None) -> str:
+    """meshcore://contact?name=NAME&key=PUBKEY, with the name URL-encoded: a name
+    containing "&", "=", "#" or spaces otherwise produced a broken link."""
+    query = {"name": node_name}
+    if public_key:
+        query["key"] = public_key
+    return "meshcore://contact?" + urlencode(query, quote_via=quote)
 
 
 class QrCodeDialog(Gtk.Dialog):
@@ -134,10 +145,7 @@ class QrCodeDialog(Gtk.Dialog):
 
     def _build_qr_data(self, node_name: str, public_key: str | None) -> str:
         """Build the QR code data string."""
-        # Format: meshcore://contact?name=NAME&key=PUBKEY
-        if public_key:
-            return f"meshcore://contact?name={node_name}&key={public_key}"
-        return f"meshcore://contact?name={node_name}"
+        return contact_qr_data(node_name, public_key)
 
     def _draw_avatar(
         self,
