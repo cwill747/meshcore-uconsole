@@ -52,6 +52,7 @@ def _propagate_routing_fields(packet_data: dict, handler_data: dict) -> None:
 # Upper bound for a blocking radio call without its own timeout (a DM waits for
 # listen-before-talk, airtime and the ACK).
 RUN_ASYNC_CAP_S = 60.0
+CONNECT_TIMEOUT_S = 30.0
 
 
 async def _no_system_exit(coro: object) -> object:
@@ -88,6 +89,7 @@ class MeshcoreClient(MeshcoreService):
         gps_provider: GpsProvider | None = None,
     ) -> None:
         self._connected = False
+        self._connect_lock = threading.RLock()
         self._event_notify: Callable[[], None] | None = None
         # deque: worker threads append while the GTK thread drains it
         self._event_buffer: deque[MeshEventDict] = deque()
@@ -205,6 +207,12 @@ class MeshcoreClient(MeshcoreService):
         self._loop_thread = None
 
     def connect(self) -> None:
+        # Serialised: Send, Advert, Discover and Admin connect implicitly from
+        # worker threads, and two concurrent starts initialised the radio twice.
+        with self._connect_lock:
+            self._connect_locked()
+
+    def _connect_locked(self) -> None:
         if not self._openhop_available:
             raise RuntimeError(
                 "openhop_core is not installed. Run in mock mode or install openhop_core."
@@ -227,12 +235,18 @@ class MeshcoreClient(MeshcoreService):
 
         try:
             # (a sys.exit() from openhop_core's GPIO code arrives as RuntimeError,
-            # see _no_system_exit)
-            self._run_async(self._session.start(), timeout=8.0)
+            # see _no_system_exit).  The timeout covers start()'s own radio.begin()
+            # retries (2 + 4 + 6 s of back-off plus four init attempts).
+            self._run_async(self._session.start(), timeout=CONNECT_TIMEOUT_S)
         except Exception:
-            # Recover from partial startup by creating a clean session for next attempt.
-            self._session = self._new_session()
+            # Recover from partial startup with a clean session for the next
+            # attempt, releasing the GPIO lines/SPI the failed one may hold.
+            failed, self._session = self._session, self._new_session()
             self._connected = False
+            try:
+                self._run_async(failed.stop(), timeout=10.0)
+            except Exception:  # noqa: BLE001
+                pass
             raise
         self._connected = True
         self._session.set_is_favorite_fn(self._is_peer_favorite)
@@ -244,6 +258,10 @@ class MeshcoreClient(MeshcoreService):
         )
 
     def disconnect(self) -> None:
+        with self._connect_lock:
+            self._disconnect_locked()
+
+    def _disconnect_locked(self) -> None:
         runtime_connected = bool(self._session.status().get("connected"))
         if self._connected or runtime_connected:
             try:

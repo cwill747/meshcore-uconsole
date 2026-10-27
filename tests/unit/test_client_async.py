@@ -64,3 +64,54 @@ def test_inner_timeout_still_applies(tmp_path, monkeypatch) -> None:
     with pytest.raises(TimeoutError):
         client._run_async(asyncio.sleep(5), timeout=0.1)
     client._shutdown_loop()
+
+
+def test_concurrent_connects_start_the_radio_once(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    client._openhop_available = True
+    client._config.hardware = None  # no preflight probing of real GPIO
+    starts: list[int] = []
+    original_start = client._session.start
+
+    async def slow_start() -> None:
+        starts.append(1)
+        await asyncio.sleep(0.2)
+        await original_start()
+
+    monkeypatch.setattr(client._session, "start", slow_start)
+    monkeypatch.setattr(client._gps_provider, "start", lambda: None)
+    # post-connect hooks the mock session doesn't implement
+    for hook in ("set_is_favorite_fn", "set_telemetry_data_fn"):
+        monkeypatch.setattr(client._session, hook, lambda _fn: None, raising=False)
+    monkeypatch.setattr(client, "_seed_contact_book", lambda: None)
+    threads = [threading.Thread(target=client.connect) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert len(starts) == 1 and client._connected
+    client._shutdown_loop()
+
+
+def test_failed_connect_stops_the_half_started_session(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    client._openhop_available = True
+    client._config.hardware = None
+    failed = client._session
+    stopped: list[int] = []
+
+    async def broken_start() -> None:
+        raise RuntimeError("radio.begin() returned False")
+
+    async def stop() -> None:
+        stopped.append(1)
+
+    monkeypatch.setattr(failed, "start", broken_start)
+    monkeypatch.setattr(failed, "stop", stop)
+    monkeypatch.setattr(client, "_new_session", lambda: failed.__class__(failed.config))
+
+    with pytest.raises(RuntimeError):
+        client.connect()
+    assert stopped == [1] and client._session is not failed and not client._connected
+    client._shutdown_loop()
