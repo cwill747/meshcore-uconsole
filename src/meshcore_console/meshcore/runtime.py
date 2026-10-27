@@ -34,6 +34,9 @@ def import_openhop_core() -> tuple[
     return SX1262Radio, EventService, EventSubscriber, MeshNode, LocalIdentity  # type: ignore[return-value]
 
 
+MESHCORE_SYNC_WORD = 0x1424
+
+
 def create_radio(
     sx1262_radio_type: type[SX1262RadioProtocol],
     config: HardwareRadioConfig,
@@ -54,6 +57,12 @@ def create_radio(
         "bandwidth": config.bandwidth,
         "coding_rate": config.coding_rate,
         "preamble_length": config.preamble_length,
+        # MeshCore's private LoRa sync word 0x12, as the SX126x register value.
+        # openhop_core's default is 0x3444 (public LoRaWAN); it isn't written
+        # today (setSyncWord's register write is commented out in 1.1.3), so the
+        # chip keeps its reset value 0x1424, which happens to be MeshCore's.
+        # Pass it explicitly so a fixed setSyncWord can't make the radio deaf.
+        "sync_word": MESHCORE_SYNC_WORD,
         "is_waveshare": config.is_waveshare,
         "gpio_chip": config.gpio_chip,
         "use_gpiod_backend": config.use_gpiod_backend,
