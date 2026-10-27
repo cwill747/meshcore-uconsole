@@ -475,7 +475,9 @@ class AdminView(Gtk.Box):
             self._guest_btn.set_sensitive(False)
             self._password_entry.set_sensitive(False)
             self._logout_btn.set_sensitive(True)
-            self._set_cli_sensitive(True)
+            # The repeater only runs CLI commands for admin sessions (firmware
+            # checks isAdmin()); a guest's commands just timed out.
+            self._set_cli_sensitive(state.is_admin)
 
     def _set_cli_sensitive(self, sensitive: bool) -> None:
         self._cmd_entry.set_sensitive(sensitive)
