@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import threading
 from collections import deque
@@ -46,6 +47,28 @@ def _propagate_routing_fields(packet_data: dict, handler_data: dict) -> None:
         val = packet_data.get(key)
         if val is not None and handler_data.get(key) is None:
             handler_data[key] = list(val) if isinstance(val, list) else val
+
+
+# Upper bound for a blocking radio call without its own timeout (a DM waits for
+# listen-before-talk, airtime and the ACK).
+RUN_ASYNC_CAP_S = 60.0
+
+
+async def _no_system_exit(coro: object) -> object:
+    """openhop_core calls sys.exit() on fatal GPIO errors.  Raised inside a task
+    that would stop the whole event loop thread; turn it into an error instead."""
+    try:
+        return await coro  # type: ignore[misc]
+    except SystemExit as exc:
+        raise RuntimeError(f"Radio hardware error (exit code {exc.code})") from exc
+
+
+async def _cancel_pending_tasks() -> None:
+    current = asyncio.current_task()
+    tasks = [task for task in asyncio.all_tasks() if task is not current]
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class MeshcoreClient(MeshcoreService):
@@ -140,16 +163,39 @@ class MeshcoreClient(MeshcoreService):
         return loop
 
     def _run_async(self, coro: object, *, timeout: float | None = None) -> object:
-        """Submit a coroutine to the persistent loop and block for its result."""
+        """Submit a coroutine to the persistent loop and block for its result.
+
+        The wait always ends: ``timeout`` (or RUN_ASYNC_CAP_S) is also enforced
+        on this side, because a ``wait_for`` inside the loop never fires once
+        the loop has been stopped by a disconnect.
+        """
         loop = self._ensure_loop()
         if timeout is not None:
             coro = asyncio.wait_for(coro, timeout=timeout)  # type: ignore[arg-type]
-        future = asyncio.run_coroutine_threadsafe(coro, loop)  # type: ignore[arg-type]
-        return future.result()
+        future = asyncio.run_coroutine_threadsafe(_no_system_exit(coro), loop)  # type: ignore[arg-type]
+        deadline = (timeout + 5.0) if timeout is not None else RUN_ASYNC_CAP_S
+        try:
+            return future.result(timeout=deadline)
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            raise TimeoutError(f"radio operation did not finish within {deadline:.0f}s") from exc
+        except concurrent.futures.CancelledError as exc:
+            raise RuntimeError("cancelled: the radio was disconnected") from exc
 
     def _shutdown_loop(self) -> None:
-        """Stop the persistent event loop and join the thread."""
+        """Cancel pending work, stop the persistent event loop and join the thread.
+
+        Cancelling first resolves the futures callers are blocked on; stopping
+        the loop with tasks still pending left those callers waiting forever
+        (Discover "still listening", Admin busy, Telemetry "Requesting...").
+        """
         if self._loop is not None and self._loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(_cancel_pending_tasks(), self._loop).result(
+                    timeout=3.0
+                )
+            except Exception:  # noqa: BLE001
+                pass  # best effort; stopping the loop below still happens
             self._loop.call_soon_threadsafe(self._loop.stop)
         if self._loop_thread is not None:
             self._loop_thread.join(timeout=3.0)
@@ -180,13 +226,9 @@ class MeshcoreClient(MeshcoreService):
                 raise ConflictError(report)
 
         try:
+            # (a sys.exit() from openhop_core's GPIO code arrives as RuntimeError,
+            # see _no_system_exit)
             self._run_async(self._session.start(), timeout=8.0)
-        except SystemExit as exc:
-            # openhop_core calls sys.exit() on fatal GPIO errors.  Convert to
-            # RuntimeError so the UI can show the failure instead of crashing.
-            self._session = self._new_session()
-            self._connected = False
-            raise RuntimeError(f"Radio hardware init failed (exit code {exc.code})") from exc
         except Exception:
             # Recover from partial startup by creating a clean session for next attempt.
             self._session = self._new_session()
