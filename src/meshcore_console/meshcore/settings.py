@@ -118,7 +118,8 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool | str]] = {
         "en_pins": "",
     },
     # Same wiring as the plain uConsole board, plus the LoRa power-enable pin
-    # that the HackerGadgets AIOv2 puts on GPIO 27 (#85).
+    # that the HackerGadgets AIOv2 puts on GPIO 16.  GPIO 27 is its GPS rail
+    # (HackerGadgets' aiov2_ctl: GPS=27, LORA=16; UConsoleGps enables GPS on 27).
     "hg-aiov2": {
         "bus_id": 1,
         "cs_id": 0,
@@ -131,7 +132,7 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool | str]] = {
         "is_waveshare": False,
         "use_dio2_rf": True,
         "use_dio3_tcxo": True,
-        "en_pins": "27",
+        "en_pins": "16",
     },
     "waveshare": {
         "bus_id": 0,
