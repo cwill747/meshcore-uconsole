@@ -7,12 +7,12 @@ import os
 import time
 from typing import Any
 
-from meshcore_console.meshcore.config import load_runtime_config
+from meshcore_console.meshcore.config import RuntimeRadioConfig, runtime_config_from_settings
 from meshcore_console.meshcore.session import OpenHopCoreSession
 
 
 def _add_global_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--node-name", default="uconsole-node", help="Mesh node name")
+    p.add_argument("--node-name", default=None, help="Mesh node name (default: the saved one)")
     p.add_argument(
         "--debug",
         dest="debug",
@@ -68,6 +68,24 @@ def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: igno
         default=None,
         help="Write logs to file (default: stdout)",
     )
+
+
+def load_saved_runtime_config(node_name: str | None = None) -> RuntimeRadioConfig:
+    """The saved settings with the environment on top, exactly what the GTK app
+    uses.  listen/send/advert used built-in defaults instead (910.525 MHz, SF7,
+    gpiochip 0, node name "uconsole-node") while using the node's real identity,
+    so an `advert` could rename the node mesh-wide on the wrong frequency."""
+    from meshcore_console.meshcore.db import open_db
+    from meshcore_console.meshcore.settings_store import SettingsStore
+
+    conn = open_db()
+    try:
+        settings = SettingsStore(conn).load()
+    finally:
+        conn.close()
+    if node_name:
+        settings.node_name = node_name
+    return runtime_config_from_settings(settings)
 
 
 def _doctor_hardware_config() -> Any:
@@ -295,7 +313,7 @@ async def _async_main(args: argparse.Namespace) -> int:
         _debug(args.debug, "running doctor checks")
         return _doctor()
 
-    config = load_runtime_config(node_name=args.node_name)
+    config = load_saved_runtime_config(node_name=args.node_name)
     session = OpenHopCoreSession(config, logger=lambda msg: _debug(args.debug, f"session: {msg}"))
 
     if args.command == "listen":
