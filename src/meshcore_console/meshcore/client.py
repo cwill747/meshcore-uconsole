@@ -1139,8 +1139,12 @@ class MeshcoreClient(MeshcoreService):
         self._repeater_password_store.delete_password(peer_name)
 
     def _get_local_telemetry(self) -> dict:
-        """Provide local telemetry data for inbound requests."""
-        pos = self._resolve_position(use_settings=self._settings.allow_telemetry)
+        """Provide local telemetry data for inbound requests.
+
+        The position goes out only when the user shares it (the same switch
+        adverts use); otherwise any node could ask where this device is.
+        """
+        pos = self._resolve_position() if self._settings.share_position else None
         return {
             "allow": self._settings.allow_telemetry,
             "favorites_only": self._settings.telemetry_favorites_only,
