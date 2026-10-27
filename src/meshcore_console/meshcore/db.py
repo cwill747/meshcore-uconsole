@@ -102,6 +102,14 @@ MIGRATIONS: list[tuple[str, ...]] = [
     # The ALTER runs in _add_region_scope_column() so it stays idempotent
     # when schema_version is behind the actual schema.
     (),
+    # v8 -> v9: DM threads move to their own id namespace ("dm:<name>"); they
+    # used to share ids with group channels of the same name.
+    (
+        "UPDATE messages SET channel_id = 'dm:' || channel_id WHERE channel_id IN "
+        "(SELECT channel_id FROM channels WHERE kind = 'dm' AND channel_id NOT LIKE 'dm:%')",
+        "UPDATE channels SET channel_id = 'dm:' || channel_id "
+        "WHERE kind = 'dm' AND channel_id NOT LIKE 'dm:%'",
+    ),
 ]
 
 

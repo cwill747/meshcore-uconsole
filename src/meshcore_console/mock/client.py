@@ -9,7 +9,15 @@ from typing import Callable
 from uuid import uuid4
 
 from meshcore_console.core.enums import EventType, PayloadType
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
+from meshcore_console.core.models import (
+    DM_PREFIX,
+    Channel,
+    DeviceStatus,
+    Message,
+    Peer,
+    RepeaterLoginState,
+    dm_channel_id,
+)
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.region import normalize_region_scope
@@ -82,24 +90,38 @@ class MockMeshcoreClient(MeshcoreService):
             self._channels["public"] = channel
         return sorted(self._channels.values(), key=lambda c: c.display_name.lower())
 
+    def ensure_dm_channel(self, peer_name: str) -> Channel:
+        channel_id = dm_channel_id(peer_name)
+        if channel_id not in self._channels:
+            self._channels[channel_id] = Channel(
+                channel_id=channel_id,
+                display_name=peer_name,
+                unread_count=0,
+                peer_name=peer_name,
+                kind="dm",
+            )
+        return self._channels[channel_id]
+
     def ensure_channel(self, channel_id: str, display_name: str | None = None) -> Channel:
-        """Ensure a channel exists, creating it if necessary."""
+        """Ensure a channel exists, creating it if necessary (same rules as the real client)."""
+        if channel_id in self._channels:
+            return self._channels[channel_id]
+        if channel_id.startswith(DM_PREFIX):
+            return self.ensure_dm_channel(display_name or channel_id[len(DM_PREFIX) :])
         is_group = (
             channel_id == "public"
             or channel_id.startswith("#")
             or (display_name is not None and display_name.startswith("#"))
         )
-        normalized_id = channel_id if is_group else channel_id.lower()
-        if normalized_id in self._channels:
-            return self._channels[normalized_id]
+        if not is_group:
+            return self.ensure_dm_channel(channel_id)
         channel = Channel(
-            channel_id=normalized_id,
-            display_name=display_name or (f"#{channel_id}" if is_group else channel_id),
+            channel_id=channel_id,
+            display_name=display_name or f"#{channel_id}",
             unread_count=0,
-            peer_name=channel_id if not is_group else None,
-            kind="group" if is_group else "dm",
+            kind="group",
         )
-        self._channels[normalized_id] = channel
+        self._channels[channel_id] = channel
         return channel
 
     def import_channel(self, channel_id: str, display_name: str, secret: str) -> Channel:
@@ -157,20 +179,8 @@ class MockMeshcoreClient(MeshcoreService):
             self._channel_scopes[channel_id] = normalized
 
     def send_message(self, peer_id: str, body: str) -> Message:
-        existing = self._channels.get(peer_id.lower()) or self._channels.get(peer_id)
-        if existing is not None:
-            is_group = existing.kind == "group"
-        else:
-            is_group = peer_id == "public" or peer_id.startswith("#")
-        channel_id = peer_id if is_group else peer_id.lower()
-        if channel_id not in self._channels:
-            display = f"#{channel_id}" if is_group else peer_id
-            self._channels[channel_id] = Channel(
-                channel_id=channel_id,
-                display_name=display,
-                peer_name=peer_id if not is_group else None,
-                kind="group" if is_group else "dm",
-            )
+        channel = self._channels.get(peer_id) or self.ensure_channel(peer_id)
+        channel_id = channel.channel_id
         message = Message(
             message_id=str(uuid4()),
             sender_id=self._settings.node_name,
@@ -428,7 +438,7 @@ class MockMeshcoreClient(MeshcoreService):
 
         is_direct = payload_type_name == PayloadType.TXT_MSG
         if is_direct:
-            channel_name = sender_name.lower()
+            channel_name = dm_channel_id(sender_name)
         else:
             channel_name = (data.get("channel_name") or "public").lower()
 

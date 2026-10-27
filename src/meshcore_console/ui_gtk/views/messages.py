@@ -861,6 +861,10 @@ class MessagesView(Gtk.Box):
         self._send_status.set_text(f"Sent to {display}")
         self._reload_messages()
 
+    def select_dm(self, peer_name: str) -> None:
+        """Open the DM thread with a peer (from the Peers and Map views)."""
+        self.select_channel(self._service.ensure_dm_channel(peer_name).channel_id)
+
     def select_channel(self, channel_id: str) -> None:
         """Select a channel programmatically (for direct messaging from peers view)."""
         # Ensure the channel exists in the service before trying to select it

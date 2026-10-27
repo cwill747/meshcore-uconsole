@@ -203,23 +203,23 @@ def test_import_channel_updates_existing_row_case_insensitively(tmp_path, monkey
     assert db.get_channel("Emergency")["secret"] == new_secret
 
 
-def test_import_channel_rejects_name_colliding_with_dm(tmp_path, monkeypatch) -> None:
-    """Adding #ops while a DM with peer 'ops' exists must not silently
-    convert the DM into a group channel."""
+def test_import_channel_coexists_with_a_dm_of_the_same_name(tmp_path, monkeypatch) -> None:
+    """DM threads have their own id namespace ("dm:<name>"), so adding #ops while
+    a DM with peer 'ops' exists creates the group without touching the DM."""
     client, _db_conn = _client(tmp_path, monkeypatch, "dmcollide.db")
-    client.ensure_channel("ops", "ops")  # a DM
+    client.ensure_channel("ops", "ops")  # a DM (bare peer name)
 
-    with pytest.raises(ValueError, match="direct message"):
-        client.import_channel("ops", "#ops", "00112233445566778899aabbccddeeff")
+    client.import_channel("ops", "#ops", "00112233445566778899aabbccddeeff")
 
-    assert client._channels["ops"].kind == "dm"
+    assert client._channels["dm:ops"].kind == "dm"
+    assert client._channels["ops"].kind == "group"
 
 
-def test_mock_client_import_channel_rejects_name_colliding_with_dm() -> None:
+def test_mock_client_import_channel_coexists_with_a_dm_of_the_same_name() -> None:
     from meshcore_console.mock.client import MockMeshcoreClient
 
     client = MockMeshcoreClient()
     client.ensure_channel("alice", "alice")
-    with pytest.raises(ValueError, match="direct message"):
-        client.import_channel("alice", "#alice", "00112233445566778899aabbccddeeff")
-    assert client._channels["alice"].kind == "dm"
+    client.import_channel("alice", "#alice", "00112233445566778899aabbccddeeff")
+    assert client._channels["dm:alice"].kind == "dm"
+    assert client._channels["alice"].kind == "group"

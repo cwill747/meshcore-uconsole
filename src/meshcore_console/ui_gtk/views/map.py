@@ -630,4 +630,4 @@ class MapView(Gtk.Box):
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Navigate to messages view and start a conversation with this peer."""
-        navigate(self, "messages", ("select_channel", peer.display_name))
+        navigate(self, "messages", ("select_dm", peer.display_name))

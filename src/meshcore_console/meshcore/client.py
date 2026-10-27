@@ -10,7 +10,15 @@ from typing import Callable
 from uuid import uuid4
 
 from meshcore_console.core.enums import EventType, PayloadType
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
+from meshcore_console.core.models import (
+    DM_PREFIX,
+    Channel,
+    DeviceStatus,
+    Message,
+    Peer,
+    RepeaterLoginState,
+    dm_channel_id,
+)
 from meshcore_console.core.radio import rssi_to_signal_percent
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.types import MeshEventDict, SendResultDict
@@ -318,31 +326,47 @@ class MeshcoreClient(MeshcoreService):
             self._channel_store.add_or_update(channel)
         return sorted(self._channels.values(), key=lambda c: c.display_name.lower())
 
+    def ensure_dm_channel(self, peer_name: str) -> Channel:
+        """The DM thread with ``peer_name``, created if necessary."""
+        channel_id = dm_channel_id(peer_name)
+        channel = self._channels.get(channel_id)
+        if channel is None:
+            channel = Channel(
+                channel_id=channel_id,
+                display_name=peer_name,
+                unread_count=0,
+                peer_name=peer_name,
+                kind="dm",
+            )
+            self._channels[channel_id] = channel
+            self._channel_store.add_or_update(channel)
+        return channel
+
     def ensure_channel(self, channel_id: str, display_name: str | None = None) -> Channel:
         """Ensure a channel exists, creating it if necessary."""
+        if channel_id in self._channels:
+            return self._channels[channel_id]
+        if channel_id.startswith(DM_PREFIX):
+            return self.ensure_dm_channel(display_name or channel_id[len(DM_PREFIX) :])
         is_group = (
             channel_id == "public"
             or channel_id.startswith("#")
             or (display_name is not None and display_name.startswith("#"))
         )
-        # DM channel IDs are always lowercase for consistency
-        normalized_id = channel_id if is_group else channel_id.lower()
-        if normalized_id in self._channels:
-            return self._channels[normalized_id]
+        if not is_group:
+            return self.ensure_dm_channel(channel_id)  # a bare peer name
         channel = Channel(
-            channel_id=normalized_id,
-            display_name=display_name or (f"#{channel_id}" if is_group else channel_id),
+            channel_id=channel_id,
+            display_name=display_name or f"#{channel_id}",
             unread_count=0,
-            peer_name=channel_id if not is_group else None,
-            kind="group" if is_group else "dm",
+            kind="group",
         )
-        self._channels[normalized_id] = channel
+        self._channels[channel_id] = channel
         self._channel_store.add_or_update(channel)
-        if is_group:
-            # Hashtag channels need a row in channel_secrets or openhop_core cannot
-            # encrypt for them at send time and cannot match them at receive
-            # time (issue #81).
-            self._ensure_channel_secret(channel)
+        # Hashtag channels need a row in channel_secrets or openhop_core cannot
+        # encrypt for them at send time and cannot match them at receive
+        # time (issue #81).
+        self._ensure_channel_secret(channel)
         return channel
 
     def import_channel(self, channel_id: str, display_name: str, secret: str) -> Channel:
@@ -437,25 +461,11 @@ class MeshcoreClient(MeshcoreService):
         if not self._connected:
             self.connect()
 
-        # Look up existing channel to determine kind; fall back to string heuristic
-        # for channels not yet in the store (e.g. first DM send).
-        existing = self._channels.get(peer_id.lower()) or self._channels.get(peer_id)
-        if existing is not None:
-            is_group = existing.kind == "group"
-        else:
-            is_group = peer_id == "public" or peer_id.startswith("#")
-        # DM channel IDs are always lowercase to match _process_message_event
-        channel_id = peer_id if is_group else peer_id.lower()
-        if channel_id not in self._channels:
-            display = f"#{channel_id}" if is_group else peer_id
-            channel = Channel(
-                channel_id=channel_id,
-                display_name=display,
-                peer_name=peer_id if not is_group else None,
-                kind="group" if is_group else "dm",
-            )
-            self._channels[channel_id] = channel
-            self._channel_store.add_or_update(channel)
+        # ``peer_id`` is a channel id ("public", "ops", "dm:bob"); a bare peer
+        # name means that peer's DM thread, never a group that shares the name.
+        channel = self._channels.get(peer_id) or self.ensure_channel(peer_id)
+        is_group = channel.kind == "group"
+        channel_id = channel.channel_id
 
         if is_group:
             # Ensure a secret exists and resolve the name openhop_core knows the
@@ -471,8 +481,7 @@ class MeshcoreClient(MeshcoreService):
         else:
             # Use the original-case peer name from the channel so openhop_core
             # can find the contact in the contact book (case-sensitive lookup).
-            channel = self._channels.get(channel_id)
-            resolved_name = (channel.peer_name or channel.display_name) if channel else peer_id
+            resolved_name = channel.peer_name or channel.display_name
             self._run_async(self._session.send_text(peer_name=resolved_name, message=body))
         message = Message(
             message_id=str(uuid4()),
@@ -603,6 +612,8 @@ class MeshcoreClient(MeshcoreService):
         for channel in self._channels.values():
             if channel.kind == "dm" and channel.peer_name == old:
                 channel.peer_name = new
+                if channel.display_name == old:
+                    channel.display_name = new
                 self._channel_store.add_or_update(channel)
         password = self._repeater_password_store.get_password(old)
         if password is not None:
@@ -989,11 +1000,7 @@ class MeshcoreClient(MeshcoreService):
             or event_type == EventType.MESH_MESSAGE_NEW
             or not data.get("channel_name")
         )
-        if is_direct:
-            raw_channel = sender_name
-        else:
-            raw_channel = data["channel_name"]
-        channel_name = raw_channel.lower()
+        channel_name = dm_channel_id(sender_name) if is_direct else data["channel_name"].lower()
         # Preserve the original-case sender name so we can resolve contacts later.
         peer_display_name = sender_name if is_direct else None
 

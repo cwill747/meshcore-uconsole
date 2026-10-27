@@ -9,28 +9,28 @@ def test_dm_send_and_receive_use_same_channel() -> None:
 
     # Send a DM to "Alice" (mixed case)
     msg = client.send_message("Alice", "hello")
-    assert msg.channel_id == "alice", "DM channel_id should be lowercased"
+    assert msg.channel_id == "dm:alice", "DM threads use dm:<lowercased name>"
 
     # Verify channel exists with lowercase id
     channels = {ch.channel_id: ch for ch in client.list_channels()}
-    assert "alice" in channels
-    assert channels["alice"].display_name == "Alice"
-    assert channels["alice"].peer_name == "Alice"
+    assert "dm:alice" in channels
+    assert channels["dm:alice"].display_name == "Alice"
+    assert channels["dm:alice"].peer_name == "Alice"
 
     # Simulate receiving a reply — _process_message_event lowercases the channel
     # In mock mode, we directly verify via list_messages_for_channel
-    messages = client.list_messages_for_channel("alice")
+    messages = client.list_messages_for_channel("dm:alice")
     assert len(messages) == 1
     assert messages[0].body == "hello"
 
     # Sending again to the same peer should reuse the channel
     client.send_message("Alice", "second message")
-    messages = client.list_messages_for_channel("alice")
+    messages = client.list_messages_for_channel("dm:alice")
     assert len(messages) == 2
 
 
 def test_dm_ensure_channel_normalizes_case() -> None:
-    """ensure_channel should normalize DM channel IDs to lowercase."""
+    """ensure_channel should map any case of a peer name to one DM thread."""
     client = MockMeshcoreClient()
 
     ch1 = client.ensure_channel("Alice")
@@ -38,12 +38,12 @@ def test_dm_ensure_channel_normalizes_case() -> None:
     ch3 = client.ensure_channel("ALICE")
 
     # All should resolve to the same channel
-    assert ch1.channel_id == "alice"
-    assert ch2.channel_id == "alice"
-    assert ch3.channel_id == "alice"
+    assert ch1.channel_id == "dm:alice"
+    assert ch2.channel_id == "dm:alice"
+    assert ch3.channel_id == "dm:alice"
 
     # Only one channel should exist for Alice
-    dm_channels = [ch for ch in client.list_channels() if ch.channel_id == "alice"]
+    dm_channels = [ch for ch in client.list_channels() if ch.channel_id == "dm:alice"]
     assert len(dm_channels) == 1
 
 
@@ -63,13 +63,13 @@ def test_remove_channel() -> None:
     client = MockMeshcoreClient()
 
     client.send_message("Alice", "hello")
-    assert any(ch.channel_id == "alice" for ch in client.list_channels())
-    assert len(client.list_messages_for_channel("alice")) == 1
+    assert any(ch.channel_id == "dm:alice" for ch in client.list_channels())
+    assert len(client.list_messages_for_channel("dm:alice")) == 1
 
-    result = client.remove_channel("alice")
+    result = client.remove_channel("dm:alice")
     assert result is True
-    assert not any(ch.channel_id == "alice" for ch in client.list_channels())
-    assert len(client.list_messages_for_channel("alice")) == 0
+    assert not any(ch.channel_id == "dm:alice" for ch in client.list_channels())
+    assert len(client.list_messages_for_channel("dm:alice")) == 0
 
 
 def test_remove_public_channel_blocked() -> None:

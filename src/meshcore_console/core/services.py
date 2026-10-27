@@ -55,6 +55,10 @@ class MeshcoreService(Protocol):
 
     def send_message(self, peer_id: str, body: str) -> Message: ...
 
+    def ensure_dm_channel(self, peer_name: str) -> Channel:
+        """The DM thread with ``peer_name`` (channel id ``dm:<name>``), created if needed."""
+        ...
+
     def send_advert(
         self, name: str | None = None, *, route_type: str = "flood"
     ) -> SendResultDict: ...
