@@ -6,7 +6,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import GLib, Gio, Gtk
+from gi.repository import GLib, Gtk
 
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.config import hardware_env_overrides, parse_pin_list
@@ -22,6 +22,7 @@ from meshcore_console.meshcore.settings import (
     apply_hardware_preset,
     apply_preset,
 )
+from meshcore_console.ui_gtk.compat import choose_save_path
 from meshcore_console.ui_gtk.widgets.qr_dialog import QrCodeDialog
 
 logger = logging.getLogger(__name__)
@@ -450,28 +451,19 @@ class SettingsView(Gtk.Box):
         from datetime import datetime, timezone
 
         ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Export Logs")
-        dialog.set_initial_name(f"meshcore-logs-{ts}.txt")
-        txt_filter = Gtk.FileFilter()
-        txt_filter.set_name("Text files")
-        txt_filter.add_pattern("*.txt")
-        filters = Gio.ListStore.new(Gtk.FileFilter)
-        filters.append(txt_filter)
-        dialog.set_filters(filters)
-
         window = self.get_root()
         parent = window if isinstance(window, Gtk.Window) else None
-        dialog.save(parent, None, self._on_export_save_done)
+        choose_save_path(
+            parent,
+            "Export Logs",
+            f"meshcore-logs-{ts}.txt",
+            ("Text files", "*.txt"),
+            self._on_export_path_chosen,
+        )
 
-    def _on_export_save_done(self, dialog: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
-        try:
-            gfile = dialog.save_finish(result)
-        except Exception:  # noqa: BLE001
-            return  # user cancelled
-        dest = gfile.get_path()
+    def _on_export_path_chosen(self, dest: str | None) -> None:
         if not dest:
-            return
+            return  # user cancelled
         try:
             export_logs_to_path(dest)
             self._status_label.set_text(f"Logs exported to {dest}")
