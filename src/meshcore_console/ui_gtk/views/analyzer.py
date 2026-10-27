@@ -232,7 +232,8 @@ class AnalyzerView(Gtk.Box):
         # Keep collecting while paused (only rendering stops): the event store
         # keeps a bounded window, so a paused cursor fell behind and the
         # packets received meanwhile were skipped on resume.
-        self._cursor, events = self._event_store.since(self._cursor, limit=200)
+        # the whole store window (500): a smaller limit dropped the oldest of a burst
+        self._cursor, events = self._event_store.since(self._cursor, limit=500)
         if not events:
             return True
         if self._geom_debug:

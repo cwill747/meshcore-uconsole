@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
@@ -35,7 +36,7 @@ class MockMeshcoreClient(MeshcoreService):
         self._gps_provider = MockGps()
         self._connected = True
         self._event_notify: Callable[[], None] | None = None
-        self._event_buffer: list[dict] = []
+        self._event_buffer: deque[dict] = deque()
         self._event_history: list[dict] = []
 
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
@@ -230,16 +231,13 @@ class MockMeshcoreClient(MeshcoreService):
         except (RuntimeError, OSError):
             pass
 
-        if self._event_buffer:
-            events.extend(self._event_buffer)
-            self._event_buffer.clear()
+        while self._event_buffer:
+            events.append(self._event_buffer.popleft())
 
         for event in events:
             self._append_history(event)
             self._process_event_for_messages(event)
 
-        if len(events) > limit:
-            return events[-limit:]
         return events
 
     def list_recent_events(self, limit: int = 50) -> list[dict]:

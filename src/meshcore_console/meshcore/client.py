@@ -66,7 +66,8 @@ class MeshcoreClient(MeshcoreService):
     ) -> None:
         self._connected = False
         self._event_notify: Callable[[], None] | None = None
-        self._event_buffer: list[MeshEventDict] = []
+        # deque: worker threads append while the GTK thread drains it
+        self._event_buffer: deque[MeshEventDict] = deque()
         self._event_history: list[MeshEventDict] = []
         # Cross-batch queues for enriching packet events with handler data.
         # The raw packet callback fires before handler decryption, so these
@@ -521,9 +522,8 @@ class MeshcoreClient(MeshcoreService):
                 events.extend(drained)
         except (RuntimeError, OSError) as exc:
             logger.debug("drain_events error: %s", exc)
-        if self._event_buffer:
-            events.extend(self._event_buffer)
-            self._event_buffer.clear()
+        while self._event_buffer:  # popleft is atomic; extend()+clear() lost appends
+            events.append(self._event_buffer.popleft())
 
         # Enrich packet events with sender names before processing/persisting
         self._enrich_sender_names(events)
@@ -539,8 +539,8 @@ class MeshcoreClient(MeshcoreService):
                     # Log but don't let storage failures break event processing
                     logger.warning("packet_store error: %s: %s", type(exc).__name__, exc)
 
-        if len(events) > limit:
-            return events[-limit:]
+        # Every event here was drained and processed: hand all of them to the
+        # UI (``limit`` only bounds the drain), or a burst loses its oldest ones.
         return events
 
     def _build_peer_lookup(self) -> dict[str, str]:
