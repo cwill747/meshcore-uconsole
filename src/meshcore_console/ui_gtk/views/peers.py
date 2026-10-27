@@ -326,8 +326,12 @@ class PeersView(Gtk.Box):
         if cached is not None:
             self._render_telemetry(cached)
 
-        # === Action buttons ===
-        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        # === Action buttons === (wrap rather than widen the window)
+        actions = Gtk.FlowBox()
+        actions.set_selection_mode(Gtk.SelectionMode.NONE)
+        actions.set_column_spacing(8)
+        actions.set_row_spacing(8)
+        actions.set_max_children_per_line(3)
         actions.set_margin_top(16)
 
         fav_label = "☆ Favorite" if not peer.is_favorite else "★ Unfavorite"

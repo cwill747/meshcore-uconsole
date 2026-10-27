@@ -75,6 +75,16 @@ class AnalyzerView(Gtk.Box):
         toolbar.add_css_class("analyzer-toolbar")
         self.append(toolbar)
 
+        # The filters scroll sideways instead of widening the window past a
+        # 1024 px screen.
+        filters = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        filter_scroll = Gtk.ScrolledWindow()
+        filter_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        filter_scroll.set_propagate_natural_width(True)
+        filter_scroll.set_hexpand(True)
+        filter_scroll.set_child(filters)
+        toolbar.append(filter_scroll)
+
         self._filter_buttons: dict[AnalyzerFilter, Gtk.ToggleButton] = {}
         for filter_type in AnalyzerFilter:
             button = Gtk.ToggleButton.new_with_label(filter_type.value)
@@ -82,7 +92,7 @@ class AnalyzerView(Gtk.Box):
             button.add_css_class(f"filter-{self._type_class(filter_type.value)}")
             button.connect("clicked", self._on_filter_clicked, filter_type)
             self._filter_buttons[filter_type] = button
-            toolbar.append(button)
+            filters.append(button)
         self._filter_buttons[AnalyzerFilter.ALL].set_active(True)
 
         # Dedupe toggle
@@ -90,12 +100,7 @@ class AnalyzerView(Gtk.Box):
         self._dedupe_btn.add_css_class("analyzer-filter")
         self._dedupe_btn.set_tooltip_text("Hide duplicate packets (same hash, different hops)")
         self._dedupe_btn.connect("toggled", self._on_dedupe_toggled)
-        toolbar.append(self._dedupe_btn)
-
-        # Spacer to push play/pause to the right
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        toolbar.append(spacer)
+        filters.append(self._dedupe_btn)
 
         # Play/pause toggle button with icon
         self._pause = Gtk.ToggleButton()

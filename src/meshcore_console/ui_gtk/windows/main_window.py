@@ -89,6 +89,10 @@ class MainWindow(Adw.ApplicationWindow):
         self._stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self._stack.set_hexpand(True)
         self._stack.set_vexpand(True)
+        # Size the window by the visible page, not the largest one: the
+        # uConsole's logical screen is 1024x576.
+        self._stack.set_hhomogeneous(False)
+        self._stack.set_vhomogeneous(False)
         self._stack.add_named(AnalyzerView(self._service, self._event_store, layout), "analyzer")
         self._stack.add_named(PeersView(self._service, self._event_store, layout), "peers")
         self._stack.add_named(MessagesView(self._service, self._event_store, layout), "messages")
