@@ -139,8 +139,15 @@ def present_dialog(dialog, parent: Gtk.Widget) -> None:
 
 
 def activate_dialog_response(dialog, response: str) -> None:
-    """Activate a dialog response programmatically across libadwaita versions."""
+    """Activate a dialog response programmatically across libadwaita versions,
+    closing the dialog like a click on that response's button would.
+
+    ``Adw.AlertDialog.choose_response`` closes the dialog, but
+    ``Adw.MessageDialog.response`` only emits the signal: the dialog stayed open
+    and a second Enter ran the response handler again.
+    """
     if HAS_ALERT_DIALOG:
         dialog.choose_response(response)
     else:
         dialog.response(response)
+        dialog.destroy()  # close() would emit a second, "close" response
