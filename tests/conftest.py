@@ -17,3 +17,26 @@ def _clear_hardware_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     for _field, name, _parse in _HARDWARE_ENV_OVERRIDES:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_dirs(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch):
+    """Point the app's database, identity, config and log at a temp dir.
+
+    MeshcoreClient() and OpenHopCoreSession() open the default database
+    (XDG_STATE_HOME) even when a test injects its own stores, and the log
+    directory is fixed at import time, so without this a test run writes into
+    the developer's real ~/.local/state/meshcore-uconsole.
+    """
+    from meshcore_console.meshcore import logging_setup
+
+    root = tmp_path_factory.mktemp("xdg")
+    for var, sub in (
+        ("XDG_STATE_HOME", "state"),
+        ("XDG_DATA_HOME", "data"),
+        ("XDG_CONFIG_HOME", "config"),
+    ):
+        monkeypatch.setenv(var, str(root / sub))
+    log_dir = root / "state" / "meshcore-uconsole"
+    monkeypatch.setattr(logging_setup, "LOG_DIR", log_dir)
+    monkeypatch.setattr(logging_setup, "LOG_FILE", log_dir / "app.log")
