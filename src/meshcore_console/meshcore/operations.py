@@ -96,7 +96,9 @@ async def request_telemetry(
 
     contact = _resolve_contact(node, contact_name)
 
-    pkt, _ts = PacketBuilder.create_telem_request(
+    # The request timestamp is the tag the responder reflects; openhop_core
+    # matches replies on (full public key, tag).
+    pkt, tag = PacketBuilder.create_telem_request(
         contact=contact,
         local_identity=node.identity,
         want_base=True,
@@ -104,7 +106,7 @@ async def request_telemetry(
         want_environment=False,
     )
 
-    contact_hash = bytes.fromhex(contact.public_key)[0]
+    pubkey = bytes.fromhex(contact.public_key)
     response_handler = node.dispatcher.protocol_response_handler
 
     response_event = asyncio.Event()
@@ -116,7 +118,7 @@ async def request_telemetry(
         response_data["parsed"] = parsed
         response_event.set()
 
-    response_handler.set_response_callback(contact_hash, _on_response)
+    response_handler.set_response_callback(pubkey, tag, _on_response)
     t0 = time.monotonic()
     try:
         await node.dispatcher.send_packet(pkt, wait_for_ack=False)
@@ -124,7 +126,7 @@ async def request_telemetry(
     except asyncio.TimeoutError:
         got_response = False
     finally:
-        response_handler.clear_response_callback(contact_hash)
+        response_handler.clear_response_callback(pubkey, tag)
 
     rtt = (time.monotonic() - t0) * 1000
 
@@ -166,8 +168,8 @@ async def send_login(
     contact = _resolve_contact(node, peer_name)
 
     login_handler = node.dispatcher.login_response_handler
-    dest_hash = bytes.fromhex(contact.public_key)[0]
-    login_handler.store_login_password(dest_hash, password)
+    pubkey = bytes.fromhex(contact.public_key)
+    dest_hash = pubkey[0]
 
     login_event = asyncio.Event()
     login_result: dict = {"success": False, "data": {}}
@@ -177,8 +179,9 @@ async def send_login(
         login_result["data"] = data
         login_event.set()
 
-    login_handler.set_login_callback(_on_login)
+    login_handler.register_login_callback(pubkey, _on_login)
     try:
+        login_handler.store_login_password(dest_hash, password)
         pkt = PacketBuilder.create_login_packet(
             contact=contact,
             local_identity=node.identity,
@@ -189,7 +192,7 @@ async def send_login(
     except asyncio.TimeoutError:
         return {"success": False, "reason": "Login response timeout"}
     finally:
-        login_handler.set_login_callback(None)
+        login_handler.remove_login_callback(pubkey, _on_login)
         login_handler.clear_login_password(dest_hash)
 
     data = login_result["data"]
@@ -243,7 +246,8 @@ async def send_repeater_command(
         response_data["text"] = message_text
         response_event.set()
 
-    text_handler.set_command_response_callback(_on_response)
+    pubkey = bytes.fromhex(expected_key)
+    text_handler.register_command_response(pubkey, _on_response)
     try:
         pkt, _crc = PacketBuilder.create_text_message(
             contact=contact,
@@ -268,7 +272,7 @@ async def send_repeater_command(
             "reason": "Command response timeout",
         }
     finally:
-        text_handler.set_command_response_callback(None)
+        text_handler.unregister_command_response(pubkey, _on_response)
 
 
 async def send_advert(
