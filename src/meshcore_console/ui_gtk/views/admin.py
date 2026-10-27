@@ -6,14 +6,16 @@ from typing import TYPE_CHECKING
 
 import gi
 
+gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gdk, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.time import to_local
+from meshcore_console.ui_gtk.compat import build_alert_dialog, present_dialog
 from meshcore_console.ui_gtk.helpers import clear_children
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
@@ -590,7 +592,30 @@ class AdminView(Gtk.Box):
     # -- CLI actions -----------------------------------------------------------
 
     def _on_quick_cmd(self, _btn: Gtk.Button, command: str) -> None:
+        if command == "reboot":
+            self._confirm_reboot()
+            return
         self._send_command(command)
+
+    def _confirm_reboot(self) -> None:
+        """Reboot sits next to harmless quick commands; one slip of the
+        trackball shouldn't take a remote repeater offline."""
+        name = self._selected_repeater.display_name if self._selected_repeater else "repeater"
+        dialog = build_alert_dialog(
+            self.get_root(),
+            f"Reboot {name}?",
+            "The repeater stops relaying until it has restarted.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("reboot", "Reboot")
+        dialog.set_response_appearance("reboot", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect(
+            "response",
+            lambda _d, response: self._send_command("reboot") if response == "reboot" else None,
+        )
+        present_dialog(dialog, self.get_root())
 
     def _on_cmd_activate(self, _entry: Gtk.Entry) -> None:
         text = self._cmd_entry.get_text().strip()
