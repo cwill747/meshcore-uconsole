@@ -177,16 +177,26 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if current >= target:
         return
     logger.info("Migrating database from v%d to v%d", current, target)
-    for version_index in range(current, target):
-        for stmt in MIGRATIONS[version_index]:
-            conn.execute(stmt)
-    # Data backfills run after all DDL so the columns they read (e.g. channels.kind,
-    # added in v5) are guaranteed to exist.
-    if current < 7:
-        _backfill_channel_secrets(conn)
-    if current < 8:
-        _add_region_scope_column(conn)
-    conn.execute("UPDATE schema_version SET version = ?", (target,))
+    # One transaction for the whole upgrade (SQLite DDL is transactional).
+    # Python's sqlite3 runs DDL outside its implicit transactions, so each
+    # ALTER used to commit on its own while the version was bumped only at the
+    # end: an interrupted upgrade (power loss on a battery handheld) left
+    # columns that the next start's ALTER rejected as duplicates, forever.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for version_index in range(current, target):
+            for stmt in MIGRATIONS[version_index]:
+                conn.execute(stmt)
+        # Data backfills run after all DDL so the columns they read (e.g.
+        # channels.kind, added in v5) are guaranteed to exist.
+        if current < 7:
+            _backfill_channel_secrets(conn)
+        if current < 8:
+            _add_region_scope_column(conn)
+        conn.execute("UPDATE schema_version SET version = ?", (target,))
+    except BaseException:
+        conn.rollback()
+        raise
     conn.commit()
 
 
