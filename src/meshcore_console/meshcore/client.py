@@ -51,6 +51,26 @@ logger = logging.getLogger(__name__)
 _ROUTING_FIELDS = ("path_hops", "path_len", "snr", "rssi")
 
 
+def _take_matching_packet(queue: deque[dict], handler_data: dict) -> dict | None:
+    """Remove and return the queued packet event this decoded message came from.
+
+    Matched by packet hash: packet events carry its first 16 hex chars, message
+    events the full hash.  Pairing by arrival order instead gave a message the
+    SNR, RSSI and path of whatever packet was oldest in the queue (our own
+    echoes, duplicates, other channels' traffic), and wrote the message's text
+    into that packet's analyzer row.
+    """
+    full = handler_data.get("packet_hash") or handler_data.get("message_id")
+    if not full:
+        return None
+    key = str(full)[:16].upper()
+    for packet in queue:
+        if str(packet.get("packet_hash", ""))[:16].upper() == key:
+            queue.remove(packet)
+            return packet
+    return None
+
+
 def _propagate_routing_fields(packet_data: dict, handler_data: dict) -> None:
     for key in _ROUTING_FIELDS:
         val = packet_data.get(key)
@@ -729,8 +749,8 @@ class MeshcoreClient(MeshcoreService):
                         self._unenriched_txt.append(data)
 
             elif event_type == EventType.MESH_CHANNEL_MESSAGE_NEW:
-                if self._unenriched_grp:
-                    target = self._unenriched_grp.popleft()
+                target = _take_matching_packet(self._unenriched_grp, data)
+                if target is not None:
                     updates: dict[str, str] = {}
                     sender = data.get("sender_name") or data.get("peer_name")
                     if sender and not target.get("sender_name"):
@@ -751,8 +771,8 @@ class MeshcoreClient(MeshcoreService):
                     _propagate_routing_fields(target, data)
 
             elif event_type == EventType.MESH_MESSAGE_NEW:
-                if self._unenriched_txt:
-                    target = self._unenriched_txt.popleft()
+                target = _take_matching_packet(self._unenriched_txt, data)
+                if target is not None:
                     sender = data.get("sender_name") or data.get("peer_name")
                     if sender:
                         target["sender_name"] = repair_utf8(str(sender))

@@ -141,3 +141,32 @@ def test_identical_dms_minutes_apart_both_show_retries_do_not(tmp_path, monkeypa
     client._process_message_event(dm(1_761_595_600), EventType.MESH_MESSAGE_NEW)  # 10 min later
 
     assert [m.body for m in client.list_messages_for_channel("dm:bob")] == ["ok", "ok"]
+
+
+def test_messages_pair_with_their_own_packet(tmp_path, monkeypatch) -> None:
+    client, _sent = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(client._packet_store, "update_by_hash", lambda *a, **k: None)
+
+    def packet(hash16: str, snr: float) -> dict:
+        return {
+            "type": EventType.PACKET,
+            "data": {"payload_type_name": "GRP_TXT", "packet_hash": hash16, "snr": snr},
+        }
+
+    echo = packet("AAAAAAAAAAAAAAAA", -12.0)  # our own post, echoed by a repeater
+    real = packet("BBBBBBBBBBBBBBBB", 7.0)
+    decoded = {
+        "type": EventType.MESH_CHANNEL_MESSAGE_NEW,
+        "data": {
+            "sender_name": "Bob",
+            "channel_name": "public",
+            "message_text": "hi",
+            "message_id": "BBBBBBBBBBBBBBBB",
+            "packet_hash": "BBBBBBBBBBBBBBBB" + "C" * 48,
+        },
+    }
+    client._enrich_sender_names([echo, real, decoded])
+
+    assert decoded["data"]["snr"] == 7.0  # not the echo's -12
+    assert real["data"]["payload_text"] == "hi" and "payload_text" not in echo["data"]
+    assert list(client._unenriched_grp) == [echo["data"]]
