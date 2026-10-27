@@ -21,7 +21,12 @@ from gi.repository import Pango
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.discovery import summarize
 from meshcore_console.platform.conflicts import ConflictError, ConflictReport
-from meshcore_console.ui_gtk.compat import build_alert_dialog, build_toolbar_page, present_dialog
+from meshcore_console.ui_gtk.compat import (
+    build_alert_dialog,
+    build_toolbar_page,
+    new_toast,
+    present_dialog,
+)
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.ui_gtk.widgets import ConflictScreen, LoadingScreen, StatusPill
 
@@ -331,10 +336,10 @@ class MainWindow(Adw.ApplicationWindow):
         logger.debug("UI: discover button clicked")
         popover.popdown()
         if self._discovering:
-            self._toast_overlay.add_toast(Adw.Toast.new("Discover is still listening"))
+            self._toast_overlay.add_toast(new_toast("Discover is still listening"))
             return
         self._discovering = True
-        self._toast_overlay.add_toast(Adw.Toast.new("Discovering nearby nodes..."))
+        self._toast_overlay.add_toast(new_toast("Discovering nearby nodes..."))
 
         def do_discover() -> None:
             text: str
@@ -347,7 +352,7 @@ class MainWindow(Adw.ApplicationWindow):
 
             def on_done() -> bool:
                 self._discovering = False
-                self._toast_overlay.add_toast(Adw.Toast.new(text))
+                self._toast_overlay.add_toast(new_toast(text))
                 return False
 
             GLib.idle_add(on_done)
@@ -366,10 +371,10 @@ class MainWindow(Adw.ApplicationWindow):
                 if error:
                     logger.error("Advert failed: %s", error)
                     logger.debug("UI: toast 'Advert failed: %s'", error)
-                    self._toast_overlay.add_toast(Adw.Toast.new(f"Advert failed: {error}"))
+                    self._toast_overlay.add_toast(new_toast(f"Advert failed: {error}"))
                 else:
                     logger.debug("UI: toast 'Sent %s advert'", route_type)
-                    self._toast_overlay.add_toast(Adw.Toast.new(f"Sent {route_type} advert"))
+                    self._toast_overlay.add_toast(new_toast(f"Sent {route_type} advert"))
                 return False
 
             GLib.idle_add(on_done)
@@ -573,11 +578,11 @@ class MainWindow(Adw.ApplicationWindow):
         elif error:
             logger.error("Connection error: %s", error)
             logger.debug("UI: toast 'Connection error: %s'", error)
-            self._toast_overlay.add_toast(Adw.Toast.new(f"Connection error: {error}"))
+            self._toast_overlay.add_toast(new_toast(f"Connection error: {error}"))
         else:
             msg = "Disconnected" if was_disconnect else "Connected"
             logger.debug("UI: toast '%s'", msg)
-            self._toast_overlay.add_toast(Adw.Toast.new(msg))
+            self._toast_overlay.add_toast(new_toast(msg))
         self._refresh_connection_state()
         return False  # Don't repeat
 
@@ -652,11 +657,11 @@ class MainWindow(Adw.ApplicationWindow):
                 if error:
                     logger.error("Failed to stop %s: %s", service_name, error)
                     self._toast_overlay.add_toast(
-                        Adw.Toast.new(f"Could not stop {service_name}: {error}")
+                        new_toast(f"Could not stop {service_name}: {error}")
                     )
                 else:
                     logger.info("Stopped %s, retrying connection", service_name)
-                    self._toast_overlay.add_toast(Adw.Toast.new(f"Stopped {service_name}"))
+                    self._toast_overlay.add_toast(new_toast(f"Stopped {service_name}"))
                     # Auto-retry after a brief delay
                     GLib.timeout_add(1000, self._delayed_retry)
                 return False
@@ -769,7 +774,7 @@ class MainWindow(Adw.ApplicationWindow):
             elif etype == "radio_error":
                 msg = (event.get("data") or {}).get("message", "Unknown radio error")
                 if self._service.get_settings().show_radio_error_toasts:
-                    self._toast_overlay.add_toast(Adw.Toast.new(msg))
+                    self._toast_overlay.add_toast(new_toast(msg))
                 self._flash_radio_error()
         self._service.flush_stores()
 

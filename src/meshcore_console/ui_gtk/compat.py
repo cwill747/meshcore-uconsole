@@ -18,12 +18,24 @@ import gi
 gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Adw, Gtk  # noqa: E402
+from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 #: ``Adw.ToolbarView`` exists since libadwaita 1.4.
 HAS_TOOLBAR_VIEW = hasattr(Adw, "ToolbarView")
 #: ``Adw.AlertDialog`` exists since libadwaita 1.5 (``Adw.MessageDialog`` since 1.2).
 HAS_ALERT_DIALOG = hasattr(Adw, "AlertDialog")
+
+
+def toast_title(text: str) -> str:
+    """Escape text for a toast title: libadwaita < 1.4 always parses it as Pango
+    markup (``use-markup`` only arrived in 1.4), and toasts carry node names from
+    the air, so ``R&D <Hill>`` would blank the toast or restyle it."""
+    return GLib.markup_escape_text(text, -1)
+
+
+def new_toast(text: str) -> Adw.Toast:
+    """An Adw.Toast showing ``text`` literally on every libadwaita version."""
+    return Adw.Toast.new(toast_title(text))
 
 
 def build_toolbar_page(header_bar: Gtk.Widget, content: Gtk.Widget) -> Gtk.Widget:

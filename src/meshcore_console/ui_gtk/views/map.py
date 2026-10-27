@@ -35,6 +35,7 @@ from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
 from meshcore_console.platform.mbtiles import MBTilesReader, find_mbtiles_files
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
+from meshcore_console.ui_gtk.compat import new_toast
 
 
 # Tile URL templates - Shumate uses {z}, {x}, {y} placeholders
@@ -348,7 +349,6 @@ class MapView(Gtk.Box):
             import gi
 
             gi.require_version("Adw", "1")
-            from gi.repository import Adw
 
             root = self.get_root()
             if root is None:
@@ -357,7 +357,7 @@ class MapView(Gtk.Box):
             # Look for toast overlay on the main window
             toast_overlay = getattr(root, "_toast_overlay", None)
             if toast_overlay is not None and hasattr(toast_overlay, "add_toast"):
-                toast_overlay.add_toast(Adw.Toast.new(message))
+                toast_overlay.add_toast(new_toast(message))
         except Exception as e:
             print(f"[MapView] Toast error: {e}", file=sys.stderr)
 
