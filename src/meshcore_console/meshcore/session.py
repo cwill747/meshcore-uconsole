@@ -5,6 +5,7 @@ import gc
 import inspect
 import logging
 import queue
+import random
 import threading
 import time
 from typing import Any, AsyncIterator, Callable
@@ -42,7 +43,13 @@ from .channel_db import ChannelDatabase
 from .config import RuntimeRadioConfig, load_hardware_config_from_env
 from .contact_book import Contact, ContactBook
 from .db import open_db
-from .discovery import decode_owner_reply, discover
+from .discovery import (
+    NODE_TYPE_CHAT,
+    AnswerLimiter,
+    decode_owner_reply,
+    discover,
+    wants_node_type,
+)
 from .event_bridge import attach_dispatcher_callbacks, attach_event_service_subscriber
 from .operations import (
     request_owner_info,
@@ -66,6 +73,7 @@ class OpenHopCoreSession:
         self._logger = logger
         self._radio: SX1262RadioProtocol | None = None
         self._identity: LocalIdentityProtocol | None = None
+        self._background_tasks: set[asyncio.Task[None]] = set()
         self._node: MeshNodeProtocol | None = None
         self._event_service: EventServiceProtocol | None = None
         self._event_subscriber: EventSubscriberProtocol | None = None
@@ -107,8 +115,10 @@ class OpenHopCoreSession:
     def _register_discovery_handler(self) -> None:
         """Register a handler that responds to incoming discovery requests.
 
-        When another node sends a CONTROL discovery request, we reply with
-        our public key and node type so they can discover us.
+        When another node sends a CONTROL discovery request for chat nodes, we
+        reply with our public key and node type so they can discover us, at
+        most 4 times per 2 minutes (like firmware repeaters) and after a random
+        delay so simultaneous answerers don't collide.
         """
         from openhop_core.protocol.constants import ADVERT_FLAG_IS_CHAT_NODE
         from openhop_core.protocol.packet_builder import PacketBuilder
@@ -121,8 +131,14 @@ class OpenHopCoreSession:
 
         # Capture identity ref for the closure
         identity = self._identity
+        limiter = AnswerLimiter()
 
         def _on_discovery_request(request_data: dict) -> None:
+            if not wants_node_type(request_data.get("filter", 0), NODE_TYPE_CHAT):
+                return  # e.g. a repeater's discover.neighbors, which asks for repeaters
+            if not limiter.allow():
+                self._log("discovery request not answered (rate limit)")
+                return
             tag = request_data.get("tag", 0)
             prefix_only = request_data.get("prefix_only", False)
             inbound_snr = request_data.get("snr", 0.0)
@@ -140,6 +156,7 @@ class OpenHopCoreSession:
             )
 
             async def _send() -> None:
+                await asyncio.sleep(random.uniform(0.2, 2.0))
                 try:
                     await dispatcher.send_packet(response, wait_for_ack=False)
                     self._log(f"sent discovery response for tag=0x{tag:08X}")
@@ -148,9 +165,11 @@ class OpenHopCoreSession:
 
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(_send())
             except RuntimeError:
-                pass  # No running loop — skip
+                return  # No running loop — skip
+            task = loop.create_task(_send())
+            self._background_tasks.add(task)  # keep a reference until it is done
+            task.add_done_callback(self._background_tasks.discard)
 
         control_handler.set_request_callback(_on_discovery_request)
 

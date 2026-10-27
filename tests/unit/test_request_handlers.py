@@ -50,3 +50,42 @@ def test_anonymous_requests_stay_with_openhop() -> None:
 
     assert node.dispatcher._handler_instances.get(PAYLOAD_TYPE_ANON_REQ) is anon_before
     assert node.dispatcher._handler_instances.get(PAYLOAD_TYPE_REQ) is not None
+
+
+def test_discovery_answers_are_filtered_and_rate_limited(monkeypatch) -> None:
+    import asyncio
+    import random
+
+    from meshcore_console.meshcore.discovery import NODE_TYPE_CHAT, NODE_TYPE_REPEATER
+
+    monkeypatch.setattr(random, "uniform", lambda _a, _b: 0.0)
+    session, node = session_on_real_node()
+    sent: list = []
+
+    async def send_packet(packet, wait_for_ack=False, **_kw) -> bool:
+        sent.append(packet)
+        return True
+
+    monkeypatch.setattr(node.dispatcher, "send_packet", send_packet)
+    session._register_discovery_handler()
+    on_request = node.dispatcher.control_handler._request_callbacks[0]
+
+    async def burst() -> None:
+        on_request({"tag": 1, "filter": 1 << NODE_TYPE_REPEATER, "snr": 5.0})  # not for us
+        for tag in range(6):
+            on_request({"tag": tag, "filter": 1 << NODE_TYPE_CHAT, "snr": 5.0})
+        await asyncio.sleep(0.05)
+
+    asyncio.run(burst())
+    assert len(sent) == 4  # firmware's 4 answers per 2 minutes
+    assert not session._background_tasks
+
+
+def test_answer_limiter_window() -> None:
+    from meshcore_console.meshcore.discovery import AnswerLimiter
+
+    now = [0.0]
+    limiter = AnswerLimiter(limit=2, window_s=10.0, clock=lambda: now[0])
+    assert [limiter.allow() for _ in range(3)] == [True, True, False]
+    now[0] = 10.5
+    assert limiter.allow() is True

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import time
 from typing import Any, Callable
 
 # ADV_TYPE_* node types, as carried in the low nibble of a DISCOVER_RESP.
@@ -32,6 +33,31 @@ DISCOVER_FILTER = (1 << 2) | (1 << 3) | (1 << 4)
 DISCOVER_WINDOW_S = 12.0
 
 PUB_KEY_HEX_LEN = 64
+
+
+class AnswerLimiter:
+    """At most ``limit`` discovery answers per ``window_s`` seconds.
+
+    Mirrors the firmware repeater's ``discover_limiter(4, 120)``: anyone in
+    radio range can send discover requests, and each answer costs airtime
+    (EU868: 10 % duty cycle) and battery.
+    """
+
+    def __init__(
+        self, limit: int = 4, window_s: float = 120.0, clock: Callable[[], float] | None = None
+    ) -> None:
+        self._limit = limit
+        self._window_s = window_s
+        self._clock = clock or time.monotonic
+        self._sent: list[float] = []
+
+    def allow(self) -> bool:
+        now = self._clock()
+        self._sent = [t for t in self._sent if now - t < self._window_s]
+        if len(self._sent) >= self._limit:
+            return False
+        self._sent.append(now)
+        return True
 
 
 def wants_node_type(filter_mask: int, node_type: int) -> bool:
