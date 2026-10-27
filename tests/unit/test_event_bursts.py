@@ -33,3 +33,23 @@ def test_poll_returns_every_drained_and_buffered_event(tmp_path, monkeypatch) ->
     assert len(events) == 103  # was truncated to the newest 100
     assert events[0]["data"]["message"] == "e0"
     assert not client._event_buffer
+
+
+def test_one_failing_event_does_not_drop_the_rest(tmp_path, monkeypatch) -> None:
+    import sqlite3
+
+    client = _client(tmp_path, monkeypatch)
+    batch = [{"type": "packet", "data": {"n": i}} for i in range(3)]
+    monkeypatch.setattr(client._session, "drain_events", lambda max_items=50: list(batch))
+    stored: list[int] = []
+
+    def process(event) -> None:
+        if event["data"]["n"] == 0:
+            raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(client, "_process_event_for_peers", process)
+    monkeypatch.setattr(client._packet_store, "append", lambda e: stored.append(e["data"]["n"]))
+
+    events = client.poll_events(limit=100)
+
+    assert len(events) == 3 and stored == [1, 2]

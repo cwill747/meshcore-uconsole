@@ -590,14 +590,16 @@ class MeshcoreClient(MeshcoreService):
 
         for event in events:
             self._append_history(event)
-            self._process_event_for_peers(event)
-            # Persist packet events to state storage
-            if event.get("type") in (EventType.PACKET, EventType.RAW_PACKET):
-                try:
+            # One bad event (a sqlite3.Error from a locked or full database, a
+            # malformed field) must not take the rest of the batch with it:
+            # those events were already drained and would be lost, messages too.
+            try:
+                self._process_event_for_peers(event)
+                # Persist packet events to state storage
+                if event.get("type") in (EventType.PACKET, EventType.RAW_PACKET):
                     self._packet_store.append(event)
-                except OSError as exc:
-                    # Log but don't let storage failures break event processing
-                    logger.warning("packet_store error: %s: %s", type(exc).__name__, exc)
+            except Exception:  # noqa: BLE001
+                logger.exception("could not process %s event", event.get("type"))
 
         # Every event here was drained and processed: hand all of them to the
         # UI (``limit`` only bounds the drain), or a burst loses its oldest ones.
