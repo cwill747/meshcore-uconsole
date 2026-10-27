@@ -34,13 +34,28 @@ from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF
 logger = logging.getLogger(__name__)
 
 
+def messages_after(messages: list[Message], last_id: str | None) -> list[Message] | None:
+    """The messages newer than the one with ``last_id``, oldest first.
+
+    None when ``last_id`` is no longer among ``messages`` (the window moved past
+    it or it was removed), meaning the view must be rebuilt.  Comparing counts
+    instead stopped working once a channel held a full window of 100 messages.
+    """
+    if last_id is None:
+        return messages
+    for index, message in enumerate(messages):
+        if message.message_id == last_id:
+            return messages[index + 1 :]
+    return None
+
+
 class MessagesView(Gtk.Box):
     def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._service = service
         self._event_store = event_store
         self._selected_channel_id = "public"
-        self._last_message_count = 0
+        self._last_message_id: str | None = None
         self._last_channel_count = 0
         self._last_message_date: str | None = None
         self._selected_message: Message | None = None
@@ -200,12 +215,15 @@ class MessagesView(Gtk.Box):
             self._reload_channels()
         else:
             messages = self._service.list_messages_for_channel(self._selected_channel_id, limit=100)
-            new_count = len(messages)
-            if new_count > self._last_message_count:
+            new_messages = messages_after(messages, self._last_message_id)
+            if new_messages is None:
+                # The last shown message left the window (cleared, pruned, or
+                # more new messages than the window holds): rebuild.
+                self._reload_messages()
+            elif new_messages:
                 # Append only the new messages instead of full rebuild
-                new_messages = messages[self._last_message_count :]
                 # Remove the "no messages" placeholder if it was showing
-                if self._last_message_count == 0:
+                if self._last_message_id is None:
                     clear_children(self._message_box)
                 for message in new_messages:
                     msg_date = to_local(message.created_at).strftime("%Y-%m-%d")
@@ -215,14 +233,12 @@ class MessagesView(Gtk.Box):
                     self._message_box.append(
                         MessageBubble(message, self._service, self._on_message_clicked)
                     )
-                self._last_message_count = new_count
+                self._last_message_id = new_messages[-1].message_id
                 if self._is_at_bottom:
                     GLib.idle_add(self._scroll_to_bottom)
                     self._service.mark_channel_read(self._selected_channel_id)
-                    self._update_channel_unread_display(self._selected_channel_id, 0)
-            elif new_count < self._last_message_count:
-                # Message count decreased (e.g. clear) - full rebuild
-                self._reload_messages()
+            for channel in self._service.list_channels():
+                self._update_channel_unread_display(channel.channel_id, channel.unread_count)
         self._refresh_compose_state()
         return True
 
@@ -348,7 +364,7 @@ class MessagesView(Gtk.Box):
                 break
 
         messages = self._service.list_messages_for_channel(self._selected_channel_id, limit=100)
-        self._last_message_count = len(messages)
+        self._last_message_id = messages[-1].message_id if messages else None
 
         if not messages:
             self._last_message_date = None
