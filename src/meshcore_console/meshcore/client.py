@@ -550,7 +550,8 @@ class MeshcoreClient(MeshcoreService):
                         "contact_type": result["node_type"],
                         "snr": result["snr_here"],
                         "rssi": result["rssi"],
-                        "path_hops": [],  # it answered zero-hop: a direct neighbour
+                        "path_hops": [],
+                        "direct_route": True,  # it answered zero-hop: a direct neighbour
                     },
                 }
             )
@@ -853,23 +854,17 @@ class MeshcoreClient(MeshcoreService):
         advert_type = data.get("advert_type") or data.get("contact_type")
         is_repeater = int(advert_type) == 2 if advert_type is not None else False
 
-        # Extract raw routing path so the ContactBook Contact gets
-        # out_path/out_path_len for direct routing.  NODE_DISCOVERED events
-        # carry inbound_path (bytes) + path_len_encoded directly; for "packet"
-        # events reconstruct from the decoded path_hops list.  Only derive
-        # path when the event actually carries routing data ("path_hops" key
-        # present) — identity-only events like mesh.contact.new must not
-        # overwrite a previously learned route.
-        inbound_path: bytes | None = data.get("inbound_path")  # type: ignore[assignment]
-        path_len_encoded: int | None = data.get("path_len_encoded")  # type: ignore[assignment]
-        if path_len_encoded is None and public_key and "path_hops" in data:
-            if not path_hops:
-                inbound_path = b""
-                path_len_encoded = 0
-            else:
-                hash_size = len(path_hops[0]) // 2 or 1
-                inbound_path = bytes.fromhex("".join(path_hops))
-                path_len_encoded = ((hash_size - 1) << 6) | len(path_hops)
+        # Routes are not taken from adverts.  An advert's path lists the hops
+        # from the advertiser to us, but a direct send consumes path[0] as the
+        # next hop, so that list points the wrong way; and every copy of an
+        # advert overwrote the route openhop_core had learned from a PATH
+        # return.  Unknown routes flood (out_path_len -1) and openhop_core learns
+        # the real route from the reply.  The only route set here is the
+        # zero-hop one of a node that answered our own discover request.
+        inbound_path: bytes | None = None
+        path_len_encoded: int | None = None
+        if data.get("direct_route"):
+            inbound_path, path_len_encoded = b"", 0
 
         if peer_name in self._peers:
             self._update_existing_peer(

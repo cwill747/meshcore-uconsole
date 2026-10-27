@@ -78,3 +78,23 @@ def test_hops_from_path() -> None:
     assert hops_from_path(bytes.fromhex("13a7"), 2) == ["13", "a7"]
     assert hops_from_path(bytes.fromhex("13a7c3d4"), (1 << 6) | 2) == ["13a7", "c3d4"]
     assert hops_from_path(b"", 0) == [] and hops_from_path(None, None) == []
+
+
+def test_adverts_do_not_set_routes_but_discovery_does(tmp_path, monkeypatch) -> None:
+    from meshcore_console.meshcore.contact_book import ContactBook
+
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(client._session, "contact_book", ContactBook(), raising=False)
+    client._connected = True
+
+    client._process_event_for_peers(verified("Bergblick", 100))  # heard via hop 13
+    contact = client._session.contact_book.get_by_name("Bergblick")
+    assert contact.out_path_len == -1  # unknown: DMs flood, openhop learns the route
+
+    client._process_event_for_peers(
+        {
+            "type": EventType.MESH_NODE_DISCOVERED,
+            "data": {"name": "Bergblick", "public_key": KEY, "path_hops": [], "direct_route": True},
+        }
+    )
+    assert contact.out_path_len == 0  # it answered our zero-hop discover

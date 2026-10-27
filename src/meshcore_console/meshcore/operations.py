@@ -24,6 +24,14 @@ def _resolve_contact(node: MeshNodeProtocol, peer_name: str) -> object:
     raise RuntimeError(f"Contact '{peer_name}' not found")
 
 
+def _route_type(contact: object) -> str:
+    """Flood while the route is unknown (out_path_len -1), like firmware's
+    sendMessage(); direct (incl. zero-hop) once a route is known.
+    create_text_message() defaults to direct, which sent zero-hop DIRECT packets
+    to contacts with no route, and nobody but a direct neighbour could hear them."""
+    return "direct" if getattr(contact, "out_path_len", -1) >= 0 else "flood"
+
+
 def _text_message_contact(contact: object) -> object:
     """Return a PacketBuilder-compatible contact without changing the contact book."""
     out_path = getattr(contact, "out_path", None)
@@ -44,6 +52,7 @@ async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> 
         contact=contact,
         local_identity=node.identity,
         message=message,
+        message_type=_route_type(contact),
     )
     success = await node.dispatcher.send_packet(pkt, wait_for_ack=True, expected_crc=ack_crc)
     return {"success": success, "crc": ack_crc}
@@ -287,6 +296,7 @@ async def send_repeater_command(
             contact=contact,
             local_identity=node.identity,
             message=command,
+            message_type=_route_type(contact),
             txt_type=TXT_TYPE_CLI_DATA,
         )
         await node.dispatcher.send_packet(pkt, wait_for_ack=False)

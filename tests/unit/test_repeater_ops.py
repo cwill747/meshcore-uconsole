@@ -236,3 +236,18 @@ def test_decode_owner_reply_wherever_openhop_put_the_bytes() -> None:
     assert decode_owner_reply({"type": "binary", "hex": owner_reply(b"", b"").hex()}) is None
     assert decode_owner_reply({"type": "binary", "hex": owner_reply(b"x" * 40).hex()}) is None
     assert decode_owner_reply({}) is None
+
+
+def test_dm_floods_while_the_route_is_unknown() -> None:
+    from meshcore_console.meshcore.operations import send_text
+
+    contact, _key = repeater_contact()
+    contact.out_path_len = -1  # no route learned yet
+    node = FakeNode(contact)
+    node.dispatcher = FakeDispatcher([])
+    run(send_text(node=node, peer_name="Bergblick", message="hi"))
+    assert not node.dispatcher.sent[0].is_route_direct()
+
+    contact.out_path_len = 0  # direct neighbour
+    run(send_text(node=node, peer_name="Bergblick", message="hi"))
+    assert node.dispatcher.sent[1].is_route_direct()
