@@ -25,7 +25,8 @@ class MeshcoreSettings:
     spreading_factor: int = 7
     coding_rate: int = 5
     tx_power: int = 22
-    preamble_length: int = 17
+    # MeshCore >= 1.16 sends 32 preamble symbols at SF <= 8 and 16 above.
+    preamble_length: int = 32
     path_hash_mode: int = 0
     flood_region: str = ""  # Default region scope for flood packets; empty = unscoped (#90)
 
@@ -66,15 +67,25 @@ RADIO_PRESETS: dict[str, dict[str, int]] = {
         "bandwidth": 62_500,
         "spreading_factor": 7,
         "coding_rate": 5,
-        "preamble_length": 17,
+        "preamble_length": 32,
         "tx_power": 22,
     },
+    # MeshCore's recommended EU/UK preset, used across e.g. Germany.
+    "meshcore-eu-narrow": {
+        "frequency": 869_618_000,
+        "bandwidth": 62_500,
+        "spreading_factor": 8,
+        "coding_rate": 8,
+        "preamble_length": 32,
+        "tx_power": 22,
+    },
+    # The older EU default ("long range"), still used by some meshes.
     "meshcore-eu": {
         "frequency": 869_525_000,
         "bandwidth": 250_000,
         "spreading_factor": 11,
         "coding_rate": 5,
-        "preamble_length": 17,
+        "preamble_length": 16,
         "tx_power": 22,
     },
 }
