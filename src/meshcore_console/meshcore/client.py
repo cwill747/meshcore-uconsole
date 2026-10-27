@@ -84,6 +84,7 @@ RUN_ASYNC_CAP_S = 60.0
 CONNECT_TIMEOUT_S = 30.0
 # Three DM attempts, each: listen-before-talk (up to 4 s), airtime, 5 s ACK wait.
 DM_SEND_TIMEOUT_S = 45.0
+MAX_PEERS = 500
 
 
 def dm_message_id(data: dict) -> str | None:
@@ -648,6 +649,36 @@ class MeshcoreClient(MeshcoreService):
             self._rename_peer(current, name)
         return name
 
+    def _make_room_for_peer(self) -> None:
+        """Keep the peer list bounded, like firmware's fixed contact table.
+
+        Valid keys cost nothing to generate, so signed adverts from throwaway
+        keys could otherwise grow the list (and the database) without limit,
+        and every inbound DM is tried against each contact sharing its 1-byte
+        hash.  The least recently heard peer goes first; favourites, peers with
+        a DM thread and logged-in repeaters are kept.
+        """
+        if len(self._peers) < MAX_PEERS:
+            return
+        dm_peers = {c.peer_name for c in self._channels.values() if c.kind == "dm"}
+        candidates = [
+            (name, peer)
+            for name, peer in self._peers.items()
+            if not peer.is_favorite and name not in dm_peers and name not in self._repeater_sessions
+        ]
+        if not candidates:
+            return
+        name, peer = min(
+            candidates,
+            key=lambda item: item[1].last_advert_time or datetime.min.replace(tzinfo=UTC),
+        )
+        del self._peers[name]
+        self._peer_store.remove(peer.peer_id)
+        if peer.public_key:
+            self._advert_timestamps.pop(peer.public_key, None)
+            if self._connected:
+                self._session.contact_book.remove_key(peer.public_key)
+
     def _rename_peer(self, old: str, new: str) -> None:
         """Move a peer and everything keyed by its name (contact, login session,
         DM thread, saved password) to a new name; the peer_id, and so the DB
@@ -1013,6 +1044,7 @@ class MeshcoreClient(MeshcoreService):
         path_len_encoded: int | None = None,
     ) -> None:
         """Create a new peer from advert data."""
+        self._make_room_for_peer()
         peer = Peer(
             peer_id=peer_id or peer_name,
             display_name=peer_name,

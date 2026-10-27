@@ -133,6 +133,10 @@ class PeerStore:
             result[peer.display_name or peer.peer_id] = peer
         return result
 
+    def remove(self, peer_id: str) -> None:
+        self._conn.execute("DELETE FROM peers WHERE peer_id = ?", (peer_id,))
+        self._conn.commit()
+
     def set_favorite(self, peer_id: str, favorite: bool) -> None:
         """Update just the is_favorite flag for a peer."""
         self._conn.execute(

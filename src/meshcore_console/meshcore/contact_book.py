@@ -50,6 +50,9 @@ class ContactBook:
                 return contact
         return None
 
+    def remove_key(self, public_key: str) -> None:
+        self.contacts = [c for c in self.contacts if c.public_key != public_key]
+
     def update(self, contact: Contact) -> None:
         for i, existing in enumerate(self.contacts):
             if existing.public_key == contact.public_key:

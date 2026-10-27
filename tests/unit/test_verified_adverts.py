@@ -107,3 +107,26 @@ def test_hop_count_from_the_encoded_path_length() -> None:
     assert hop_count(3) == 3
     assert hop_count((1 << 6) | 2) == 2  # 2-byte hashes, 2 hops
     assert hop_count(None) == 0 and hop_count(0) == 0
+
+
+def test_peer_list_is_bounded_and_keeps_what_matters(tmp_path, monkeypatch) -> None:
+    from meshcore_console.meshcore import client as client_mod
+
+    monkeypatch.setattr(client_mod, "MAX_PEERS", 3)
+    client = _client(tmp_path, monkeypatch)
+
+    def advert(name: str, key: str, ts: int) -> dict:
+        event = verified(name, ts)
+        event["data"]["public_key"] = key
+        return event
+
+    keys = {name: (name[0] * 2) * 32 for name in ("aa", "bb", "cc", "dd", "ee")}
+    client._process_event_for_peers(advert("Alpha", keys["aa"], 1))
+    client._process_event_for_peers(advert("Bravo", keys["bb"], 2))
+    client._process_event_for_peers(advert("Charlie", keys["cc"], 3))
+    client.set_favorite(keys["aa"][:16], True)  # oldest, but a favourite
+    client.ensure_dm_channel("Bravo")  # has a DM thread
+
+    client._process_event_for_peers(advert("Delta", keys["dd"], 4))
+    assert sorted(p.display_name for p in client.list_peers()) == ["Alpha", "Bravo", "Delta"]
+    assert client._db.execute("SELECT COUNT(*) FROM peers").fetchone()[0] == 3
