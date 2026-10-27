@@ -125,13 +125,9 @@ class OpenHopCoreSession:
             prefix_only = request_data.get("prefix_only", False)
             inbound_snr = request_data.get("snr", 0.0)
 
-            # Get our public key
-            get_pk = getattr(identity, "get_shared_public_key", None)
-            pub_key = get_pk() if callable(get_pk) else None
-            if pub_key is None:
-                return
-            if isinstance(pub_key, str):
-                pub_key = bytes.fromhex(pub_key)
+            # Our Ed25519 identity key (what adverts carry), not the X25519
+            # get_shared_public_key() ECDH key.
+            pub_key = identity.get_public_key()
 
             response = PacketBuilder.create_discovery_response(
                 tag=tag,
@@ -731,13 +727,6 @@ class OpenHopCoreSession:
         """Return this node's public key as a hex string, or None if unavailable."""
         if self._identity is None:
             return None
-        # openhop_core LocalIdentity exposes get_shared_public_key()
-        get_pk = getattr(self._identity, "get_shared_public_key", None)
-        pk = get_pk() if callable(get_pk) else None
-        if pk is None:
-            return None
-        if isinstance(pk, bytes):
-            return pk.hex()
-        if isinstance(pk, str):
-            return pk
-        return None
+        # The Ed25519 identity key: what adverts, path hashes and contacts use.
+        # get_shared_public_key() is the X25519 ECDH key, nobody's address.
+        return self._identity.get_public_key().hex()
