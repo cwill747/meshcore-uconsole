@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import asdict, fields
 
 from .settings import MeshcoreSettings
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsStore:
@@ -19,7 +22,14 @@ class SettingsStore:
         for field in fields(MeshcoreSettings):
             if field.name in stored:
                 raw = stored[field.name]
-                defaults[field.name] = _cast(raw, field.type)
+                try:
+                    defaults[field.name] = _cast(raw, field.type)
+                except (TypeError, ValueError):
+                    # One bad row (hand-edited, or written by another version)
+                    # used to raise here and keep the app from starting at all.
+                    logger.warning(
+                        "settings: ignoring invalid %s=%r, using the default", field.name, raw
+                    )
         return MeshcoreSettings(**defaults)
 
     def save(self, settings: MeshcoreSettings) -> None:
