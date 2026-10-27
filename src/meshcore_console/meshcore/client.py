@@ -96,6 +96,17 @@ def dm_message_id(data: dict) -> str | None:
     return f"dm_{digest}"
 
 
+def hop_count(path_len: int | None) -> int:
+    """Hops from openhop_core's encoded path length byte.
+
+    Bits 6-7 hold the hash size and bits 0-5 the hop count; direct messages
+    report 0xFF ("unknown"), which the details panel showed as "255 hops".
+    """
+    if not path_len or path_len == 0xFF:
+        return 0
+    return int(path_len) & 0x3F
+
+
 def hops_from_path(path: bytes | None, path_len_encoded: int | None) -> list[str]:
     """Hop hashes (hex) from a packet path; the path length byte carries the
     hash size in bits 6-7 (size - 1) and the hop count in bits 0-5."""
@@ -1061,7 +1072,7 @@ class MeshcoreClient(MeshcoreService):
 
         snr = data.get("snr")
         rssi = data.get("rssi")
-        path_len = data.get("path_len") or 0
+        path_len = hop_count(data.get("path_len"))
         path_hops = data.get("path_hops", [])
         message = Message(
             message_id=msg_id,
@@ -1070,7 +1081,7 @@ class MeshcoreClient(MeshcoreService):
             channel_id=channel_name,
             created_at=datetime.now(UTC),
             is_outgoing=False,
-            path_len=int(path_len) if path_len else 0,
+            path_len=path_len,
             path_hops=list(path_hops) if path_hops else [],
             snr=float(snr) if snr is not None else None,
             rssi=int(rssi) if rssi is not None else None,

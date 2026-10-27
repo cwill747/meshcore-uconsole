@@ -98,3 +98,12 @@ def test_adverts_do_not_set_routes_but_discovery_does(tmp_path, monkeypatch) -> 
         }
     )
     assert contact.out_path_len == 0  # it answered our zero-hop discover
+
+
+def test_hop_count_from_the_encoded_path_length() -> None:
+    from meshcore_console.meshcore.client import hop_count
+
+    assert hop_count(0xFF) == 0  # direct DM: "unknown", was shown as 255 hops
+    assert hop_count(3) == 3
+    assert hop_count((1 << 6) | 2) == 2  # 2-byte hashes, 2 hops
+    assert hop_count(None) == 0 and hop_count(0) == 0
