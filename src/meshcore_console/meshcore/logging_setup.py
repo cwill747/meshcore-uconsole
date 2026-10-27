@@ -18,7 +18,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable
 
-from .paths import state_dir
+from .paths import make_private, state_dir
 
 # None = the app's state directory (XDG_STATE_HOME/meshcore-uconsole, next to
 # the database), resolved when used; tests may point these elsewhere.
@@ -76,8 +76,9 @@ def configure_logging(console_level: str | None = None) -> None:
     root.addHandler(_stderr_handler)
 
     # Rotating file handler
-    log_dir().mkdir(parents=True, exist_ok=True)
+    log_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
     file_handler = RotatingFileHandler(log_file(), maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT)
+    make_private(*get_log_files_chronological())
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT))
     root.addHandler(file_handler)
@@ -110,7 +111,8 @@ def get_log_files_chronological() -> list[Path]:
 def export_logs_to_path(dest: str | Path) -> Path:
     """Concatenate all log files into *dest* (oldest first). Returns dest path."""
     dest = Path(dest)
-    with dest.open("w") as out:
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as out:
         for log_file in get_log_files_chronological():
             with log_file.open() as f:
                 shutil.copyfileobj(f, out)

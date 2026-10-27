@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from typing import Any
 
 from meshcore_console.core.types import (
@@ -13,7 +14,7 @@ from meshcore_console.core.types import (
 )
 
 from .config import HardwareRadioConfig
-from .paths import identity_key_path
+from .paths import identity_key_path, make_private
 
 
 def import_openhop_core() -> tuple[
@@ -86,13 +87,17 @@ def create_mesh_node(
 ) -> tuple[LocalIdentityProtocol, MeshNodeProtocol]:
     key_path = identity_key_path()
     if key_path.exists():
+        make_private(key_path)
         seed = key_path.read_bytes()
     else:
-        # Generate a new identity and persist the seed for future sessions
+        # Generate a new identity and persist the seed for future sessions;
+        # the seed is the node's private key, so create it owner-only.
         tmp = local_identity_type()
         seed = tmp.get_signing_key_bytes()
-        key_path.parent.mkdir(parents=True, exist_ok=True)
-        key_path.write_bytes(seed)
+        key_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(seed)
     identity = local_identity_type(seed)
     config_payload = {"node": {"name": node_name}}
     if node_config:

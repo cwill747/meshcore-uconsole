@@ -7,7 +7,7 @@ import logging
 import sqlite3
 
 from .channel_db import PUBLIC_CHANNEL_SECRET
-from .paths import db_path
+from .paths import db_path, make_private
 
 logger = logging.getLogger(__name__)
 
@@ -193,12 +193,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
 def open_db(path: str | None = None) -> sqlite3.Connection:
     """Open (and migrate if needed) the application database."""
     db = db_path() if path is None else __import__("pathlib").Path(path)
-    db.parent.mkdir(parents=True, exist_ok=True)
+    db.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     # check_same_thread=False is required because openhop_core reads the
     # channel_secrets table from the meshcore-aio thread while the connection
     # is created on the main thread.  WAL mode makes concurrent access safe.
     conn = sqlite3.connect(str(db), check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    make_private(db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm"))
     _migrate(conn)
     return conn

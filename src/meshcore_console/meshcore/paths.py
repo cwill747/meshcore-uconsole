@@ -41,6 +41,20 @@ def db_path() -> Path:
     return state_dir() / "meshcore.db"
 
 
+def make_private(*paths: Path) -> None:
+    """Restrict existing files to the owner (0600).
+
+    New files are private through the umask set at startup; this fixes state
+    written by earlier versions (identity seed, database, logs were 0644).
+    """
+    for path in paths:
+        try:
+            if path.exists() and path.stat().st_mode & 0o077:
+                path.chmod(0o600)
+        except OSError:
+            pass
+
+
 def identity_key_path() -> Path:
     """Return the path to the persisted identity seed (identity.key)"""
     return data_dir() / "identity.key"
