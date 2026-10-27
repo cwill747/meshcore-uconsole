@@ -155,6 +155,46 @@ async def request_telemetry(
     }
 
 
+async def request_owner_info(
+    *,
+    node: MeshNodeProtocol,
+    contact: object,
+    timeout: float = 8.0,
+) -> dict | None:
+    """Anonymous ANON_REQ_TYPE_OWNER: a repeater answers "name\nowner", no login.
+
+    Firmware only answers direct (``isRouteDirect``) requests, so ``contact``
+    needs a known route (``out_path_len >= 0``; 0 for a zero-hop neighbour) and
+    must be in the contact book for openhop_core to decrypt the reply.  Returns
+    openhop's parsed reply dict, or None on timeout.
+    """
+    from openhop_core.protocol.constants import ANON_REQ_TYPE_OWNER
+    from openhop_core.protocol.packet_builder import PacketBuilder
+
+    # req_data = [type][reply path length byte][reply path...]; 0 = zero-hop reply
+    pkt, tag = PacketBuilder.create_anon_request(
+        contact, node.identity, req_data=bytes([ANON_REQ_TYPE_OWNER, 0x00])
+    )
+    pubkey = bytes.fromhex(contact.public_key)  # type: ignore[attr-defined]
+    response_handler = node.dispatcher.protocol_response_handler
+    reply: dict = {}
+    done = asyncio.Event()
+
+    def _on_response(_success: bool, _text: str, parsed: dict) -> None:
+        reply.update(parsed)
+        done.set()
+
+    response_handler.set_response_callback(pubkey, tag, _on_response)
+    try:
+        await node.dispatcher.send_packet(pkt, wait_for_ack=False)
+        await asyncio.wait_for(done.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return None
+    finally:
+        response_handler.clear_response_callback(pubkey, tag)
+    return reply
+
+
 async def send_login(
     *,
     node: MeshNodeProtocol,

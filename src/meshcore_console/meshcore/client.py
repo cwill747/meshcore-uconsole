@@ -21,6 +21,11 @@ from meshcore_console.meshcore.channel_db import (
 from meshcore_console.meshcore.region import normalize_region_scope
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.db import open_db
+from meshcore_console.meshcore.discovery import (
+    DISCOVER_WINDOW_S,
+    is_placeholder_for,
+    placeholder_name,
+)
 from meshcore_console.meshcore.logging_setup import install_radio_error_handler
 from meshcore_console.meshcore.packet_codec import repair_utf8
 from meshcore_console.meshcore.packet_store import PacketStore
@@ -442,6 +447,72 @@ class MeshcoreClient(MeshcoreService):
         )
         return result
 
+    def discover_nodes(self) -> list[dict]:
+        """Zero-hop discover; each answer becomes a peer, under a placeholder name
+        until its advert names it.  Returns the answers, each with its peer ``name``."""
+        if not self._connected:
+            self.connect()
+        results = self._run_async(self._session.discover_nodes(), timeout=DISCOVER_WINDOW_S + 10)
+        # snapshot: the GTK thread mutates _peers while this runs on a worker
+        key_of = {name: (p.public_key or "").lower() for name, p in list(self._peers.items())}
+        name_of = {key: name for name, key in key_of.items() if key}
+        for result in results:
+            key = result["pub_key"]
+            current = name_of.get(key)
+            name = current or placeholder_name(result["node_type"], key)
+            if current is None or is_placeholder_for(current, key):
+                # a discover answer has no name; the node tells us when asked
+                real = self._run_async(self._session.request_owner_name(key), timeout=15)
+                if real and key_of.get(real, key) == key:  # never take another key's name
+                    name = real
+            result["name"] = name
+            self._append_event(
+                {
+                    "type": EventType.MESH_NODE_DISCOVERED,
+                    "data": {
+                        "name": result["name"],
+                        "peer_id": key[:16],  # what its adverts carry as sender_id
+                        "public_key": key,
+                        "contact_type": result["node_type"],
+                        "snr": result["snr_here"],
+                        "rssi": result["rssi"],
+                        "path_hops": [],  # it answered zero-hop: a direct neighbour
+                    },
+                }
+            )
+        return results
+
+    def _peer_name_for_key(self, public_key: str) -> str | None:
+        key = public_key.lower()
+        for name, peer in self._peers.items():
+            if peer.public_key and peer.public_key.lower() == key:
+                return name
+        return None
+
+    def _replace_placeholder(self, public_key: str, real_name: str) -> None:
+        """A node discovery listed as ``Repeater 13ab5c7e`` has advertised its real
+        name: rename that peer (same peer_id, so the DB row is replaced, not doubled)."""
+        old = self._peer_name_for_key(public_key)
+        if old is None or old == real_name or not is_placeholder_for(old, public_key.lower()):
+            return
+        peer = self._peers.pop(old)
+        peer.display_name = real_name
+        self._peers[real_name] = peer
+        if self._connected:  # the contact book exists only on a live session
+            contact = self._session.contact_book.get_by_name(old)
+            if contact is not None:
+                contact.name = real_name
+        if old in self._repeater_sessions:
+            self._repeater_sessions[real_name] = self._repeater_sessions.pop(old)
+        for channel in self._channels.values():
+            if channel.kind == "dm" and channel.peer_name == old:
+                channel.peer_name = real_name
+                self._channel_store.add_or_update(channel)
+        password = self._repeater_password_store.get_password(old)
+        if password is not None:
+            self._repeater_password_store.save_password(real_name, password)
+            self._repeater_password_store.delete_password(old)
+
     def poll_events(self, limit: int = 50) -> list[MeshEventDict]:
         events: list[MeshEventDict] = []
         try:
@@ -633,6 +704,9 @@ class MeshcoreClient(MeshcoreService):
         self_pubkey = self.get_self_public_key()
         if self_pubkey and public_key and self_pubkey == public_key:
             return
+
+        if public_key and peer_name not in self._peers:
+            self._replace_placeholder(public_key, peer_name)
 
         path_hops = data.get("path_hops", [])
         rssi_raw = data.get("rssi")

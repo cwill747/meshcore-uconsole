@@ -19,6 +19,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk
 from gi.repository import Pango
 
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.meshcore.discovery import summarize
 from meshcore_console.platform.conflicts import ConflictError, ConflictReport
 from meshcore_console.ui_gtk.compat import build_alert_dialog, build_toolbar_page, present_dialog
 from meshcore_console.ui_gtk.state import UiEventStore
@@ -197,6 +198,11 @@ class MainWindow(Adw.ApplicationWindow):
         direct_btn = Gtk.Button.new_with_label("Direct Advert")
         direct_btn.connect("clicked", self._on_advert_direct, advert_popover)
         advert_box.append(direct_btn)
+        discover_btn = Gtk.Button.new_with_label("Discover Nearby")
+        discover_btn.set_tooltip_text("Ask repeaters in direct range to answer")
+        discover_btn.connect("clicked", self._on_discover, advert_popover)
+        advert_box.append(discover_btn)
+        self._discovering = False
         advert_popover.set_child(advert_box)
         self._advert_btn.set_popover(advert_popover)
         header_bar.pack_end(self._advert_btn)
@@ -320,6 +326,33 @@ class MainWindow(Adw.ApplicationWindow):
         logger.debug("UI: direct advert button clicked")
         popover.popdown()
         self._send_advert(route_type="direct")
+
+    def _on_discover(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
+        logger.debug("UI: discover button clicked")
+        popover.popdown()
+        if self._discovering:
+            self._toast_overlay.add_toast(Adw.Toast.new("Discover is still listening"))
+            return
+        self._discovering = True
+        self._toast_overlay.add_toast(Adw.Toast.new("Discovering nearby nodes..."))
+
+        def do_discover() -> None:
+            text: str
+            try:
+                results = self._service.discover_nodes()
+                text = summarize(results, {r["pub_key"]: r["name"] for r in results})
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Discover failed: %s", exc)
+                text = f"Discover failed: {str(exc) or type(exc).__name__}"
+
+            def on_done() -> bool:
+                self._discovering = False
+                self._toast_overlay.add_toast(Adw.Toast.new(text))
+                return False
+
+            GLib.idle_add(on_done)
+
+        threading.Thread(target=do_discover, daemon=True).start()
 
     def _send_advert(self, route_type: str) -> None:
         def do_send() -> None:

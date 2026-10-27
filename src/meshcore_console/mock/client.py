@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
@@ -206,6 +207,19 @@ class MockMeshcoreClient(MeshcoreService):
             }
         )
         return {"success": True, "tx_metadata": {"mock": True}, "dispatcher_result": True}
+
+    def discover_nodes(self) -> list[dict]:
+        time.sleep(1.0)  # stands in for the answer window
+        return [
+            {
+                "pub_key": "13ab5c7e" + "00" * 28,
+                "node_type": 2,
+                "snr_here": 11.5,
+                "snr_there": 12.0,
+                "rssi": -30,
+                "name": "Repeater 13ab5c7e",
+            }
+        ]
 
     def poll_events(self, limit: int = 50) -> list[dict]:
         events: list[dict] = []

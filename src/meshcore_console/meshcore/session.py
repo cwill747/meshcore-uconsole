@@ -40,10 +40,12 @@ if "utils.cayenne_lpp_helpers" not in _sys.modules:
 
 from .channel_db import ChannelDatabase
 from .config import RuntimeRadioConfig, load_hardware_config_from_env
-from .contact_book import ContactBook
+from .contact_book import Contact, ContactBook
 from .db import open_db
+from .discovery import decode_owner_reply, discover
 from .event_bridge import attach_dispatcher_callbacks, attach_event_service_subscriber
 from .operations import (
+    request_owner_info,
     request_telemetry,
     send_advert,
     send_group_text,
@@ -652,6 +654,49 @@ class OpenHopCoreSession:
             lon=lon,
             route_type=route_type,
         )
+
+    async def discover_nodes(self) -> list[dict[str, Any]]:
+        """Zero-hop discover: which repeaters/sensors hear us directly (see discovery.py)."""
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        from openhop_core.protocol.packet_builder import PacketBuilder
+
+        dispatcher = self._node.dispatcher
+
+        async def send(packet: Any) -> None:
+            await dispatcher.send_packet(packet, wait_for_ack=False)
+
+        results = await discover(
+            send,
+            dispatcher.control_handler,
+            PacketBuilder.create_discovery_request,
+            self_pub_key=self.get_public_key(),
+        )
+        self._log(f"discover: {len(results)} answer(s)")
+        return results
+
+    async def request_owner_name(self, pub_key_hex: str) -> str | None:
+        """Ask a zero-hop neighbour (e.g. a discovered repeater) for its name.
+
+        openhop_core decrypts the reply through the contact book, so a stand-in
+        contact (direct zero-hop route) sits there for the duration of the request.
+        """
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        contact = Contact(
+            name=f"owner-query {pub_key_hex[:8]}",
+            public_key=pub_key_hex,
+            out_path=[],
+            out_path_len=0,
+        )
+        self._contact_book.contacts.append(contact)
+        try:
+            reply = await request_owner_info(node=self._node, contact=contact)
+        finally:
+            self._contact_book.contacts.remove(contact)
+        decoded = decode_owner_reply(reply) if reply else None
+        self._log(f"owner query {pub_key_hex[:8]}: {decoded[0] if decoded else 'no answer'}")
+        return decoded[0] if decoded else None
 
     async def send_telemetry_request(
         self,

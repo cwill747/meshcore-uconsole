@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import struct
 
 from openhop_core.node.handlers.login_response import LoginResponseHandler
 from openhop_core.node.handlers.protocol_response import ProtocolResponseHandler
@@ -18,7 +19,9 @@ from openhop_core.node.handlers.text import TextMessageHandler
 from openhop_core.protocol.identity import LocalIdentity
 
 from meshcore_console.meshcore.contact_book import Contact, ContactBook
+from meshcore_console.meshcore.discovery import decode_owner_reply
 from meshcore_console.meshcore.operations import (
+    request_owner_info,
     request_telemetry,
     send_login,
     send_logout,
@@ -196,3 +199,40 @@ def test_logout_is_local_only() -> None:
     node.dispatcher = FakeDispatcher([])
     assert run(send_logout(node=node, peer_name="Bergblick"))["success"] is True
     assert node.dispatcher.sent == []
+
+
+def owner_reply(name: bytes, owner: bytes = b"Erik") -> bytes:
+    return struct.pack("<II", 1234, 5678) + name + b"\n" + owner
+
+
+def test_owner_query_is_a_direct_anon_request() -> None:
+    contact, key = repeater_contact()
+    node = FakeNode(contact)
+    rh = FakeResponseHandler({"type": "binary", "hex": owner_reply(b"Bergblick").hex()})
+    node.dispatcher = FakeDispatcher([rh])
+    node.dispatcher.protocol_response_handler = rh
+
+    parsed = run(request_owner_info(node=node, contact=contact, timeout=1))
+
+    assert decode_owner_reply(parsed) == ("Bergblick", "Erik")
+    assert node.dispatcher.sent[0].is_route_direct()  # firmware answers direct only
+    assert rh.registered[0][0] == key and rh.waiters == {}
+
+
+def test_owner_query_times_out_to_none() -> None:
+    contact, _key = repeater_contact()
+    node = FakeNode(contact)
+    rh = FakeResponseHandler(None)
+    node.dispatcher = FakeDispatcher([rh])
+    node.dispatcher.protocol_response_handler = rh
+    assert run(request_owner_info(node=node, contact=contact, timeout=0.05)) is None
+    assert rh.waiters == {}
+
+
+def test_decode_owner_reply_wherever_openhop_put_the_bytes() -> None:
+    data = owner_reply("Bergblick Süd".encode())
+    assert decode_owner_reply({"type": "binary", "hex": data.hex()}) == ("Bergblick Süd", "Erik")
+    assert decode_owner_reply({"type": "telemetry", "raw_bytes": data[4:]})[0] == "Bergblick Süd"
+    assert decode_owner_reply({"type": "binary", "hex": owner_reply(b"", b"").hex()}) is None
+    assert decode_owner_reply({"type": "binary", "hex": owner_reply(b"x" * 40).hex()}) is None
+    assert decode_owner_reply({}) is None

@@ -59,6 +59,10 @@ class MeshcoreService(Protocol):
         self, name: str | None = None, *, route_type: str = "flood"
     ) -> SendResultDict: ...
 
+    def discover_nodes(self) -> list[dict]:
+        """Zero-hop discover of nearby repeaters/sensors; blocks for the answer window."""
+        ...
+
     def poll_events(self, limit: int = 50) -> list[MeshEventDict]: ...
 
     def list_stored_packets(self, limit: int = 100) -> list[MeshEventDict]:
