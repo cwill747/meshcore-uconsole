@@ -208,16 +208,10 @@ async def send_login(
 
 
 async def send_logout(*, node: MeshNodeProtocol, peer_name: str) -> dict:
-    """Send a logout/disconnect to a repeater."""
-    from openhop_core.protocol.packet_builder import PacketBuilder
-
-    contact = _resolve_contact(node, peer_name)
-
-    pkt, _crc = PacketBuilder.create_logout_packet(
-        contact=contact,
-        local_identity=node.identity,
-    )
-    await node.dispatcher.send_packet(pkt, wait_for_ack=False)
+    """Forget the repeater session.  Local only: MeshCore firmware has no logout
+    command (companion CMD_LOGOUT just drops the connection), and the old CLI
+    "logout" only drew an "Unknown command" reply that surfaced as a DM."""
+    _resolve_contact(node, peer_name)
     return {"success": True, "repeater": peer_name}
 
 

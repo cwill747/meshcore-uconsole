@@ -21,6 +21,7 @@ from meshcore_console.meshcore.contact_book import Contact, ContactBook
 from meshcore_console.meshcore.operations import (
     request_telemetry,
     send_login,
+    send_logout,
     send_repeater_command,
 )
 
@@ -187,3 +188,11 @@ def test_cli_command_registers_by_pubkey() -> None:
 
     assert result["success"] is True and result["response_text"] == "v1.18.0"
     assert th.pending == {}
+
+
+def test_logout_is_local_only() -> None:
+    contact, _key = repeater_contact()
+    node = FakeNode(contact)
+    node.dispatcher = FakeDispatcher([])
+    assert run(send_logout(node=node, peer_name="Bergblick"))["success"] is True
+    assert node.dispatcher.sent == []
