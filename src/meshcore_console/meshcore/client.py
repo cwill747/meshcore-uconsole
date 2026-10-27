@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import concurrent.futures
 import logging
 import threading
@@ -63,6 +64,16 @@ RUN_ASYNC_CAP_S = 60.0
 CONNECT_TIMEOUT_S = 30.0
 # Three DM attempts, each: listen-before-talk (up to 4 s), airtime, 5 s ACK wait.
 DM_SEND_TIMEOUT_S = 45.0
+
+
+def dm_message_id(data: dict) -> str | None:
+    """A stable id for a received DM: sender key, exact sender timestamp, text."""
+    pubkey, timestamp = data.get("contact_pubkey"), data.get("timestamp")
+    text = data.get("message_text") or data.get("payload_text") or data.get("text")
+    if not pubkey or timestamp is None or text is None:
+        return None
+    digest = hashlib.sha256(f"{pubkey}:{timestamp}:{text}".encode()).hexdigest()[:16]
+    return f"dm_{digest}"
 
 
 def hops_from_path(path: bytes | None, path_len_encoded: int | None) -> list[str]:
@@ -1016,9 +1027,14 @@ class MeshcoreClient(MeshcoreService):
         peer_display_name = sender_name if is_direct else None
 
         # Deduplicate by message_id — handles radio retransmissions of the
-        # same packet (openhop_core derives a deterministic id from the decrypted
-        # timestamp + content hash, so copies of the same packet share an id).
-        msg_id = data.get("message_id") or str(uuid4())
+        # same packet.  Group messages carry the packet hash.  For DMs,
+        # openhop_core's id hashes the sender timestamp rounded down to 1000 s
+        # with Python's per-process hash(), so two identical DMs ("ok") within
+        # ~16 minutes collapsed into one; key DMs on the exact timestamp instead
+        # (a retry repeats the timestamp and text, a new message doesn't).
+        msg_id = (
+            (dm_message_id(data) if is_direct else None) or data.get("message_id") or str(uuid4())
+        )
         existing_ids = {m.message_id for m in self._messages[-100:]}
         if msg_id in existing_ids:
             return

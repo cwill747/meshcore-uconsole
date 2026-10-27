@@ -121,3 +121,23 @@ def test_send_status_text() -> None:
     assert send_status_text("Bob", True) == "Delivered to Bob"
     assert send_status_text("Bob", False) == "Sent to Bob, but no acknowledgement came back"
     assert send_status_text("#ops", None) == "Sent to #ops"
+
+
+def test_identical_dms_minutes_apart_both_show_retries_do_not(tmp_path, monkeypatch) -> None:
+    client, _sent = _client(tmp_path, monkeypatch)
+    bob = "bb" * 32
+
+    def dm(ts: int) -> dict:
+        return {
+            "sender_name": "Bob",
+            "contact_pubkey": bob,
+            "message_text": "ok",
+            "timestamp": ts,
+            "message_id": "rx_1761595000_5ab3c1f2",  # openhop's 1000 s bucket id
+        }
+
+    client._process_message_event(dm(1_761_595_000), EventType.MESH_MESSAGE_NEW)
+    client._process_message_event(dm(1_761_595_000), EventType.MESH_MESSAGE_NEW)  # retry
+    client._process_message_event(dm(1_761_595_600), EventType.MESH_MESSAGE_NEW)  # 10 min later
+
+    assert [m.body for m in client.list_messages_for_channel("dm:bob")] == ["ok", "ok"]
