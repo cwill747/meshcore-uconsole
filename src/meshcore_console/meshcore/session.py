@@ -186,7 +186,9 @@ class OpenHopCoreSession:
             if not payload:
                 self._log("telemetry request: no sensor data available")
                 return None
-            self._log(f"responding to telemetry request (voltage={voltage}, lat={lat}, lon={lon})")
+            self._log(
+                f"responding to telemetry request (voltage={voltage}, location={lat is not None})"
+            )
             return payload
 
         return _handle_telemetry

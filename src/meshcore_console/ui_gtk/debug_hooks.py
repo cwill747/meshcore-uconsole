@@ -39,8 +39,9 @@ def _widget_label(widget: Gtk.Widget) -> str:
         if text:
             return text
 
-    # Child label (icon buttons with a Label child)
-    if hasattr(widget, "get_child"):
+    # Child label (icon buttons with a Label child).  Only buttons: other
+    # containers (message bubbles, peer rows) hold text from the air.
+    if isinstance(widget, Gtk.Button) and hasattr(widget, "get_child"):
         child = widget.get_child()
         if isinstance(child, Gtk.Label):
             return child.get_text() or ""

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import sys
 import threading
@@ -73,6 +74,7 @@ def configure_logging(console_level: str | None = None) -> None:
     _stderr_handler.setLevel(getattr(logging, effective_level))
     _stderr_handler.setFormatter(logging.Formatter(LOG_FORMAT))
     _stderr_handler.addFilter(RfNoiseFilter(_stderr_handler))
+    _stderr_handler.addFilter(PrivacyFilter())
     root.addHandler(_stderr_handler)
 
     # Rotating file handler
@@ -81,6 +83,7 @@ def configure_logging(console_level: str | None = None) -> None:
     make_private(*get_log_files_chronological())
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT))
+    file_handler.addFilter(PrivacyFilter())
     root.addHandler(file_handler)
 
     _configured = True
@@ -230,6 +233,34 @@ _rf_noise_counter = RfNoiseCounter()
 def get_rf_noise_counts() -> dict[str, int]:
     """Return the RF reception noise counts since start, keyed by category."""
     return _rf_noise_counter.totals()
+
+
+# openhop_core's Dispatcher logs every decrypted message at INFO; keep who and
+# where, drop what was said.
+_WITHHELD = (
+    (re.compile(r"^(Received TXT_MSG: ).*", re.S), r"\1(text withheld)"),
+    (re.compile(r"^(<<< Channel \[[^\]]*\] [^:]*: ).*( >>>)$", re.S), r"\1(text withheld)\2"),
+)
+
+
+class PrivacyFilter(logging.Filter):
+    """Withhold decrypted message text and neutralise control characters.
+
+    Message text and node names come from the air: a newline or an escape
+    sequence in them would forge log lines or drive the terminal reading the log.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if record.name == "Dispatcher":
+            for pattern, replacement in _WITHHELD:
+                message = pattern.sub(replacement, message)
+        cleaned = "".join(
+            ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii")
+            for ch in message
+        )
+        record.msg, record.args = cleaned, None
+        return True
 
 
 class RfNoiseFilter(logging.Filter):

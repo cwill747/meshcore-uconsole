@@ -190,7 +190,7 @@ class UConsoleGps:
             return
         if not self._has_fix:
             self._has_fix = True
-            logger.info("GPS: fix acquired: %.6f, %.6f", lat, lon)
+            logger.info("GPS: fix acquired")  # never log the position itself
         self._latitude = lat
         self._longitude = lon
         if self._callback:
@@ -202,7 +202,7 @@ class UConsoleGps:
             return
         if not self._has_fix:
             self._has_fix = True
-            logger.info("GPS: fix acquired: %.6f, %.6f", lat, lon)
+            logger.info("GPS: fix acquired")  # never log the position itself
         old_lat, old_lon = self._latitude, self._longitude
         self._latitude = lat
         self._longitude = lon
@@ -463,7 +463,7 @@ class GpsdProvider:
             return
         if not self._has_fix:
             self._has_fix = True
-            logger.info("GpsdProvider: fix acquired: %.6f, %.6f", lat, lon)
+            logger.info("GpsdProvider: fix acquired")  # never log the position itself
         self._latitude = lat
         self._longitude = lon
         if self._callback:
