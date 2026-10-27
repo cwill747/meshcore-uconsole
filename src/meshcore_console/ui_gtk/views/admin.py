@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 _MAX_HISTORY = 50
 
 
+def repeater_list_state(peers: list[Peer], logged_in: list[str]) -> tuple:
+    """What the repeater list shows; the list is rebuilt only when this changes."""
+    shown = sorted(
+        (p.display_name, p.public_key or "", p.is_favorite) for p in peers if p.is_repeater
+    )
+    return tuple(shown), tuple(sorted(logged_in))
+
+
 class AdminView(Gtk.Box):
     def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -38,6 +46,7 @@ class AdminView(Gtk.Box):
         self._history_index = -1
         self._busy = False
         self._refreshing_list = False
+        self._list_state: tuple | None = None
 
         # -- Left: repeater list -----------------------------------------------
         list_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -338,7 +347,9 @@ class AdminView(Gtk.Box):
             [p for p in peers if p.is_repeater],
             key=lambda p: (not p.is_favorite, p.display_name),
         )
-        logged_in = set(self._service.list_logged_in_repeaters())
+        logged_in_names = self._service.list_logged_in_repeaters()
+        self._list_state = repeater_list_state(peers, logged_in_names)
+        logged_in = set(logged_in_names)
 
         # Suppress selection handler during rebuild
         self._refreshing_list = True
@@ -700,18 +711,14 @@ class AdminView(Gtk.Box):
     # -- Events ----------------------------------------------------------------
 
     def _on_events(self, _store: object) -> None:
-        self._event_cursor, events = self._event_store.since(self._event_cursor, limit=200)
-        needs_refresh = False
-        for event in events:
-            etype = event.get("type", "")
-            if etype in (
-                "repeater_login",
-                "repeater_logout",
-                "advert_received",
-                "contact_received",
-            ):
-                needs_refresh = True
-        if needs_refresh:
+        self._event_cursor, _events = self._event_store.since(self._event_cursor, limit=200)
+        # Repeaters arrive through adverts (plain "packet" events), discovery,
+        # contact events and logins; compare what the list shows instead of
+        # enumerating event types (the old list matched types nothing emits).
+        state = repeater_list_state(
+            self._service.list_peers(), self._service.list_logged_in_repeaters()
+        )
+        if state != self._list_state:
             self._refresh_list()
 
     # -- Public API for MainWindow.navigate_to ---------------------------------
