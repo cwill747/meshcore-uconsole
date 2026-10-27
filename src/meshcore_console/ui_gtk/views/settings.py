@@ -37,6 +37,26 @@ def _abbreviate_key(key: str | None) -> str:
     return f"{key[:8]}...{key[-8:]}"
 
 
+def parse_coordinate(text: str, key: str, limit: float) -> float:
+    """A fixed-position coordinate from the settings form.
+
+    Empty means "no fixed position" (0.0, which the app treats as unset) and an
+    explicit 0 is a valid value: the old ``parsed or current`` kept the previous
+    position in both cases, so a fixed position, once entered, could not be
+    removed and kept going out in adverts.
+    """
+    text = text.strip()
+    if not text:
+        return 0.0
+    try:
+        value = float(text)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be a number") from exc
+    if not -limit <= value <= limit:
+        raise ValueError(f"{key} must be between -{limit:g} and {limit:g}")
+    return value
+
+
 class SettingsView(Gtk.Box):
     """Settings view matching official MeshCore app layout."""
 
@@ -649,8 +669,8 @@ class SettingsView(Gtk.Box):
 
         # Public Info
         out.node_name = self._entries["node_name"].get_text().strip() or current.node_name
-        out.latitude = self._parse_float("latitude", allow_partial) or current.latitude
-        out.longitude = self._parse_float("longitude", allow_partial) or current.longitude
+        out.latitude = self._parse_coordinate("latitude", 90.0, allow_partial, current.latitude)
+        out.longitude = self._parse_coordinate("longitude", 180.0, allow_partial, current.longitude)
         out.share_position = self._switches["share_position"].get_active()
         out.allow_telemetry = self._switches["allow_telemetry"].get_active()
         out.telemetry_favorites_only = self._switches["telemetry_favorites_only"].get_active()
@@ -706,6 +726,16 @@ class SettingsView(Gtk.Box):
         out.show_radio_error_toasts = self._switches["show_radio_error_toasts"].get_active()
 
         return out
+
+    def _parse_coordinate(
+        self, key: str, limit: float, allow_partial: bool, fallback: float
+    ) -> float:
+        try:
+            return parse_coordinate(self._entries[key].get_text(), key, limit)
+        except ValueError:
+            if allow_partial:
+                return fallback
+            raise
 
     def _parse_float(self, key: str, allow_partial: bool) -> float | None:
         text = self._entries[key].get_text().strip()
