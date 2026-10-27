@@ -720,6 +720,12 @@ class AdminView(Gtk.Box):
         )
         if state != self._list_state:
             self._refresh_list()
+            if self._selected_repeater is not None:
+                # e.g. a disconnect ended every repeater session: the panel
+                # kept showing "Logged in" with the command line enabled.
+                self._update_login_ui(
+                    self._service.get_repeater_login_state(self._selected_repeater.display_name)
+                )
 
     # -- Public API for MainWindow.navigate_to ---------------------------------
 
