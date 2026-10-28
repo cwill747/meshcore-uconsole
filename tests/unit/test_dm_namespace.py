@@ -208,3 +208,22 @@ def test_room_post_shows_its_author(tmp_path, monkeypatch) -> None:
         ("Alice", "hello room"),
         ("99887766", "who?"),
     ]
+
+
+def test_a_busy_channel_does_not_push_out_dms(tmp_path, monkeypatch) -> None:
+    from meshcore_console.meshcore import client as client_mod
+    from meshcore_console.meshcore import state_store
+
+    monkeypatch.setattr(state_store, "MAX_MESSAGES", 5)
+    monkeypatch.setattr(client_mod, "MAX_MESSAGES", 5)
+    client, _sent = _client(tmp_path, monkeypatch)
+    dm = {"sender_name": "Bob", "message_text": "private", "message_id": "dm1"}
+    client._process_message_event(dm, EventType.MESH_MESSAGE_NEW)
+    for i in range(20):
+        post = {"sender_name": "X", "channel_name": "public", "message_text": f"p{i}"}
+        client._process_message_event(dict(post, message_id=f"p{i}"), "")
+
+    assert [m.body for m in client.list_messages_for_channel("dm:bob")] == ["private"]
+    assert len(client.list_messages_for_channel("public", limit=100)) == 5
+    rows = dict(client._db.execute("SELECT channel_id, COUNT(*) FROM messages GROUP BY channel_id"))
+    assert rows == {"dm:bob": 1, "public": 5}

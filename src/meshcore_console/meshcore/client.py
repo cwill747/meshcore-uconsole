@@ -43,7 +43,12 @@ from meshcore_console.meshcore.repeater_store import RepeaterPasswordStore
 from meshcore_console.meshcore.session import OpenHopCoreSession
 from meshcore_console.meshcore.settings import MeshcoreSettings
 from meshcore_console.meshcore.settings_store import SettingsStore
-from meshcore_console.meshcore.state_store import MessageStore, PeerStore, UIChannelStore
+from meshcore_console.meshcore.state_store import (
+    MAX_MESSAGES,
+    MessageStore,
+    PeerStore,
+    UIChannelStore,
+)
 from meshcore_console.platform.gps import GpsProvider, create_gps_provider
 
 logger = logging.getLogger(__name__)
@@ -549,8 +554,7 @@ class MeshcoreClient(MeshcoreService):
             is_outgoing=True,
             delivered=delivered,
         )
-        self._messages.append(message)
-        self._message_store.append(message)
+        self._remember_message(message)
         self._append_event(
             {
                 "type": EventType.MESSAGE_SENT,
@@ -623,6 +627,16 @@ class MeshcoreClient(MeshcoreService):
                 }
             )
         return results
+
+    def _remember_message(self, message: Message) -> None:
+        """Keep a message in memory and the database, at most MAX_MESSAGES per
+        channel in both (the in-memory list used to grow without bound)."""
+        self._messages.append(message)
+        self._message_store.append(message)
+        same = [m for m in self._messages if m.channel_id == message.channel_id]
+        if len(same) > MAX_MESSAGES:
+            drop = {id(m) for m in same[: len(same) - MAX_MESSAGES]}
+            self._messages = [m for m in self._messages if id(m) not in drop]
 
     def _name_for_key_prefix(self, prefix_hex: str) -> str:
         """The peer whose key starts with ``prefix_hex``, else the prefix itself."""
@@ -1149,8 +1163,7 @@ class MeshcoreClient(MeshcoreService):
             snr=float(snr) if snr is not None else None,
             rssi=int(rssi) if rssi is not None else None,
         )
-        self._messages.append(message)
-        self._message_store.append(message)
+        self._remember_message(message)
 
         # Ensure channel exists
         if channel_name not in self._channels:
