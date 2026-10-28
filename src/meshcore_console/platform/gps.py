@@ -71,7 +71,7 @@ class UConsoleGps:
     CM4-based units and /dev/ttyAMA0 on CM5-based units. The port can be
     overridden via the constructor (Settings > GPS Device) or the
     MESHCORE_GPS_DEVICE environment variable.
-    GPIO 27 is used to enable/disable the GPS module.
+    GPIO 27 powers the GPS module; it is switched on at start and left on.
     """
 
     GPIO_ENABLE_PIN = 27
@@ -144,16 +144,10 @@ class UConsoleGps:
                 logger.debug("GPS: serial close error: %s", e)
             self._serial = None
 
-        # Disable GPS module and release the pin
-        if self._gpio_enabled:
-            try:
-                import RPi.GPIO as GPIO  # type: ignore[import-not-found]
-
-                GPIO.output(self.GPIO_ENABLE_PIN, GPIO.LOW)
-                GPIO.cleanup(self.GPIO_ENABLE_PIN)
-                self._gpio_enabled = False
-            except (RuntimeError, OSError) as e:
-                logger.debug("GPS: GPIO disable error: %s", e)
+        # Leave the GPS power rail as it is.  It is the board's shared rail
+        # (gpsd, other apps and the board's own tools use it): driving it LOW,
+        # or GPIO.cleanup() floating the pin, powered the GPS off under them.
+        self._gpio_enabled = False
 
     def get_location(self) -> tuple[float, float] | None:
         if not self._running:

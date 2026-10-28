@@ -49,3 +49,26 @@ def test_gpsd_position_is_only_reported_with_a_current_fix() -> None:
     gps._update_location(52.5, 13.4)
     gps.stop()
     assert gps.get_location() is None
+
+
+def test_serial_gps_stop_leaves_the_power_rail_alone(monkeypatch) -> None:
+    import sys
+    import types
+
+    from meshcore_console.platform.gps import UConsoleGps
+
+    calls: list[str] = []
+    fake = types.SimpleNamespace(
+        output=lambda *a: calls.append("output"),
+        cleanup=lambda *a: calls.append("cleanup"),
+        LOW=0,
+    )
+    rpi = types.ModuleType("RPi")
+    rpi.GPIO = fake
+    monkeypatch.setitem(sys.modules, "RPi", rpi)
+    monkeypatch.setitem(sys.modules, "RPi.GPIO", fake)
+
+    gps = UConsoleGps(serial_port="/dev/null")
+    gps._gpio_enabled = True
+    gps.stop()
+    assert calls == []
