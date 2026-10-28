@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 _MAX_HISTORY = 50
 
 
+CONSOLE_PAGE = 1  # Admin notebook: 0 Status, 1 Console
+
+
 def repeater_list_state(peers: list[Peer], logged_in: list[str]) -> tuple:
     """What the repeater list shows; the list is rebuilt only when this changes."""
     shown = sorted(
@@ -135,6 +138,7 @@ class AdminView(Gtk.Box):
         # Console tab
         console_page = self._build_console_tab()
         self._notebook.append_page(console_page, Gtk.Label(label="Console"))
+        assert self._notebook.get_n_pages() - 1 == CONSOLE_PAGE
 
         admin_outer.append(self._notebook)
         self._panel_stack.add_named(admin_outer, "admin")
@@ -550,6 +554,10 @@ class AdminView(Gtk.Box):
                         state = self._service.get_repeater_login_state(peer_name)
                         self._update_login_ui(state)
                         self._populate_status(self._selected_repeater)
+                        if state is not None and state.is_admin:
+                            # what an admin logs in for: the console, ready to type
+                            self._notebook.set_current_page(CONSOLE_PAGE)
+                            self._cmd_entry.grab_focus()
                     self._append_console_response("Login successful")
                     self._refresh_list()
                 return False
