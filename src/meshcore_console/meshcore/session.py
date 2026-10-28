@@ -53,6 +53,7 @@ from .discovery import (
 from .event_bridge import attach_dispatcher_callbacks, attach_event_service_subscriber
 from .operations import (
     request_owner_info,
+    request_repeater_data,
     request_telemetry,
     send_advert,
     send_group_text,
@@ -74,6 +75,8 @@ class OpenHopCoreSession:
         self._radio: SX1262RadioProtocol | None = None
         self._identity: LocalIdentityProtocol | None = None
         self._background_tasks: set[asyncio.Task[None]] = set()
+        self._raw_waiters: dict[bytes, Callable[[bytes], None]] = {}
+        self._last_request_ts = 0
         self._node: MeshNodeProtocol | None = None
         self._event_service: EventServiceProtocol | None = None
         self._event_subscriber: EventSubscriberProtocol | None = None
@@ -477,6 +480,10 @@ class OpenHopCoreSession:
 
         self._register_req_handler()
         self._register_discovery_handler()
+        # replies to repeater_request(), routed to their waiter by tag
+        self._node.dispatcher.protocol_response_handler.set_binary_response_callback(
+            self._on_binary_response
+        )
 
         self._log("creating background task for node.start()")
         self._node_task = asyncio.create_task(self._node.start())
@@ -684,8 +691,40 @@ class OpenHopCoreSession:
         if self._node is None:
             raise RuntimeError("Session is not started.")
         return await send_repeater_command(
-            node=self._node, peer_name=peer_name, command=command, timeout=timeout
+            node=self._node,
+            peer_name=peer_name,
+            command=command,
+            timeout=timeout,
+            timestamp=self.next_request_timestamp(),
         )
+
+    async def repeater_request(
+        self, peer_name: str, req_type: int, data: bytes = b"", timeout: float = 10.0
+    ) -> bytes | None:
+        """A binary request to a logged-in repeater; the raw reply, or None."""
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        return await request_repeater_data(
+            node=self._node,
+            peer_name=peer_name,
+            req_type=req_type,
+            data=data,
+            timestamp=self.next_request_timestamp(),
+            waiters=self._raw_waiters,
+            timeout=timeout,
+        )
+
+    def next_request_timestamp(self) -> int:
+        """Strictly increasing request timestamps.  A repeater drops a request
+        whose timestamp is not newer than the client's previous one (replay
+        protection), so two requests within the same second lost the second."""
+        self._last_request_ts = max(int(time.time()), self._last_request_ts + 1)
+        return self._last_request_ts
+
+    def _on_binary_response(self, tag: bytes, payload: bytes, _path_info: object) -> None:
+        waiter = self._raw_waiters.pop(bytes(tag), None)
+        if waiter is not None:
+            waiter(bytes(payload))
 
     async def listen_events(self) -> AsyncIterator[MeshEventDict]:
         if self._node is None:

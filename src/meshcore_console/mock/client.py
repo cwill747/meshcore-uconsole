@@ -422,6 +422,45 @@ class MockMeshcoreClient(MeshcoreService):
             "response_text": response_text,
         }
 
+    def get_repeater_status(self, peer_name: str) -> dict | None:
+        time.sleep(0.3)
+        return {
+            "bat": 4012,
+            "tx_queue_len": 0,
+            "noise_floor": -112,
+            "last_rssi": -71,
+            "nb_recv": 18234,
+            "nb_sent": 6110,
+            "airtime": 1834,
+            "uptime": 3 * 86400 + 5 * 3600,
+            "sent_flood": 4021,
+            "sent_direct": 2089,
+            "recv_flood": 15210,
+            "recv_direct": 3024,
+            "full_evts": 0,
+            "last_snr": 7.25,
+            "direct_dups": 12,
+            "flood_dups": 940,
+            "rx_airtime": 9120,
+        }
+
+    def get_repeater_owner_info(self, peer_name: str) -> dict | None:
+        return {"version": "v1.16.0-mock", "name": peer_name, "owner_info": "mock owner"}
+
+    def get_repeater_neighbours(self, peer_name: str) -> list[dict] | None:
+        time.sleep(0.3)
+        return [
+            {"pubkey": "a1b2c3d4e5f6", "name": None, "secs_ago": 42, "snr": 9.5},
+            {"pubkey": "13ab5c7e0011", "name": "Hilltop", "secs_ago": 610, "snr": -3.25},
+            {"pubkey": "77cc0011aabb", "name": None, "secs_ago": 86400, "snr": 1.0},
+        ]
+
+    def get_repeater_access_list(self, peer_name: str) -> list[dict] | None:
+        return [
+            {"key": "46a5a5adaf41", "role": "admin", "name": self._settings.node_name},
+            {"key": "a1b2c3d4e5f6", "role": "guest", "name": None},
+        ]
+
     def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None:
         return self._repeater_sessions.get(peer_name)
 

@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import concurrent.futures
 import logging
+import secrets
 import threading
 from collections import deque
 from itertools import chain, count
@@ -100,6 +101,12 @@ CONNECT_TIMEOUT_S = 30.0
 DM_SEND_TIMEOUT_S = 45.0
 MAX_PEERS = 500
 MAP_VIEW_KEY = "ui.map_view"  # settings-table row: the map's last view
+# Repeater neighbour lists: firmware fills at most 130 bytes of entries per
+# reply (key prefix + 4-byte age + 1-byte SNR each).
+NEIGHBOUR_KEY_PREFIX = 6
+NEIGHBOURS_PER_PAGE = 130 // (NEIGHBOUR_KEY_PREFIX + 5)
+NEIGHBOUR_PAGES_MAX = 10
+ACL_ROLES = {0: "guest", 1: "read-only", 2: "read-write", 3: "admin"}  # PERM_ACL_*
 
 
 def dm_message_id(data: dict) -> str | None:
@@ -1451,6 +1458,87 @@ class MeshcoreClient(MeshcoreService):
             }
         )
         return result
+
+    # --- remote repeater management (binary requests; needs a login) -------
+
+    def _repeater_request(self, peer_name: str, req_type: int, data: bytes = b"") -> bytes | None:
+        if not self._connected:
+            self.connect()
+        return self._run_async(
+            self._session.repeater_request(peer_name, req_type, data), timeout=15.0
+        )
+
+    def get_repeater_status(self, peer_name: str) -> dict | None:
+        """The repeater's counters: battery, uptime, airtime, noise floor, packets."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.STATUS)
+        if data is None:
+            return None
+        key_prefix = self._repeater_key(peer_name)[:12] or "000000000000"
+        return parse_binary_response(BinaryReqType.STATUS, data, pubkey_prefix=key_prefix)
+
+    def get_repeater_owner_info(self, peer_name: str) -> dict | None:
+        """Firmware version, node name and owner info."""
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.OWNER_INFO)
+        if data is None:
+            return None
+        # the reply ends in the zero padding of its last AES block
+        text = data.rstrip(b"\x00").decode("utf-8", "replace")
+        version, name, owner = (text.split("\n", 2) + ["", ""])[:3]
+        return {"version": version.strip(), "name": name.strip(), "owner_info": owner.strip()}
+
+    def get_repeater_neighbours(self, peer_name: str) -> list[dict] | None:
+        """Every neighbour the repeater has heard, newest first, fetched page by
+        page (one reply holds at most 11 entries with 6-byte key prefixes)."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        neighbours: list[dict] = []
+        offset = 0
+        for _ in range(NEIGHBOUR_PAGES_MAX):
+            request = bytes([0, NEIGHBOURS_PER_PAGE]) + offset.to_bytes(2, "little")
+            request += bytes([0, NEIGHBOUR_KEY_PREFIX]) + secrets.token_bytes(4)
+            data = self._repeater_request(peer_name, BinaryReqType.NEIGHBOURS, request)
+            if data is None:
+                return neighbours or None
+            page = parse_binary_response(
+                BinaryReqType.NEIGHBOURS,
+                data,
+                context={"pubkey_prefix_length": NEIGHBOUR_KEY_PREFIX},
+            )
+            for entry in page.get("neighbours", []):
+                entry["name"] = self._known_name_for_prefix(entry["pubkey"])
+                neighbours.append(entry)
+            offset += page.get("results_count", 0)
+            if not page.get("results_count") or offset >= page.get("neighbours_count", 0):
+                break
+        return neighbours
+
+    def get_repeater_access_list(self, peer_name: str) -> list[dict] | None:
+        """Who may log in, by 6-byte key prefix and role (admin login only)."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.ACL, b"\x00\x00")
+        if data is None:
+            return None
+        entries = parse_binary_response(BinaryReqType.ACL, data).get("acl", [])
+        return [
+            {
+                "key": e["key"],
+                "role": ACL_ROLES.get(e["perm"] & 3, "guest"),
+                "name": self._known_name_for_prefix(e["key"]),
+            }
+            for e in entries
+        ]
+
+    def _known_name_for_prefix(self, prefix_hex: str) -> str | None:
+        name = self._name_for_key_prefix(prefix_hex)
+        return None if name == prefix_hex.lower() else name
 
     def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None:
         return self._repeater_sessions.get(peer_name)
