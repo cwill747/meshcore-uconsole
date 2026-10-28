@@ -35,3 +35,24 @@ def test_cli_uses_saved_radio_and_name() -> None:
 def test_cli_name_override() -> None:
     save(node_name="DF9ES")
     assert load_saved_runtime_config("bench").node_name == "bench"
+
+
+def test_cli_send_knows_the_stored_peers() -> None:
+    from meshcore_console.core.models import Peer
+    from meshcore_console.meshcore.state_store import PeerStore
+    from meshcore_console.radio_cli import seed_contacts
+
+    conn = open_db()
+    PeerStore(conn).add_or_update(
+        Peer(peer_id="aa" * 8, display_name="Bergblick", public_key="aa" * 32)
+    )
+    conn.close()
+
+    class Session:
+        from meshcore_console.meshcore.contact_book import ContactBook
+
+        contact_book = ContactBook()
+
+    session = Session()
+    seed_contacts(session)
+    assert session.contact_book.get_by_name("Bergblick").public_key == "aa" * 32

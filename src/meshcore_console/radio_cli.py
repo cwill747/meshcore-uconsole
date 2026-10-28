@@ -261,6 +261,25 @@ async def _run_advert(
     return 0
 
 
+def seed_contacts(session: OpenHopCoreSession) -> None:
+    """Load the known peers into the session's contact book, as the GTK client
+    does on connect; `send` otherwise failed with "Contact not found" for
+    every peer."""
+    from meshcore_console.meshcore.db import open_db
+    from meshcore_console.meshcore.state_store import PeerStore
+
+    conn = open_db()
+    try:
+        peers = PeerStore(conn).get_all()
+    finally:
+        conn.close()
+    for peer in peers.values():
+        if peer.public_key:
+            session.contact_book.add_contact(
+                {"name": peer.display_name, "public_key": peer.public_key}
+            )
+
+
 def read_secret() -> str:
     """The channel key from a hidden prompt, or from stdin when it is piped."""
     if sys.stdin.isatty():
@@ -332,6 +351,7 @@ async def _async_main(args: argparse.Namespace) -> int:
     if args.command == "listen":
         return await _run_listen(session, args.duration, args.debug, args.start_timeout)
     if args.command == "send":
+        seed_contacts(session)
         return await _run_send(session, args.peer, args.message, args.debug, args.start_timeout)
     if args.command == "advert":
         return await _run_advert(
