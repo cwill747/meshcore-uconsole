@@ -642,21 +642,26 @@ class AdminView(Gtk.Box):
         _keycode: int,
         _state: Gdk.ModifierType,
     ) -> bool:
+        # Only consume Up/Down while there is history to move through, so they
+        # still move keyboard focus out of the entry otherwise.
         if keyval == Gdk.KEY_Up:
             if self._command_history and self._history_index < len(self._command_history) - 1:
                 self._history_index += 1
                 self._cmd_entry.set_text(self._command_history[-(self._history_index + 1)])
                 self._cmd_entry.set_position(-1)
-            return True
+                return True
+            return False
         if keyval == Gdk.KEY_Down:
             if self._history_index > 0:
                 self._history_index -= 1
                 self._cmd_entry.set_text(self._command_history[-(self._history_index + 1)])
                 self._cmd_entry.set_position(-1)
-            elif self._history_index == 0:
+                return True
+            if self._history_index == 0:
                 self._history_index = -1
                 self._cmd_entry.set_text("")
-            return True
+                return True
+            return False
         return False
 
     def _send_command(self, command: str) -> None:
