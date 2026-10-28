@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
 
+from meshcore_console.core.map_view import decode_view, encode_view
 from meshcore_console.core.enums import EventType, PayloadType
 from meshcore_console.core.models import (
     DM_PREFIX,
@@ -95,6 +96,7 @@ CONNECT_TIMEOUT_S = 30.0
 # Three DM attempts, each: listen-before-talk (up to 4 s), airtime, 5 s ACK wait.
 DM_SEND_TIMEOUT_S = 45.0
 MAX_PEERS = 500
+MAP_VIEW_KEY = "ui.map_view"  # settings-table row: the map's last view
 
 
 def dm_message_id(data: dict) -> str | None:
@@ -1270,6 +1272,12 @@ class MeshcoreClient(MeshcoreService):
         if self._valid_coords(lat, lon):
             return (lat, lon)
         return None
+
+    def get_map_view(self) -> tuple[float, float, float] | None:
+        return decode_view(self._settings_store.load_value(MAP_VIEW_KEY))
+
+    def save_map_view(self, lat: float, lon: float, zoom: float) -> None:
+        self._settings_store.save_value(MAP_VIEW_KEY, encode_view(lat, lon, zoom))
 
     def get_device_location(self) -> tuple[float, float] | None:
         """Where this device is, for this app's own display (the map).

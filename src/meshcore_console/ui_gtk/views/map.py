@@ -26,6 +26,7 @@ except ImportError:
     SHUMATE_AVAILABLE = False
     print("[MapView] libshumate not available", file=sys.stderr)
 
+from meshcore_console.core.map_view import DEVICE_ZOOM, initial_view
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
@@ -71,6 +72,8 @@ class MapView(Gtk.Box):
         self._shown_gps_errors: set[str] = set()  # Track shown errors to avoid repeats
         self._following = False  # Whether map follows device location
         self._programmatic_move = False  # Suppress follow-disable during go_to
+        self._await_fix = False  # centre on the first GPS fix, until the user moves the map
+        self._save_view_id = 0  # pending save of the view, after it stops moving
 
         if not SHUMATE_AVAILABLE:
             self._build_fallback_ui()
@@ -139,19 +142,29 @@ class MapView(Gtk.Box):
         self._online_tiles: bool | None = None
         self._apply_tile_setting()
 
-        # Set initial view - center on SF Bay Area if mock mode, otherwise US
-        if self._service.is_mock_mode():
-            # SF Bay Area for mock data
-            self._viewport.set_zoom_level(12)
-            self._viewport.set_location(37.7749, -122.4194)
-        else:
-            # Centered on US
-            self._viewport.set_zoom_level(4)
-            self._viewport.set_location(39.8283, -98.5795)
+        # Open where the user left the map; on a first start at this device,
+        # else around the known peers (it used to open on the middle of the US)
+        device = self._service.get_device_location()
+        (lat, lon, zoom), source = initial_view(
+            gps_fix=device if self._service.has_gps_fix() else None,
+            saved=self._service.get_map_view(),
+            device=device,
+            peers=[
+                (p.latitude, p.longitude)
+                for p in self._service.list_peers()
+                if p.latitude is not None
+                and p.longitude is not None
+                and (p.latitude, p.longitude) != (0.0, 0.0)
+            ],
+        )
+        self._viewport.set_zoom_level(zoom)
+        self._viewport.set_location(lat, lon)
+        self._await_fix = source != "gps"
 
         # Detect user panning to disable follow mode
         self._viewport.connect("notify::latitude", self._on_viewport_moved)
         self._viewport.connect("notify::longitude", self._on_viewport_moved)
+        self._viewport.connect("notify::zoom-level", lambda *_a: self._schedule_view_save())
 
         # Create marker layer
         self._marker_layer = Shumate.MarkerLayer.new(self._viewport)
@@ -270,6 +283,7 @@ class MapView(Gtk.Box):
     def _on_zoom_in(self, _button: Gtk.Button) -> None:
         """Zoom in on the map."""
         logger.debug("UI: map zoom in")
+        self._await_fix = False
         self._programmatic_move = True
         current = self._viewport.get_zoom_level()
         self._viewport.set_zoom_level(min(current + 1, 19))
@@ -278,6 +292,7 @@ class MapView(Gtk.Box):
     def _on_zoom_out(self, _button: Gtk.Button) -> None:
         """Zoom out on the map."""
         logger.debug("UI: map zoom out")
+        self._await_fix = False
         self._programmatic_move = True
         current = self._viewport.get_zoom_level()
         self._viewport.set_zoom_level(max(current - 1, 0))
@@ -289,6 +304,7 @@ class MapView(Gtk.Box):
         location = self._service.get_device_location()
         if location:
             lat, lon = location
+            self._await_fix = False
             self._set_following(True)
             self._programmatic_move = True
             self._viewport.set_zoom_level(12)
@@ -303,8 +319,36 @@ class MapView(Gtk.Box):
 
     def _on_viewport_moved(self, viewport: object, pspec: object) -> None:
         """Disable follow mode when user pans the map."""
-        if not self._programmatic_move and self._following:
+        self._schedule_view_save()
+        if self._programmatic_move:
+            return
+        self._await_fix = False
+        if self._following:
             self._set_following(False)
+
+    def _schedule_view_save(self) -> None:
+        """Save the view once it has stopped moving (one write per pan, not per frame)."""
+        if self._save_view_id:
+            GLib.source_remove(self._save_view_id)
+        self._save_view_id = GLib.timeout_add_seconds(3, self._save_view_timeout)
+
+    def _save_view_timeout(self) -> bool:
+        self._save_view_id = 0
+        self.remember_view()
+        return False
+
+    def remember_view(self) -> None:
+        """Store the current view; the map opens there next time."""
+        if not SHUMATE_AVAILABLE:
+            return
+        try:
+            self._service.save_map_view(
+                self._viewport.get_latitude(),
+                self._viewport.get_longitude(),
+                self._viewport.get_zoom_level(),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not save the map view")
 
     def _set_following(self, active: bool) -> None:
         """Toggle follow mode and update button visual."""
@@ -508,6 +552,15 @@ class MapView(Gtk.Box):
             self._marker_layer.add_marker(self._device_marker)
         else:
             self._device_marker.set_location(lat, lon)
+
+        # The first GPS fix since start: centre on it once, unless the user
+        # has moved the map meanwhile (a fixed position from Settings is no fix)
+        if self._await_fix and self._service.has_gps_fix():
+            self._await_fix = False
+            self._programmatic_move = True
+            self._viewport.set_zoom_level(max(self._viewport.get_zoom_level(), DEVICE_ZOOM))
+            self._viewport.set_location(lat, lon)
+            self._programmatic_move = False
 
         # Keep map centered on device when following
         if self._following:

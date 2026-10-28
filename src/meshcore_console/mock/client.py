@@ -46,6 +46,7 @@ class MockMeshcoreClient(MeshcoreService):
         self._event_notify: Callable[[], None] | None = None
         self._event_buffer: deque[dict] = deque()
         self._event_history: list[dict] = []
+        self._map_view: tuple[float, float, float] | None = None
 
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
         self._saved_passwords: dict[str, str] = {}
@@ -275,6 +276,12 @@ class MockMeshcoreClient(MeshcoreService):
     def update_settings(self, settings: MeshcoreSettings) -> None:
         self._settings = settings.clone()
         self._config = runtime_config_from_settings(self._settings)
+
+    def get_map_view(self) -> tuple[float, float, float] | None:
+        return self._map_view
+
+    def save_map_view(self, lat: float, lon: float, zoom: float) -> None:
+        self._map_view = (lat, lon, zoom)
 
     def get_device_location(self) -> tuple[float, float] | None:
         return self._gps_provider.get_location()

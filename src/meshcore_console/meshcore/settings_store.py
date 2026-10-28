@@ -32,6 +32,18 @@ class SettingsStore:
                     )
         return MeshcoreSettings(**defaults)
 
+    def load_value(self, key: str) -> str | None:
+        """App state kept beside the settings under its own key (not a
+        MeshcoreSettings field, so load() and save() never touch it)."""
+        row = self._conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def save_value(self, key: str, value: str) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value)
+        )
+        self._conn.commit()
+
     def save(self, settings: MeshcoreSettings) -> None:
         data = asdict(settings)
         self._conn.executemany(

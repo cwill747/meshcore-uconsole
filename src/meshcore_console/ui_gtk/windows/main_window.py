@@ -229,6 +229,12 @@ class MainWindow(Adw.ApplicationWindow):
         self._shutting_down = True
         logger.info("Shutdown requested, showing shutdown screen")
 
+        # the map saves its view a few seconds after it stops moving; catch a
+        # move made just before closing
+        map_view = self._stack.get_child_by_name("map")
+        if map_view is not None:
+            map_view.remember_view()
+
         if self._radio_error_badge_id:
             GLib.source_remove(self._radio_error_badge_id)
             self._radio_error_badge_id = 0
