@@ -113,17 +113,18 @@ def _client(tmp_path, monkeypatch, name):
     return client, db_conn
 
 
-def test_remove_channel_keeps_imported_secret(tmp_path, monkeypatch) -> None:
-    """An imported secret cannot be re-derived, so it must survive removal."""
+def test_remove_channel_removes_an_imported_secret_after_warning(tmp_path, monkeypatch) -> None:
+    """An imported secret cannot be re-derived: the UI warns (is_private_channel)
+    and then removes it with the channel, which otherwise kept decrypting and
+    reappeared at the next start."""
     client, db_conn = _client(tmp_path, monkeypatch, "imported.db")
     channel_db = ChannelDatabase(db_conn)
     channel_db.add_channel("MyPrivate", "00112233445566778899aabbccddeeff")
     client.ensure_channel("MyPrivate", "#MyPrivate")
+    assert client.is_private_channel("MyPrivate") is True
 
     assert client.remove_channel("MyPrivate") is True
-    row = channel_db.get_channel("MyPrivate")
-    assert row is not None, "removing a channel must not destroy an imported PSK"
-    assert row["secret"] == "00112233445566778899aabbccddeeff"
+    assert channel_db.get_channel("MyPrivate") is None
 
 
 @pytest.mark.parametrize(

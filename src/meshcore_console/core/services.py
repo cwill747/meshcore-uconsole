@@ -55,6 +55,10 @@ class MeshcoreService(Protocol):
 
     def send_message(self, peer_id: str, body: str) -> Message: ...
 
+    def is_private_channel(self, channel_id: str) -> bool:
+        """True for a group channel joined with its own (non-derivable) key."""
+        ...
+
     def ensure_dm_channel(self, peer_name: str) -> Channel:
         """The DM thread with ``peer_name`` (channel id ``dm:<name>``), created if needed."""
         ...

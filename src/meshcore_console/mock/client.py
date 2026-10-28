@@ -90,6 +90,9 @@ class MockMeshcoreClient(MeshcoreService):
             self._channels["public"] = channel
         return sorted(self._channels.values(), key=lambda c: c.display_name.lower())
 
+    def is_private_channel(self, channel_id: str) -> bool:
+        return False
+
     def ensure_dm_channel(self, peer_name: str) -> Channel:
         channel_id = dm_channel_id(peer_name)
         if channel_id not in self._channels:

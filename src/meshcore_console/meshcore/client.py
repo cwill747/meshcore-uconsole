@@ -25,6 +25,7 @@ from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.types import MeshEventDict, SendResultDict
 from meshcore_console.meshcore.channel_db import (
     ChannelDatabase,
+    derive_channel_secret,
     normalize_channel_name,
     normalize_channel_secret,
 )
@@ -481,14 +482,25 @@ class MeshcoreClient(MeshcoreService):
             return False
         removed = self._channels.pop(channel_id, None)
         if removed is not None and removed.kind == "group":
-            # Only derived hashtag secrets are dropped; an imported secret is
-            # not recoverable, so it outlives the channel entry (issue #81).
+            # The secret goes too, imported (private) ones included: a kept
+            # secret kept the channel decrypting, and it came back at the next
+            # start and with the next message.  The confirmation dialog says the
+            # key is deleted (see is_private_channel).
             name = removed.display_name.lstrip("#") or removed.channel_id
-            self._channel_secrets.remove_derived_secret(name)
+            self._channel_secrets.remove_channel(name)
         self._messages = [m for m in self._messages if m.channel_id != channel_id]
         self._channel_store.remove(channel_id)
         self._message_store.remove_for_channel(channel_id)
         return True
+
+    def is_private_channel(self, channel_id: str) -> bool:
+        """True for a group channel joined with its own key (not derived from
+        its name), which cannot be re-derived once removed."""
+        channel = self._channels.get(channel_id)
+        if channel is None or channel.kind != "group" or channel_id == "public":
+            return False
+        row = self._channel_secrets.get_channel(channel.display_name.lstrip("#") or channel_id)
+        return row is not None and row["secret"] != derive_channel_secret(row["name"])
 
     def mark_channel_read(self, channel_id: str) -> None:
         if channel_id in self._channels:

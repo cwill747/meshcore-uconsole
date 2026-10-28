@@ -139,17 +139,22 @@ def test_import_channel_send_uses_stored_name(tmp_path, monkeypatch) -> None:
     assert sent == [("ops", "hello")]
 
 
-def test_imported_secret_survives_channel_removal(tmp_path, monkeypatch) -> None:
-    """Removing the UI channel must not destroy an unrecoverable PSK (#81 rule
-    still applies to imported keys)."""
+def test_removing_a_private_channel_removes_it_for_good(tmp_path, monkeypatch) -> None:
+    """A removed private channel used to keep its key, so it kept decrypting and
+    came back at the next start; its key now goes with it (the confirmation
+    dialog says so, via is_private_channel)."""
     from meshcore_console.meshcore.channel_db import ChannelDatabase
 
     client, db_conn = _client(tmp_path, monkeypatch, "survive.db")
     client.import_channel("vault", "#vault", "feedface" + "0123456789abcdef" + "55667788")
+    client.ensure_channel("ops", "#ops")
+    assert client.is_private_channel("vault") is True
+    assert client.is_private_channel("ops") is False
+
     assert client.remove_channel("vault") is True
-    row = ChannelDatabase(db_conn).get_channel("vault")
-    assert row is not None
-    assert row["secret"] == "feedface0123456789abcdef55667788"
+    assert ChannelDatabase(db_conn).get_channel("vault") is None
+    client._sync_channel_secrets_to_ui()  # what the next start does
+    assert "vault" not in client._channels
 
 
 # ---------------------------------------------------------------------------

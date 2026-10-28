@@ -678,11 +678,13 @@ class MessagesView(Gtk.Box):
         popover.popdown()
 
         display_name = self._get_channel_display_name(channel_id)
-        dialog = build_alert_dialog(
-            self.get_root(),
-            f"Remove {display_name}?",
-            "This will remove the channel and all its messages. This cannot be undone.",
-        )
+        body = "This will remove the channel and all its messages. This cannot be undone."
+        if self._service.is_private_channel(channel_id):
+            body = (
+                "This will remove the channel, all its messages and its key. To rejoin "
+                "you will need the key again. This cannot be undone."
+            )
+        dialog = build_alert_dialog(self.get_root(), f"Remove {display_name}?", body)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("remove", "Remove")
         dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
