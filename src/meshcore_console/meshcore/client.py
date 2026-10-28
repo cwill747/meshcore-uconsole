@@ -1437,21 +1437,17 @@ class MeshcoreClient(MeshcoreService):
             return None
 
     def _seed_contact_book(self) -> None:
-        """Populate the session's contact book with known peers that have public keys."""
+        """Populate the session's contact book with known peers that have public keys.
+
+        Routes start unknown (DMs flood, openhop_core learns the route from the
+        PATH return).  They used to be rebuilt from each peer's stored last
+        path, which is the inbound path of an advert: the reverse of a usable
+        route, and possibly stale.
+        """
         book = self._session.contact_book
         for peer in self._peers.values():
-            if not peer.public_key:
-                continue
-            book.add_contact({"name": peer.display_name, "public_key": peer.public_key})
-            contact = book.get_by_name(peer.display_name)
-            if contact is not None and peer.last_path is not None:
-                if not peer.last_path:
-                    contact.out_path = []
-                    contact.out_path_len = 0
-                else:
-                    hash_size = len(peer.last_path[0]) // 2 or 1
-                    contact.out_path = list(bytes.fromhex("".join(peer.last_path)))
-                    contact.out_path_len = ((hash_size - 1) << 6) | len(peer.last_path)
+            if peer.public_key:
+                book.add_contact({"name": peer.display_name, "public_key": peer.public_key})
 
     def _sync_contact_to_book(
         self,

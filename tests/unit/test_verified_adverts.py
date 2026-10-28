@@ -130,3 +130,16 @@ def test_peer_list_is_bounded_and_keeps_what_matters(tmp_path, monkeypatch) -> N
     client._process_event_for_peers(advert("Delta", keys["dd"], 4))
     assert sorted(p.display_name for p in client.list_peers()) == ["Alpha", "Bravo", "Delta"]
     assert client._db.execute("SELECT COUNT(*) FROM peers").fetchone()[0] == 3
+
+
+def test_routes_are_not_restored_from_stored_advert_paths(tmp_path, monkeypatch) -> None:
+    from meshcore_console.meshcore.contact_book import ContactBook
+
+    client = _client(tmp_path, monkeypatch)
+    client._process_event_for_peers(verified("Bergblick", 100))  # stored last_path ["13"]
+    book = ContactBook()
+    monkeypatch.setattr(client._session, "contact_book", book, raising=False)
+
+    client._seed_contact_book()  # what connect() does
+
+    assert book.get_by_name("Bergblick").out_path_len == -1
