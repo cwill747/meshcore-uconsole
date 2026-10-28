@@ -501,8 +501,15 @@ class AdminView(Gtk.Box):
     def _on_guest_clicked(self, _btn: Gtk.Button) -> None:
         self._do_login("")
 
+    def _refused_while_busy(self) -> bool:
+        """One request at a time (a command can take 20 s); say so instead of
+        silently ignoring the click or Enter."""
+        if self._busy:
+            self._append_console_error("Still waiting for the previous request; try again shortly.")
+        return self._busy
+
     def _do_login(self, password: str) -> None:
-        if self._selected_repeater is None or self._busy:
+        if self._selected_repeater is None or self._refused_while_busy():
             return
         peer_name = self._selected_repeater.display_name
         save = self._save_check.get_active()
@@ -552,7 +559,7 @@ class AdminView(Gtk.Box):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_logout_clicked(self, _btn: Gtk.Button) -> None:
-        if self._selected_repeater is None or self._busy:
+        if self._selected_repeater is None or self._refused_while_busy():
             return
         peer_name = self._selected_repeater.display_name
         self._busy = True
@@ -653,7 +660,7 @@ class AdminView(Gtk.Box):
         return False
 
     def _send_command(self, command: str) -> None:
-        if self._selected_repeater is None or self._busy:
+        if self._selected_repeater is None or self._refused_while_busy():
             return
         peer_name = self._selected_repeater.display_name
 
