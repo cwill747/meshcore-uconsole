@@ -89,3 +89,47 @@ def test_answer_limiter_window() -> None:
     assert [limiter.allow() for _ in range(3)] == [True, True, False]
     now[0] = 10.5
     assert limiter.allow() is True
+
+
+def _telemetry_request_from(sender, us_key: bytes):
+    from openhop_core.protocol.packet_builder import PacketBuilder
+
+    from meshcore_console.meshcore.contact_book import Contact
+
+    us = Contact(name="us", public_key=us_key.hex(), out_path=[], out_path_len=0)
+    pkt, _ts = PacketBuilder.create_protocol_request(us, sender, protocol_code=0x03, data=b"\x00")
+    return pkt
+
+
+def _answers(session, node, monkeypatch) -> list:
+    sent: list = []
+
+    async def send_packet(packet, wait_for_ack=False, **_kw) -> bool:
+        sent.append(packet)
+        return True
+
+    monkeypatch.setattr(node.dispatcher, "send_packet", send_packet)
+    session.set_telemetry_data_fn(
+        lambda: {"allow": True, "favorites_only": False, "lat": None, "lon": None, "voltage": 4.1}
+    )
+    session._register_req_handler()
+    return sent
+
+
+def test_a_broken_contact_key_does_not_block_others_with_the_same_hash(monkeypatch) -> None:
+    import asyncio
+
+    from meshcore_console.meshcore.contact_book import Contact
+
+    session, node = session_on_real_node()
+    good = LocalIdentity()
+    good_key = good.get_public_key()
+    broken = Contact(name="broken", public_key=(good_key[:1] + b"\xff" * 31).hex())
+    session.contact_book.add_contact(broken)
+    session.contact_book.add_contact(Contact(name="good", public_key=good_key.hex()))
+    sent = _answers(session, node, monkeypatch)
+    handler = node.dispatcher._handler_instances[PAYLOAD_TYPE_REQ]
+
+    asyncio.run(handler(_telemetry_request_from(good, session._identity.get_public_key())))
+
+    assert len(sent) == 1  # answered despite the broken contact tried first

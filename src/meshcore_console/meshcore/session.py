@@ -277,12 +277,14 @@ class OpenHopCoreSession:
                 return
 
             for contact in candidates:
-                peer_id = Identity(bytes.fromhex(contact.public_key))
-                ss = peer_id.calc_shared_secret(our_privkey)
-                aes_key = ss[:16]
+                # Key handling inside the try: one contact with an unusable
+                # stored key used to abort the request for every contact
+                # sharing its hash byte.
                 try:
+                    peer_id = Identity(bytes.fromhex(contact.public_key))
+                    ss = peer_id.calc_shared_secret(our_privkey)
                     plaintext = CryptoUtils.mac_then_decrypt(
-                        aes_key,
+                        ss[:16],
                         ss,
                         encrypted_data,
                     )
