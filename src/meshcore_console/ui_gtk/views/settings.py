@@ -187,6 +187,15 @@ class SettingsView(Gtk.Box):
         )
         grid.attach(gps_entry, 1, 8, 2, 1)
 
+        # Row 9: Online map tiles
+        grid.attach(self._grid_label("Download Map Tiles"), 0, 9, 1, 1)
+        tiles_switch = self._grid_switch("online_map_tiles")
+        tiles_switch.set_tooltip_text(
+            "Fetch map tiles from OpenStreetMap. The tile server sees your IP address "
+            "and the area you look at, e.g. around your own position."
+        )
+        grid.attach(tiles_switch, 1, 9, 1, 1)
+
         panel.append(grid)
         return panel
 
@@ -619,6 +628,7 @@ class SettingsView(Gtk.Box):
         self._set_entry_float("longitude", settings.longitude)
         self._set_switch("share_position", settings.share_position)
         self._set_switch("allow_telemetry", settings.allow_telemetry)
+        self._set_switch("online_map_tiles", settings.online_map_tiles)
         self._set_switch("telemetry_favorites_only", settings.telemetry_favorites_only)
         self._set_switch("autoconnect", settings.autoconnect)
         self._set_entry("gps_device", settings.gps_device)
@@ -674,6 +684,7 @@ class SettingsView(Gtk.Box):
         out.longitude = self._parse_coordinate("longitude", 180.0, allow_partial, current.longitude)
         out.share_position = self._switches["share_position"].get_active()
         out.allow_telemetry = self._switches["allow_telemetry"].get_active()
+        out.online_map_tiles = self._switches["online_map_tiles"].get_active()
         out.telemetry_favorites_only = self._switches["telemetry_favorites_only"].get_active()
         out.autoconnect = self._switches["autoconnect"].get_active()
         out.gps_device = self._entries["gps_device"].get_text().strip()

@@ -129,9 +129,15 @@ class MapView(Gtk.Box):
         map_widget = self._map.get_map()
         self._viewport = map_widget.get_viewport()
 
-        # Set up tile source - CartoDB Dark Matter
+        # Set up tile source (OpenStreetMap), unless tile downloads are off
         self._tile_source = self._create_tile_source()
-        self._map.set_map_source(self._tile_source)
+        self._tiles_note = Gtk.Label(label="Map tiles are off (Settings > Download Map Tiles)")
+        self._tiles_note.add_css_class("panel-muted")
+        self._tiles_note.set_halign(Gtk.Align.CENTER)
+        self._tiles_note.set_valign(Gtk.Align.START)
+        self._tiles_note.set_margin_top(12)
+        self._online_tiles: bool | None = None
+        self._apply_tile_setting()
 
         # Set initial view - center on SF Bay Area if mock mode, otherwise US
         if self._service.is_mock_mode():
@@ -153,6 +159,7 @@ class MapView(Gtk.Box):
 
         # Add map as the base child of overlay
         overlay.set_child(self._map)
+        overlay.add_overlay(self._tiles_note)
 
         # Add control overlays
         self._add_map_controls(overlay)
@@ -330,8 +337,18 @@ class MapView(Gtk.Box):
                 name = metadata.get("name", files[0].name)
                 print(f"[MapView] Loaded offline tiles: {name}", file=sys.stderr)
 
+    def _apply_tile_setting(self) -> None:
+        """Attach the online tile source only while tile downloads are on."""
+        online = self._service.get_settings().online_map_tiles
+        if online == self._online_tiles:
+            return
+        self._online_tiles = online
+        self._map.set_map_source(self._tile_source if online else None)
+        self._tiles_note.set_visible(not online)
+
     def _on_events_available(self, _store: object) -> None:
         """Handle events-available signal — refresh peer markers."""
+        self._apply_tile_setting()
         # Compare what the markers show, not how many there are: a moved or
         # renamed peer kept its old marker while the count stayed the same.
         state = marker_state(self._service.list_peers())
