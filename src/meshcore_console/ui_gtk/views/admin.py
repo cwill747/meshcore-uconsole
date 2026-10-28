@@ -212,7 +212,10 @@ class AdminView(Gtk.Box):
         quick_row.set_margin_end(8)
         quick_row.set_margin_top(8)
         quick_row.set_margin_bottom(4)
-        for cmd in ("neighbors", "telemetry", "get repeat", "reboot", "ver"):
+        # Only real repeater CLI commands: there is no "telemetry" command
+        # (firmware answers "Unknown command"); telemetry is a binary request,
+        # available from the Peers view.
+        for cmd in ("neighbors", "clock", "get repeat", "reboot", "ver"):
             btn = Gtk.Button.new_with_label(cmd)
             btn.add_css_class("quick-cmd-btn")
             btn.connect("clicked", self._on_quick_cmd, cmd)
