@@ -43,6 +43,17 @@ CARTO_DARK_URL = "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 
 
+def marker_state(peers: list[Peer]) -> tuple:
+    """What the peer markers show: name, position, repeater flag."""
+    return tuple(
+        sorted(
+            (p.display_name, p.latitude, p.longitude, p.is_repeater)
+            for p in peers
+            if p.latitude is not None and p.longitude is not None
+        )
+    )
+
+
 class MapView(Gtk.Box):
     """Map view with peer markers and details panel."""
 
@@ -55,7 +66,8 @@ class MapView(Gtk.Box):
         self._peer_markers: dict[str, object] = {}  # peer_id -> marker
         self._device_marker: object | None = None
         self._mbtiles: MBTilesReader | None = None
-        self._last_peer_count = 0
+        self._marker_state: tuple = ()
+        self._marker_looks: dict[str, tuple] = {}
         self._shown_gps_errors: set[str] = set()  # Track shown errors to avoid repeats
         self._following = False  # Whether map follows device location
         self._programmatic_move = False  # Suppress follow-disable during go_to
@@ -320,11 +332,11 @@ class MapView(Gtk.Box):
 
     def _on_events_available(self, _store: object) -> None:
         """Handle events-available signal — refresh peer markers."""
-        peers = self._service.list_peers()
-        peers_with_location = [
-            p for p in peers if p.latitude is not None and p.longitude is not None
-        ]
-        if len(peers_with_location) != self._last_peer_count:
+        # Compare what the markers show, not how many there are: a moved or
+        # renamed peer kept its old marker while the count stayed the same.
+        state = marker_state(self._service.list_peers())
+        if state != self._marker_state:
+            self._marker_state = state
             self._refresh_markers()
 
     def _poll_gps(self) -> bool:
@@ -364,7 +376,7 @@ class MapView(Gtk.Box):
     def _refresh_markers(self) -> None:
         """Refresh all peer markers."""
         peers = self._service.list_peers()
-        self._last_peer_count = sum(1 for p in peers if p.latitude is not None)
+        self._marker_state = marker_state(peers)
 
         # Track which peers we've seen
         seen_ids: set[str] = set()
@@ -375,6 +387,11 @@ class MapView(Gtk.Box):
 
             seen_ids.add(peer.peer_id)
 
+            look = (peer.display_name, peer.is_repeater, peer.is_favorite)
+            if peer.peer_id in self._peer_markers and self._marker_looks.get(peer.peer_id) != look:
+                # renamed or restyled: the marker's label is built once, rebuild it
+                self._marker_layer.remove_marker(self._peer_markers.pop(peer.peer_id))
+            self._marker_looks[peer.peer_id] = look
             if peer.peer_id in self._peer_markers:
                 # Update existing marker position
                 marker = self._peer_markers[peer.peer_id]
