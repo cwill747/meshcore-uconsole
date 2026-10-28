@@ -53,3 +53,16 @@ def test_one_failing_event_does_not_drop_the_rest(tmp_path, monkeypatch) -> None
     events = client.poll_events(limit=100)
 
     assert len(events) == 3 and stored == [1, 2]
+
+
+def test_each_packet_is_stored_once(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    frame = {"payload_type_name": "ACK", "packet_hash": "AB" * 8}
+    batch = [{"type": "packet", "data": dict(frame)}, {"type": "raw_packet", "data": dict(frame)}]
+    monkeypatch.setattr(client._session, "drain_events", lambda max_items=50: list(batch))
+    stored: list[str] = []
+    monkeypatch.setattr(client._packet_store, "append", lambda e: stored.append(e["type"]))
+
+    client.poll_events(limit=100)
+
+    assert stored == ["packet"]

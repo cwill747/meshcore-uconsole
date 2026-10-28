@@ -766,8 +766,10 @@ class MeshcoreClient(MeshcoreService):
             # those events were already drained and would be lost, messages too.
             try:
                 self._process_event_for_peers(event)
-                # Persist packet events to state storage
-                if event.get("type") in (EventType.PACKET, EventType.RAW_PACKET):
+                # Persist packet events to state storage.  Only "packet": every
+                # frame also arrives as "raw_packet", which the analyzer ignores,
+                # so storing both halved the kept history and doubled the writes.
+                if event.get("type") == EventType.PACKET:
                     self._packet_store.append(event)
             except Exception:  # noqa: BLE001
                 logger.exception("could not process %s event", event.get("type"))
