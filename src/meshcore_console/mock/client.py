@@ -50,6 +50,29 @@ class MockMeshcoreClient(MeshcoreService):
         self._event_buffer: deque[dict] = deque()
         self._event_history: list[dict] = []
         self._map_view: tuple[float, float, float] | None = None
+        self._mock_repeater_settings = {
+            "name": "Hilltop",
+            "lat": "51.3397",
+            "lon": "12.3731",
+            "owner.info": "Mock owner|mock@example.org",
+            "advert.interval": "0",
+            "flood.advert.interval": "47",
+            "repeat": "on",
+            "flood.max": "64",
+            "flood.max.advert": "8",
+            "flood.max.unscoped": "64",
+            "loop.detect": "minimal",
+            "path.hash.mode": "0",
+            "multi.acks": "0",
+            "af": "1.0",
+            "rxdelay": "0.0",
+            "txdelay": "0.5",
+            "direct.txdelay": "0.2",
+            "radio": "869.618,62.5,8,8",
+            "tx": "22",
+            "allow.read.only": "off",
+            "guest.password": "",
+        }
 
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
         self._saved_passwords: dict[str, str] = {}
@@ -429,8 +452,8 @@ class MockMeshcoreClient(MeshcoreService):
     def send_repeater_command(self, peer_name: str, command: str) -> dict:
         stripped = command.strip().lower()
         cmd_key = stripped.split()[0] if stripped else ""
-        response_text = MOCK_CLI_RESPONSES.get(stripped) or MOCK_CLI_RESPONSES.get(
-            cmd_key, f"OK: {command}"
+        response_text = self._mock_setting_reply(command.strip()) or (
+            MOCK_CLI_RESPONSES.get(stripped) or MOCK_CLI_RESPONSES.get(cmd_key, f"OK: {command}")
         )
         self._append_event(
             {
@@ -449,6 +472,18 @@ class MockMeshcoreClient(MeshcoreService):
             "command": command,
             "response_text": response_text,
         }
+
+    def _mock_setting_reply(self, command: str) -> str | None:
+        """A repeater's settings, answering "get <key>" / "set <key> <value>"."""
+        verb, _, rest = command.partition(" ")
+        key, _, value = rest.partition(" ")
+        if verb == "get":
+            value = self._mock_repeater_settings.get(key)
+            return f"??: {key}" if value is None else f"> {value}"
+        if verb == "set" and key in self._mock_repeater_settings:
+            self._mock_repeater_settings[key] = value
+            return "OK - reboot to apply" if key == "radio" else "OK"
+        return None
 
     def get_repeater_status(self, peer_name: str) -> dict | None:
         time.sleep(0.3)
