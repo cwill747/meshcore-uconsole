@@ -551,6 +551,12 @@ class OpenHopCoreSession:
             except queue.Empty:
                 break
 
+    def close(self) -> None:
+        """Release the session's own database connection.  The client makes a
+        new session on every disconnect or failed connect; the old ones kept
+        their connection open for as long as the app ran."""
+        self._db.close()
+
     async def send_text(self, peer_name: str, message: str) -> object:
         if self._node is None:
             raise RuntimeError("Session is not started.")

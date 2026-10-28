@@ -115,3 +115,24 @@ def test_failed_connect_stops_the_half_started_session(tmp_path, monkeypatch) ->
         client.connect()
     assert stopped == [1] and client._session is not failed and not client._connected
     client._shutdown_loop()
+
+
+def test_replaced_sessions_release_their_database(tmp_path, monkeypatch) -> None:
+    import sqlite3
+
+    from meshcore_console.meshcore.config import runtime_config_from_settings
+    from meshcore_console.meshcore.session import OpenHopCoreSession
+    from meshcore_console.meshcore.settings import MeshcoreSettings
+
+    session = OpenHopCoreSession(runtime_config_from_settings(MeshcoreSettings()))
+    session.close()
+    with pytest.raises(sqlite3.ProgrammingError):
+        session._db.execute("SELECT 1")
+
+    client = _client(tmp_path, monkeypatch)
+    old = client._session
+    closed: list[int] = []
+    monkeypatch.setattr(old, "close", lambda: closed.append(1))
+    monkeypatch.setattr(client, "_new_session", lambda: old.__class__(old.config))
+    client.update_settings(client._settings)  # disconnected: prepares a new session
+    assert closed == [1] and client._session is not old

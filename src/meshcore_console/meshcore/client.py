@@ -323,6 +323,7 @@ class MeshcoreClient(MeshcoreService):
                 self._run_async(failed.stop(), timeout=10.0)
             except Exception:  # noqa: BLE001
                 pass
+            failed.close()
             raise
         self._connected = True
         self._session.set_is_favorite_fn(self._is_peer_favorite)
@@ -346,8 +347,9 @@ class MeshcoreClient(MeshcoreService):
                 pass
             finally:
                 # Always rotate to a fresh session after disconnect to avoid stale IRQ state.
-                self._session = self._new_session()
+                old, self._session = self._session, self._new_session()
                 self._shutdown_loop()
+                old.close()
         self._connected = False
         self._repeater_sessions.clear()
         self._gps_provider.stop()
@@ -1238,7 +1240,8 @@ class MeshcoreClient(MeshcoreService):
         # but do NOT restart the radio here — the user must restart the app
         # for radio-parameter changes to take effect.
         if not self._connected:
-            self._session = self._new_session()
+            old, self._session = self._session, self._new_session()
+            old.close()
 
         self._append_event(
             {"type": EventType.SETTINGS_UPDATED, "data": {"node_name": updated.node_name}}

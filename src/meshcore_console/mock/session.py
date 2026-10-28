@@ -139,6 +139,9 @@ class MockOpenHopCoreSession:
             "openhop_core_version": "mock",
         }
 
+    def close(self) -> None:
+        pass
+
     def get_public_key(self) -> str | None:
         """Return a mock public key for testing."""
         return "6b547fd13630e0f7a6b167df23b9876543210abcdef0123456789abcdef0a619"
