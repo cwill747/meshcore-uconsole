@@ -6,17 +6,27 @@ from typing import TYPE_CHECKING
 
 import gi
 
+gi.require_version("Adw", "1")
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gdk, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
+from meshcore_console.core.enums import EventType
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.time import to_local
+from meshcore_console.ui_gtk.compat import build_alert_dialog, present_dialog
 from meshcore_console.ui_gtk.helpers import clear_children
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
+from meshcore_console.ui_gtk.views.repeater_tabs import (
+    AccessTab,
+    NeighboursTab,
+    OverviewTab,
+    RepeaterJobs,
+    SettingsTab,
+)
 from meshcore_console.ui_gtk.widgets import DetailRow
 
 if TYPE_CHECKING:
@@ -25,6 +35,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_HISTORY = 50
+
+
+# Admin notebook: 0 Overview, 1 Neighbours, 2 Settings, 3 Access, 4 Console
+CONSOLE_PAGE = 4
+
+
+def repeater_list_state(peers: list[Peer], logged_in: list[str]) -> tuple:
+    """What the repeater list shows; the list is rebuilt only when this changes."""
+    shown = sorted(
+        (p.display_name, p.public_key or "", p.is_favorite) for p in peers if p.is_repeater
+    )
+    return tuple(shown), tuple(sorted(logged_in))
 
 
 class AdminView(Gtk.Box):
@@ -36,8 +58,10 @@ class AdminView(Gtk.Box):
         self._selected_repeater: Peer | None = None
         self._command_history: list[str] = []
         self._history_index = -1
-        self._busy = False
+        # one request to a repeater at a time, console and tabs alike
+        self._jobs = RepeaterJobs(on_idle=self._on_jobs_idle)
         self._refreshing_list = False
+        self._list_state: tuple | None = None
 
         # -- Left: repeater list -----------------------------------------------
         list_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -101,28 +125,47 @@ class AdminView(Gtk.Box):
         sep.set_margin_end(12)
         admin_outer.append(sep)
 
-        # Notebook with Status and Console tabs
         self._notebook = Gtk.Notebook.new()
         self._notebook.set_vexpand(True)
         self._notebook.set_margin_start(4)
         self._notebook.set_margin_end(4)
         self._notebook.set_margin_bottom(4)
+        self._notebook.set_scrollable(True)
 
-        # Status tab
+        # Overview tab: what the repeater reports, then what this app knows
+        self._overview = OverviewTab(service, self._jobs)
         self._status_scroll = Gtk.ScrolledWindow.new()
         self._status_scroll.set_vexpand(True)
         self._status_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        overview_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        overview_page.set_margin_start(12)
+        overview_page.set_margin_end(12)
+        overview_page.set_margin_top(8)
+        overview_page.set_margin_bottom(8)
+        overview_page.append(self._overview)
         self._status_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self._status_content.set_margin_start(12)
-        self._status_content.set_margin_end(12)
-        self._status_content.set_margin_top(8)
-        self._status_content.set_margin_bottom(8)
-        self._status_scroll.set_child(self._status_content)
-        self._notebook.append_page(self._status_scroll, Gtk.Label(label="Status"))
+        overview_page.append(self._status_content)
+        self._status_scroll.set_child(overview_page)
+        self._notebook.append_page(self._status_scroll, Gtk.Label(label="Overview"))
 
-        # Console tab
+        self._neighbours = NeighboursTab(service, self._jobs)
+        self._notebook.append_page(self._neighbours, Gtk.Label(label="Neighbours"))
+        self._settings = SettingsTab(service, self._jobs)
+        self._notebook.append_page(self._settings, Gtk.Label(label="Settings"))
+        self._access = AccessTab(service, self._jobs)
+        self._notebook.append_page(self._access, Gtk.Label(label="Access"))
+        # notebook page -> the remote tab on it
+        self._remote_tabs = {
+            0: self._overview,
+            1: self._neighbours,
+            2: self._settings,
+            3: self._access,
+        }
+
         console_page = self._build_console_tab()
         self._notebook.append_page(console_page, Gtk.Label(label="Console"))
+        assert self._notebook.get_n_pages() - 1 == CONSOLE_PAGE
+        self._notebook.connect("switch-page", self._on_switch_page)
 
         admin_outer.append(self._notebook)
         self._panel_stack.add_named(admin_outer, "admin")
@@ -196,7 +239,10 @@ class AdminView(Gtk.Box):
         quick_row.set_margin_end(8)
         quick_row.set_margin_top(8)
         quick_row.set_margin_bottom(4)
-        for cmd in ("neighbors", "telemetry", "get repeat", "reboot", "ver"):
+        # Only real repeater CLI commands: there is no "telemetry" command
+        # (firmware answers "Unknown command"); telemetry is a binary request,
+        # available from the Peers view.
+        for cmd in ("neighbors", "clock", "get repeat", "reboot", "ver"):
             btn = Gtk.Button.new_with_label(cmd)
             btn.add_css_class("quick-cmd-btn")
             btn.connect("clicked", self._on_quick_cmd, cmd)
@@ -338,7 +384,9 @@ class AdminView(Gtk.Box):
             [p for p in peers if p.is_repeater],
             key=lambda p: (not p.is_favorite, p.display_name),
         )
-        logged_in = set(self._service.list_logged_in_repeaters())
+        logged_in_names = self._service.list_logged_in_repeaters()
+        self._list_state = repeater_list_state(peers, logged_in_names)
+        logged_in = set(logged_in_names)
 
         # Suppress selection handler during rebuild
         self._refreshing_list = True
@@ -353,11 +401,16 @@ class AdminView(Gtk.Box):
             row = self._make_repeater_row(rp, rp.display_name in logged_in)
             self._repeater_list.append(row)
 
-        # Re-select if still valid, and update the peer object
+        # Re-select if still valid, and update the peer object; by key too,
+        # since a repeater renamed from the Settings tab comes back renamed
         if self._selected_repeater:
+            key = self._selected_repeater.public_key
             for i, rp in enumerate(repeaters):
-                if rp.display_name == self._selected_repeater.display_name:
+                if rp.display_name == self._selected_repeater.display_name or (
+                    key and rp.public_key == key
+                ):
                     self._selected_repeater = rp
+                    self._admin_title.set_text(rp.display_name)
                     row_widget = self._repeater_list.get_row_at_index(i)
                     if row_widget:
                         self._repeater_list.select_row(row_widget)
@@ -404,6 +457,8 @@ class AdminView(Gtk.Box):
         if row is None:
             self._selected_repeater = None
             self._panel_stack.set_visible_child_name("empty")
+            for tab in self._remote_tabs.values():
+                tab.set_repeater(None, None)
             return
         peer: Peer = row._peer  # type: ignore[attr-defined]
         self._selected_repeater = peer
@@ -434,7 +489,26 @@ class AdminView(Gtk.Box):
         # Clear console for new repeater
         clear_children(self._console_box)
 
+    def _update_remote_tabs(self, state: RepeaterLoginState | None) -> None:
+        name = self._selected_repeater.display_name if self._selected_repeater else None
+        for tab in self._remote_tabs.values():
+            tab.set_repeater(name, state)
+        current = self._remote_tabs.get(self._notebook.get_current_page())
+        if current is not None:
+            current.on_shown()
+
+    def _on_jobs_idle(self) -> None:
+        current = self._remote_tabs.get(self._notebook.get_current_page())
+        if current is not None:
+            current.on_shown()
+
+    def _on_switch_page(self, _notebook: Gtk.Notebook, _page: Gtk.Widget, num: int) -> None:
+        tab = self._remote_tabs.get(num)
+        if tab is not None:
+            tab.on_shown()
+
     def _update_login_ui(self, state: RepeaterLoginState | None) -> None:
+        self._update_remote_tabs(state)
         if state is None:
             self._status_label.set_text("Not logged in")
             self._status_label.remove_css_class("login-status-admin")
@@ -464,7 +538,9 @@ class AdminView(Gtk.Box):
             self._guest_btn.set_sensitive(False)
             self._password_entry.set_sensitive(False)
             self._logout_btn.set_sensitive(True)
-            self._set_cli_sensitive(True)
+            # The repeater only runs CLI commands for admin sessions (firmware
+            # checks isAdmin()); a guest's commands just timed out.
+            self._set_cli_sensitive(state.is_admin)
 
     def _set_cli_sensitive(self, sensitive: bool) -> None:
         self._cmd_entry.set_sensitive(sensitive)
@@ -485,12 +561,19 @@ class AdminView(Gtk.Box):
     def _on_guest_clicked(self, _btn: Gtk.Button) -> None:
         self._do_login("")
 
+    def _refused_while_busy(self) -> bool:
+        """One request at a time (a command can take 20 s); say so instead of
+        silently ignoring the click or Enter."""
+        if self._jobs.busy:
+            self._append_console_error("Still waiting for the previous request; try again shortly.")
+        return self._jobs.busy
+
     def _do_login(self, password: str) -> None:
-        if self._selected_repeater is None or self._busy:
+        if self._selected_repeater is None or self._refused_while_busy():
             return
         peer_name = self._selected_repeater.display_name
         save = self._save_check.get_active()
-        self._busy = True
+        self._jobs.busy = True
         self._login_btn.set_sensitive(False)
         self._guest_btn.set_sensitive(False)
         self._status_label.set_text("Logging in...")
@@ -504,7 +587,7 @@ class AdminView(Gtk.Box):
                 error = str(exc) or type(exc).__name__
 
             def done() -> bool:
-                self._busy = False
+                self._jobs.release()
                 still_selected = (
                     self._selected_repeater is not None
                     and self._selected_repeater.display_name == peer_name
@@ -524,6 +607,7 @@ class AdminView(Gtk.Box):
                         self._update_login_ui(None)
                 else:
                     if still_selected and self._selected_repeater is not None:
+                        # the tab on show fetches from the repeater now
                         state = self._service.get_repeater_login_state(peer_name)
                         self._update_login_ui(state)
                         self._populate_status(self._selected_repeater)
@@ -536,10 +620,10 @@ class AdminView(Gtk.Box):
         threading.Thread(target=work, daemon=True).start()
 
     def _on_logout_clicked(self, _btn: Gtk.Button) -> None:
-        if self._selected_repeater is None or self._busy:
+        if self._selected_repeater is None or self._refused_while_busy():
             return
         peer_name = self._selected_repeater.display_name
-        self._busy = True
+        self._jobs.busy = True
         self._logout_btn.set_sensitive(False)
 
         def work() -> None:
@@ -550,7 +634,7 @@ class AdminView(Gtk.Box):
                 error = str(exc) or type(exc).__name__
 
             def done() -> bool:
-                self._busy = False
+                self._jobs.release()
                 if error:
                     self._append_console_error(f"Logout failed: {error}")
                     self._logout_btn.set_sensitive(True)
@@ -577,7 +661,30 @@ class AdminView(Gtk.Box):
     # -- CLI actions -----------------------------------------------------------
 
     def _on_quick_cmd(self, _btn: Gtk.Button, command: str) -> None:
+        if command == "reboot":
+            self._confirm_reboot()
+            return
         self._send_command(command)
+
+    def _confirm_reboot(self) -> None:
+        """Reboot sits next to harmless quick commands; one slip of the
+        trackball shouldn't take a remote repeater offline."""
+        name = self._selected_repeater.display_name if self._selected_repeater else "repeater"
+        dialog = build_alert_dialog(
+            self.get_root(),
+            f"Reboot {name}?",
+            "The repeater stops relaying until it has restarted.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("reboot", "Reboot")
+        dialog.set_response_appearance("reboot", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect(
+            "response",
+            lambda _d, response: self._send_command("reboot") if response == "reboot" else None,
+        )
+        present_dialog(dialog, self.get_root())
 
     def _on_cmd_activate(self, _entry: Gtk.Entry) -> None:
         text = self._cmd_entry.get_text().strip()
@@ -596,25 +703,30 @@ class AdminView(Gtk.Box):
         _keycode: int,
         _state: Gdk.ModifierType,
     ) -> bool:
+        # Only consume Up/Down while there is history to move through, so they
+        # still move keyboard focus out of the entry otherwise.
         if keyval == Gdk.KEY_Up:
             if self._command_history and self._history_index < len(self._command_history) - 1:
                 self._history_index += 1
                 self._cmd_entry.set_text(self._command_history[-(self._history_index + 1)])
                 self._cmd_entry.set_position(-1)
-            return True
+                return True
+            return False
         if keyval == Gdk.KEY_Down:
             if self._history_index > 0:
                 self._history_index -= 1
                 self._cmd_entry.set_text(self._command_history[-(self._history_index + 1)])
                 self._cmd_entry.set_position(-1)
-            elif self._history_index == 0:
+                return True
+            if self._history_index == 0:
                 self._history_index = -1
                 self._cmd_entry.set_text("")
-            return True
+                return True
+            return False
         return False
 
     def _send_command(self, command: str) -> None:
-        if self._selected_repeater is None or self._busy:
+        if self._selected_repeater is None or self._refused_while_busy():
             return
         peer_name = self._selected_repeater.display_name
 
@@ -626,7 +738,7 @@ class AdminView(Gtk.Box):
 
         self._cmd_entry.set_text("")
         self._append_console_command(command)
-        self._busy = True
+        self._jobs.busy = True
         self._send_btn.set_sensitive(False)
 
         def work() -> None:
@@ -638,7 +750,7 @@ class AdminView(Gtk.Box):
                 error = str(exc) or type(exc).__name__
 
             def done() -> bool:
-                self._busy = False
+                self._jobs.release()
                 self._send_btn.set_sensitive(True)
                 still_selected = (
                     self._selected_repeater is not None
@@ -701,18 +813,29 @@ class AdminView(Gtk.Box):
 
     def _on_events(self, _store: object) -> None:
         self._event_cursor, events = self._event_store.since(self._event_cursor, limit=200)
-        needs_refresh = False
         for event in events:
-            etype = event.get("type", "")
-            if etype in (
-                "repeater_login",
-                "repeater_logout",
-                "advert_received",
-                "contact_received",
+            data = event.get("data") or {}
+            if (
+                event.get("type") == EventType.REPEATER_COMMAND_RESPONSE
+                and data.get("late")
+                and self._selected_repeater is not None
+                and data.get("peer_name") == self._selected_repeater.display_name
             ):
-                needs_refresh = True
-        if needs_refresh:
+                self._append_console_response(f"(late reply) {data.get('response_text', '')}")
+        # Repeaters arrive through adverts (plain "packet" events), discovery,
+        # contact events and logins; compare what the list shows instead of
+        # enumerating event types (the old list matched types nothing emits).
+        state = repeater_list_state(
+            self._service.list_peers(), self._service.list_logged_in_repeaters()
+        )
+        if state != self._list_state:
             self._refresh_list()
+            if self._selected_repeater is not None:
+                # e.g. a disconnect ended every repeater session: the panel
+                # kept showing "Logged in" with the command line enabled.
+                self._update_login_ui(
+                    self._service.get_repeater_login_state(self._selected_repeater.display_name)
+                )
 
     # -- Public API for MainWindow.navigate_to ---------------------------------
 

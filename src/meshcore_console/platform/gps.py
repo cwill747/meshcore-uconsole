@@ -71,7 +71,7 @@ class UConsoleGps:
     CM4-based units and /dev/ttyAMA0 on CM5-based units. The port can be
     overridden via the constructor (Settings > GPS Device) or the
     MESHCORE_GPS_DEVICE environment variable.
-    GPIO 27 is used to enable/disable the GPS module.
+    GPIO 27 powers the GPS module; it is switched on at start and left on.
     """
 
     GPIO_ENABLE_PIN = 27
@@ -144,16 +144,10 @@ class UConsoleGps:
                 logger.debug("GPS: serial close error: %s", e)
             self._serial = None
 
-        # Disable GPS module and release the pin
-        if self._gpio_enabled:
-            try:
-                import RPi.GPIO as GPIO  # type: ignore[import-not-found]
-
-                GPIO.output(self.GPIO_ENABLE_PIN, GPIO.LOW)
-                GPIO.cleanup(self.GPIO_ENABLE_PIN)
-                self._gpio_enabled = False
-            except (RuntimeError, OSError) as e:
-                logger.debug("GPS: GPIO disable error: %s", e)
+        # Leave the GPS power rail as it is.  It is the board's shared rail
+        # (gpsd, other apps and the board's own tools use it): driving it LOW,
+        # or GPIO.cleanup() floating the pin, powered the GPS off under them.
+        self._gpio_enabled = False
 
     def get_location(self) -> tuple[float, float] | None:
         if not self._running:
@@ -190,7 +184,7 @@ class UConsoleGps:
             return
         if not self._has_fix:
             self._has_fix = True
-            logger.info("GPS: fix acquired: %.6f, %.6f", lat, lon)
+            logger.info("GPS: fix acquired")  # never log the position itself
         self._latitude = lat
         self._longitude = lon
         if self._callback:
@@ -202,7 +196,7 @@ class UConsoleGps:
             return
         if not self._has_fix:
             self._has_fix = True
-            logger.info("GPS: fix acquired: %.6f, %.6f", lat, lon)
+            logger.info("GPS: fix acquired")  # never log the position itself
         old_lat, old_lon = self._latitude, self._longitude
         self._latitude = lat
         self._longitude = lon
@@ -439,10 +433,14 @@ class GpsdProvider:
 
     def stop(self) -> None:
         self._running = False
+        self._has_fix = False
+        self._latitude = self._longitude = None
         logger.debug("GpsdProvider: stopped")
 
     def get_location(self) -> tuple[float, float] | None:
-        if self._latitude is not None and self._longitude is not None:
+        # Only a current fix: after the fix (or gpsd) was lost the last
+        # position went on into adverts, telemetry and the map as if current.
+        if self._has_fix and self._latitude is not None and self._longitude is not None:
             return (self._latitude, self._longitude)
         return None
 
@@ -463,7 +461,7 @@ class GpsdProvider:
             return
         if not self._has_fix:
             self._has_fix = True
-            logger.info("GpsdProvider: fix acquired: %.6f, %.6f", lat, lon)
+            logger.info("GpsdProvider: fix acquired")  # never log the position itself
         self._latitude = lat
         self._longitude = lon
         if self._callback:
@@ -496,6 +494,7 @@ class GpsdProvider:
             except Exception as e:
                 if not self._running:
                     return
+                self._has_fix = False  # no gpsd, no current position
                 self._last_error = f"gpsd connection error: {e}"
                 logger.warning("GpsdProvider: %s (retry in %.0fs)", e, backoff)
                 # Sleep in small increments so we can check _running

@@ -30,7 +30,7 @@ class HardwareRadioConfig:
     spreading_factor: int = 7
     bandwidth: int = 62_500
     coding_rate: int = 5
-    preamble_length: int = 17
+    preamble_length: int = 32  # MeshCore >= 1.16 at SF <= 8
     is_waveshare: bool = False
     use_dio2_rf: bool = True
     use_dio3_tcxo: bool = True

@@ -232,13 +232,14 @@ def test_hardware_env_overrides_reports_what_is_set(monkeypatch) -> None:
 
 
 def test_aiov2_preset_sets_the_lora_enable_pin() -> None:
-    """The HackerGadgets AIOv2 powers its LoRa module from GPIO 27 (#85)."""
+    """The HackerGadgets AIOv2 powers its LoRa module from GPIO 16; GPIO 27 is
+    its GPS rail (HackerGadgets' aiov2_ctl: GPS=27, LORA=16)."""
     settings = apply_hardware_preset(MeshcoreSettings(), "hg-aiov2")
-    assert settings.en_pins == "27"
+    assert settings.en_pins == "16"
 
     hardware = runtime_config_from_settings(settings).hardware
     assert hardware is not None
-    assert hardware.en_pins == (27,)
+    assert hardware.en_pins == (16,)
 
 
 def test_switching_away_from_the_aiov2_preset_clears_the_enable_pin() -> None:

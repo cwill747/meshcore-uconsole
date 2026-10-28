@@ -11,7 +11,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from meshcore_console.core.models import Peer
 from meshcore_console.core.time import to_local
@@ -89,6 +89,14 @@ class NodeBadge(Gtk.Box):
 
         self.connect("destroy", self._on_destroy)
 
+        # Keyboard: Tab reaches the badge, Enter/Space opens its details and
+        # Shift+Enter goes to the peer (the right-click action).  The name was
+        # otherwise only in a hover tooltip or a click popover.
+        self.set_focusable(True)
+        keys = Gtk.EventControllerKey.new()
+        keys.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(keys)
+
         # Right click → navigate to Peers tab
         if peer is not None:
             right_click = Gtk.GestureClick.new()
@@ -105,6 +113,20 @@ class NodeBadge(Gtk.Box):
         self, gesture: Gtk.GestureClick, _n_press: int, _x: float, _y: float
     ) -> None:
         gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._toggle_popover()
+
+    def _on_key_pressed(
+        self, _ctrl: Gtk.EventControllerKey, keyval: int, _code: int, state: Gdk.ModifierType
+    ) -> bool:
+        if keyval not in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
+            return False
+        if state & Gdk.ModifierType.SHIFT_MASK and self._peer is not None:
+            self._navigate_to_peer()
+        else:
+            self._toggle_popover()
+        return True
+
+    def _toggle_popover(self) -> None:
         if self._popover is not None and self._popover.get_visible():
             self._popover.popdown()
             return

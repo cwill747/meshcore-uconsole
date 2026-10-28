@@ -46,7 +46,11 @@ class PathVisualization(Gtk.FlowBox):
         self.set_homogeneous(False)
         self.set_row_spacing(4)
         self.set_column_spacing(2)
-        self.set_halign(Gtk.Align.START)
+        # FILL, not START: aligned START, the FlowBox is given the width it
+        # asks for at its one-row height, which is one badge wide; it then
+        # stacked the badges one per row inside a one-row allocation, drawing
+        # them over the widgets below (e.g. the public key in Peers).
+        self.set_halign(Gtk.Align.FILL)
         self.set_min_children_per_line(1)
         self.set_max_children_per_line(6)
         self.add_css_class("path-visualization")
@@ -76,6 +80,7 @@ class PathVisualization(Gtk.FlowBox):
         hide_arrow: bool = False,
     ) -> Gtk.Box:
         pair = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        pair.set_halign(Gtk.Align.START)  # a line's spare width goes between pairs
         lbl = Gtk.Label(label=arrow)
         lbl.add_css_class("panel-muted")
         if hide_arrow:

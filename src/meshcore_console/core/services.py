@@ -55,9 +55,21 @@ class MeshcoreService(Protocol):
 
     def send_message(self, peer_id: str, body: str) -> Message: ...
 
+    def is_private_channel(self, channel_id: str) -> bool:
+        """True for a group channel joined with its own (non-derivable) key."""
+        ...
+
+    def ensure_dm_channel(self, peer_name: str) -> Channel:
+        """The DM thread with ``peer_name`` (channel id ``dm:<name>``), created if needed."""
+        ...
+
     def send_advert(
         self, name: str | None = None, *, route_type: str = "flood"
     ) -> SendResultDict: ...
+
+    def discover_nodes(self) -> list[dict]:
+        """Zero-hop discover of nearby repeaters/sensors; blocks for the answer window."""
+        ...
 
     def poll_events(self, limit: int = 50) -> list[MeshEventDict]: ...
 
@@ -72,6 +84,12 @@ class MeshcoreService(Protocol):
     def update_settings(self, settings: MeshcoreSettings) -> None: ...
 
     def get_device_location(self) -> tuple[float, float] | None: ...
+
+    def get_map_view(self) -> tuple[float, float, float] | None:
+        """The map's last view (latitude, longitude, zoom), if one was saved."""
+        ...
+
+    def save_map_view(self, lat: float, lon: float, zoom: float) -> None: ...
 
     def is_mock_mode(self) -> bool:
         """Return True if running in mock mode."""
@@ -123,6 +141,22 @@ class MeshcoreService(Protocol):
     def logout_from_repeater(self, peer_name: str) -> None: ...
 
     def send_repeater_command(self, peer_name: str, command: str) -> dict: ...
+
+    def get_repeater_status(self, peer_name: str) -> dict | None:
+        """Repeater counters (battery, uptime, airtime, noise floor, packets); None on no reply."""
+        ...
+
+    def get_repeater_owner_info(self, peer_name: str) -> dict | None:
+        """{"version", "name", "owner_info"} from the repeater; None on no reply."""
+        ...
+
+    def get_repeater_neighbours(self, peer_name: str) -> list[dict] | None:
+        """[{"pubkey" (6-byte prefix), "name" or None, "secs_ago", "snr"}], newest first."""
+        ...
+
+    def get_repeater_access_list(self, peer_name: str) -> list[dict] | None:
+        """[{"key" (6-byte prefix), "role", "name" or None}]; admin login only."""
+        ...
 
     def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None: ...
 

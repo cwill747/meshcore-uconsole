@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 import gi
 
@@ -34,14 +35,39 @@ from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF
 logger = logging.getLogger(__name__)
 
 
+def send_status_text(display: str, delivered: bool | None) -> str:
+    """What the compose status line says after a send."""
+    if delivered is None:
+        return f"Sent to {display}"  # channel messages are not acknowledged
+    if delivered:
+        return f"Delivered to {display}"
+    return f"Sent to {display}, but no acknowledgement came back"
+
+
+def messages_after(messages: list[Message], last_id: str | None) -> list[Message] | None:
+    """The messages newer than the one with ``last_id``, oldest first.
+
+    None when ``last_id`` is no longer among ``messages`` (the window moved past
+    it or it was removed), meaning the view must be rebuilt.  Comparing counts
+    instead stopped working once a channel held a full window of 100 messages.
+    """
+    if last_id is None:
+        return messages
+    for index, message in enumerate(messages):
+        if message.message_id == last_id:
+            return messages[index + 1 :]
+    return None
+
+
 class MessagesView(Gtk.Box):
     def __init__(self, service: MeshcoreService, event_store: UiEventStore, layout: Layout) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._service = service
         self._event_store = event_store
         self._selected_channel_id = "public"
-        self._last_message_count = 0
+        self._last_message_id: str | None = None
         self._last_channel_count = 0
+        self._sending = False
         self._last_message_date: str | None = None
         self._selected_message: Message | None = None
 
@@ -92,10 +118,25 @@ class MessagesView(Gtk.Box):
         self._thread_title = Gtk.Label(label="#public")
         self._thread_title.add_css_class("panel-title")
         self._thread_title.set_halign(Gtk.Align.START)
+        self._thread_title.set_hexpand(True)
         self._thread_title.set_margin_start(12)
         self._thread_title.set_margin_top(8)
         self._thread_title.set_margin_bottom(8)
-        self._chat_panel.append(self._thread_title)
+        # Channel actions (region scope, remove) were only on a right-click of
+        # the channel row: unreachable from the keyboard.  The header button
+        # opens the same actions for the open channel.
+        self._channel_menu = Gtk.MenuButton.new()
+        self._channel_menu.set_icon_name("view-more-symbolic")
+        self._channel_menu.set_tooltip_text("Channel actions")
+        self._channel_menu.update_property([Gtk.AccessibleProperty.LABEL], ["Channel actions"])
+        self._channel_menu.set_margin_end(8)
+        menu_popover = Gtk.Popover.new()
+        menu_popover.connect("show", self._fill_channel_menu)
+        self._channel_menu.set_popover(menu_popover)
+        thread_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        thread_header.append(self._thread_title)
+        thread_header.append(self._channel_menu)
+        self._chat_panel.append(thread_header)
 
         # Scrolled window for messages
         self._scroll = Gtk.ScrolledWindow.new()
@@ -200,12 +241,15 @@ class MessagesView(Gtk.Box):
             self._reload_channels()
         else:
             messages = self._service.list_messages_for_channel(self._selected_channel_id, limit=100)
-            new_count = len(messages)
-            if new_count > self._last_message_count:
+            new_messages = messages_after(messages, self._last_message_id)
+            if new_messages is None:
+                # The last shown message left the window (cleared, pruned, or
+                # more new messages than the window holds): rebuild.
+                self._reload_messages()
+            elif new_messages:
                 # Append only the new messages instead of full rebuild
-                new_messages = messages[self._last_message_count :]
                 # Remove the "no messages" placeholder if it was showing
-                if self._last_message_count == 0:
+                if self._last_message_id is None:
                     clear_children(self._message_box)
                 for message in new_messages:
                     msg_date = to_local(message.created_at).strftime("%Y-%m-%d")
@@ -215,14 +259,12 @@ class MessagesView(Gtk.Box):
                     self._message_box.append(
                         MessageBubble(message, self._service, self._on_message_clicked)
                     )
-                self._last_message_count = new_count
+                self._last_message_id = new_messages[-1].message_id
                 if self._is_at_bottom:
                     GLib.idle_add(self._scroll_to_bottom)
                     self._service.mark_channel_read(self._selected_channel_id)
-                    self._update_channel_unread_display(self._selected_channel_id, 0)
-            elif new_count < self._last_message_count:
-                # Message count decreased (e.g. clear) - full rebuild
-                self._reload_messages()
+            for channel in self._service.list_channels():
+                self._update_channel_unread_display(channel.channel_id, channel.unread_count)
         self._refresh_compose_state()
         return True
 
@@ -272,7 +314,7 @@ class MessagesView(Gtk.Box):
         """Enable/disable compose area based on connection status."""
         connected = self._service.get_status().connected
         self._entry.set_sensitive(connected)
-        self._send_button.set_sensitive(connected)
+        self._send_button.set_sensitive(connected and not self._sending)
         self._emoji_btn.set_sensitive(connected)
         if connected:
             self._entry.set_placeholder_text("Type message and press Send")
@@ -348,7 +390,7 @@ class MessagesView(Gtk.Box):
                 break
 
         messages = self._service.list_messages_for_channel(self._selected_channel_id, limit=100)
-        self._last_message_count = len(messages)
+        self._last_message_id = messages[-1].message_id if messages else None
 
         if not messages:
             self._last_message_date = None
@@ -600,6 +642,37 @@ class MessagesView(Gtk.Box):
             idx += 1
             row = self._channel_list.get_row_at_index(idx)
 
+    def _build_channel_actions(self, popover: Gtk.Popover, channel_id: str) -> bool:
+        """Put the actions for ``channel_id`` into ``popover``; False if none apply."""
+        channel = next(
+            (c for c in self._service.list_channels() if c.channel_id == channel_id), None
+        )
+        is_group = channel is not None and channel.kind == "group"
+        can_remove = channel_id != "public"
+        if not is_group and not can_remove:
+            return False
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        popover.set_child(action_box)
+
+        if is_group:
+            scope_btn = Gtk.Button.new_with_label("Set region scope")
+            scope_btn.add_css_class("flat")
+            scope_btn.connect("clicked", self._on_set_region_scope_clicked, channel_id, popover)
+            action_box.append(scope_btn)
+
+        if can_remove:
+            remove_btn = Gtk.Button.new_with_label("Remove channel")
+            remove_btn.add_css_class("flat")
+            remove_btn.connect("clicked", self._on_remove_channel_clicked, channel_id, popover)
+            action_box.append(remove_btn)
+        return True
+
+    def _fill_channel_menu(self, popover: Gtk.Popover) -> None:
+        """Header menu: the actions for the channel that is open right now."""
+        if not self._build_channel_actions(popover, self._selected_channel_id):
+            popover.set_child(Gtk.Label(label="No actions for this channel", margin_top=8))
+
     def _on_channel_right_click(
         self,
         gesture: Gtk.GestureClick,
@@ -614,33 +687,16 @@ class MessagesView(Gtk.Box):
         if not channel_id:
             return
 
-        channel = next(
-            (c for c in self._service.list_channels() if c.channel_id == channel_id), None
-        )
-        is_group = channel is not None and channel.kind == "group"
-        can_remove = channel_id != "public"
-        if not is_group and not can_remove:
-            return
-
-        action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         popover = Gtk.Popover.new()
-        popover.set_child(action_box)
-
-        if is_group:
-            scope_btn = Gtk.Button.new_with_label("Set region scope")
-            scope_btn.add_css_class("flat")
-            scope_btn.connect("clicked", self._on_set_region_scope_clicked, channel_id, popover)
-            action_box.append(scope_btn)
-
-        if can_remove:
-            remove_btn = Gtk.Button.new_with_label("Remove channel")
-            remove_btn.add_css_class("flat")
-            remove_btn.connect("clicked", self._on_remove_channel_clicked, channel_id, popover)
-            action_box.append(remove_btn)
+        if not self._build_channel_actions(popover, channel_id):
+            return
 
         popover.set_parent(row)
         popover.set_position(Gtk.PositionType.RIGHT)
         popover.set_pointing_to(Gdk.Rectangle())
+        # A fresh popover per right-click: detach it once closed, or every
+        # right-click left one more popover parented to the row.
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
 
     def _on_remove_channel_clicked(
@@ -651,11 +707,13 @@ class MessagesView(Gtk.Box):
         popover.popdown()
 
         display_name = self._get_channel_display_name(channel_id)
-        dialog = build_alert_dialog(
-            self.get_root(),
-            f"Remove {display_name}?",
-            "This will remove the channel and all its messages. This cannot be undone.",
-        )
+        body = "This will remove the channel and all its messages. This cannot be undone."
+        if self._service.is_private_channel(channel_id):
+            body = (
+                "This will remove the channel, all its messages and its key. To rejoin "
+                "you will need the key again. This cannot be undone."
+            )
+        dialog = build_alert_dialog(self.get_root(), f"Remove {display_name}?", body)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("remove", "Remove")
         dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -833,17 +891,44 @@ class MessagesView(Gtk.Box):
         if not body:
             self._send_status.set_text("Enter a message before sending.")
             return
-        try:
-            self._service.send_message(peer_id=self._selected_channel_id, body=body)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Send failed: %s", exc)
-            self._send_status.set_text(f"Send failed: {exc}")
+        if self._sending:
             return
+        channel_id = self._selected_channel_id
+        display = self._get_channel_display_name(channel_id)
+        # A DM waits for its ACK, with retries: up to ~30 s.  Sending on the GTK
+        # thread froze the whole UI for that long.
+        self._sending = True
+        self._send_button.set_sensitive(False)
+        self._send_status.set_text(f"Sending to {display}...")
 
-        display = self._get_channel_display_name(self._selected_channel_id)
-        self._entry.set_text("")
-        self._send_status.set_text(f"Sent to {display}")
-        self._reload_messages()
+        def work() -> None:
+            try:
+                message = self._service.send_message(peer_id=channel_id, body=body)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Send failed: %s", exc)
+                GLib.idle_add(self._on_send_done, body, display, None, str(exc))
+                return
+            GLib.idle_add(self._on_send_done, body, display, message, None)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_send_done(
+        self, body: str, display: str, message: Message | None, error: str | None
+    ) -> bool:
+        self._sending = False
+        self._refresh_compose_state()
+        if message is None:
+            self._send_status.set_text(f"Send failed: {error}")  # the text stays in the entry
+            return False
+        if self._entry.get_text().strip() == body:
+            self._entry.set_text("")
+        self._send_status.set_text(send_status_text(display, message.delivered))
+        self._poll_messages()
+        return False
+
+    def select_dm(self, peer_name: str) -> None:
+        """Open the DM thread with a peer (from the Peers and Map views)."""
+        self.select_channel(self._service.ensure_dm_channel(peer_name).channel_id)
 
     def select_channel(self, channel_id: str) -> None:
         """Select a channel programmatically (for direct messaging from peers view)."""

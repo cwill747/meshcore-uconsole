@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import time
+from collections import deque
 from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
 
 from meshcore_console.core.enums import EventType, PayloadType
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
+from meshcore_console.core.models import (
+    DM_PREFIX,
+    Channel,
+    DeviceStatus,
+    Message,
+    Peer,
+    RepeaterLoginState,
+    dm_channel_id,
+)
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.region import normalize_region_scope
@@ -34,8 +44,32 @@ class MockMeshcoreClient(MeshcoreService):
         self._gps_provider = MockGps()
         self._connected = True
         self._event_notify: Callable[[], None] | None = None
-        self._event_buffer: list[dict] = []
+        self._event_buffer: deque[dict] = deque()
         self._event_history: list[dict] = []
+        self._map_view: tuple[float, float, float] | None = None
+        self._mock_repeater_settings = {
+            "name": "Hilltop",
+            "lat": "51.3397",
+            "lon": "12.3731",
+            "owner.info": "Mock owner|mock@example.org",
+            "advert.interval": "0",
+            "flood.advert.interval": "47",
+            "repeat": "on",
+            "flood.max": "64",
+            "flood.max.advert": "8",
+            "flood.max.unscoped": "64",
+            "loop.detect": "minimal",
+            "path.hash.mode": "0",
+            "multi.acks": "0",
+            "af": "1.0",
+            "rxdelay": "0.0",
+            "txdelay": "0.5",
+            "direct.txdelay": "0.2",
+            "radio": "869.618,62.5,8,8",
+            "tx": "22",
+            "allow.read.only": "off",
+            "guest.password": "",
+        }
 
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
         self._saved_passwords: dict[str, str] = {}
@@ -80,24 +114,41 @@ class MockMeshcoreClient(MeshcoreService):
             self._channels["public"] = channel
         return sorted(self._channels.values(), key=lambda c: c.display_name.lower())
 
+    def is_private_channel(self, channel_id: str) -> bool:
+        return False
+
+    def ensure_dm_channel(self, peer_name: str) -> Channel:
+        channel_id = dm_channel_id(peer_name)
+        if channel_id not in self._channels:
+            self._channels[channel_id] = Channel(
+                channel_id=channel_id,
+                display_name=peer_name,
+                unread_count=0,
+                peer_name=peer_name,
+                kind="dm",
+            )
+        return self._channels[channel_id]
+
     def ensure_channel(self, channel_id: str, display_name: str | None = None) -> Channel:
-        """Ensure a channel exists, creating it if necessary."""
+        """Ensure a channel exists, creating it if necessary (same rules as the real client)."""
+        if channel_id in self._channels:
+            return self._channels[channel_id]
+        if channel_id.startswith(DM_PREFIX):
+            return self.ensure_dm_channel(display_name or channel_id[len(DM_PREFIX) :])
         is_group = (
             channel_id == "public"
             or channel_id.startswith("#")
             or (display_name is not None and display_name.startswith("#"))
         )
-        normalized_id = channel_id if is_group else channel_id.lower()
-        if normalized_id in self._channels:
-            return self._channels[normalized_id]
+        if not is_group:
+            return self.ensure_dm_channel(channel_id)
         channel = Channel(
-            channel_id=normalized_id,
-            display_name=display_name or (f"#{channel_id}" if is_group else channel_id),
+            channel_id=channel_id,
+            display_name=display_name or f"#{channel_id}",
             unread_count=0,
-            peer_name=channel_id if not is_group else None,
-            kind="group" if is_group else "dm",
+            kind="group",
         )
-        self._channels[normalized_id] = channel
+        self._channels[channel_id] = channel
         return channel
 
     def import_channel(self, channel_id: str, display_name: str, secret: str) -> Channel:
@@ -155,26 +206,16 @@ class MockMeshcoreClient(MeshcoreService):
             self._channel_scopes[channel_id] = normalized
 
     def send_message(self, peer_id: str, body: str) -> Message:
-        existing = self._channels.get(peer_id.lower()) or self._channels.get(peer_id)
-        if existing is not None:
-            is_group = existing.kind == "group"
-        else:
-            is_group = peer_id == "public" or peer_id.startswith("#")
-        channel_id = peer_id if is_group else peer_id.lower()
-        if channel_id not in self._channels:
-            display = f"#{channel_id}" if is_group else peer_id
-            self._channels[channel_id] = Channel(
-                channel_id=channel_id,
-                display_name=display,
-                peer_name=peer_id if not is_group else None,
-                kind="group" if is_group else "dm",
-            )
+        channel = self._channels.get(peer_id) or self.ensure_channel(peer_id)
+        channel_id = channel.channel_id
         message = Message(
             message_id=str(uuid4()),
             sender_id=self._settings.node_name,
             body=body,
             channel_id=channel_id,
             created_at=datetime.now(UTC),
+            is_outgoing=True,
+            delivered=True if channel.kind == "dm" else None,
         )
         self._messages.append(message)
         if peer_id not in self._peers:
@@ -207,6 +248,19 @@ class MockMeshcoreClient(MeshcoreService):
         )
         return {"success": True, "tx_metadata": {"mock": True}, "dispatcher_result": True}
 
+    def discover_nodes(self) -> list[dict]:
+        time.sleep(1.0)  # stands in for the answer window
+        return [
+            {
+                "pub_key": "13ab5c7e" + "00" * 28,
+                "node_type": 2,
+                "snr_here": 11.5,
+                "snr_there": 12.0,
+                "rssi": -30,
+                "name": "Repeater 13ab5c7e",
+            }
+        ]
+
     def poll_events(self, limit: int = 50) -> list[dict]:
         events: list[dict] = []
         try:
@@ -216,16 +270,13 @@ class MockMeshcoreClient(MeshcoreService):
         except (RuntimeError, OSError):
             pass
 
-        if self._event_buffer:
-            events.extend(self._event_buffer)
-            self._event_buffer.clear()
+        while self._event_buffer:
+            events.append(self._event_buffer.popleft())
 
         for event in events:
             self._append_history(event)
             self._process_event_for_messages(event)
 
-        if len(events) > limit:
-            return events[-limit:]
         return events
 
     def list_recent_events(self, limit: int = 50) -> list[dict]:
@@ -248,6 +299,12 @@ class MockMeshcoreClient(MeshcoreService):
     def update_settings(self, settings: MeshcoreSettings) -> None:
         self._settings = settings.clone()
         self._config = runtime_config_from_settings(self._settings)
+
+    def get_map_view(self) -> tuple[float, float, float] | None:
+        return self._map_view
+
+    def save_map_view(self, lat: float, lon: float, zoom: float) -> None:
+        self._map_view = (lat, lon, zoom)
 
     def get_device_location(self) -> tuple[float, float] | None:
         return self._gps_provider.get_location()
@@ -368,8 +425,8 @@ class MockMeshcoreClient(MeshcoreService):
     def send_repeater_command(self, peer_name: str, command: str) -> dict:
         stripped = command.strip().lower()
         cmd_key = stripped.split()[0] if stripped else ""
-        response_text = MOCK_CLI_RESPONSES.get(stripped) or MOCK_CLI_RESPONSES.get(
-            cmd_key, f"OK: {command}"
+        response_text = self._mock_setting_reply(command.strip()) or (
+            MOCK_CLI_RESPONSES.get(stripped) or MOCK_CLI_RESPONSES.get(cmd_key, f"OK: {command}")
         )
         self._append_event(
             {
@@ -388,6 +445,57 @@ class MockMeshcoreClient(MeshcoreService):
             "command": command,
             "response_text": response_text,
         }
+
+    def _mock_setting_reply(self, command: str) -> str | None:
+        """A repeater's settings, answering "get <key>" / "set <key> <value>"."""
+        verb, _, rest = command.partition(" ")
+        key, _, value = rest.partition(" ")
+        if verb == "get":
+            value = self._mock_repeater_settings.get(key)
+            return f"??: {key}" if value is None else f"> {value}"
+        if verb == "set" and key in self._mock_repeater_settings:
+            self._mock_repeater_settings[key] = value
+            return "OK - reboot to apply" if key == "radio" else "OK"
+        return None
+
+    def get_repeater_status(self, peer_name: str) -> dict | None:
+        time.sleep(0.3)
+        return {
+            "bat": 4012,
+            "tx_queue_len": 0,
+            "noise_floor": -112,
+            "last_rssi": -71,
+            "nb_recv": 18234,
+            "nb_sent": 6110,
+            "airtime": 1834,
+            "uptime": 3 * 86400 + 5 * 3600,
+            "sent_flood": 4021,
+            "sent_direct": 2089,
+            "recv_flood": 15210,
+            "recv_direct": 3024,
+            "full_evts": 0,
+            "last_snr": 7.25,
+            "direct_dups": 12,
+            "flood_dups": 940,
+            "rx_airtime": 9120,
+        }
+
+    def get_repeater_owner_info(self, peer_name: str) -> dict | None:
+        return {"version": "v1.16.0-mock", "name": peer_name, "owner_info": "mock owner"}
+
+    def get_repeater_neighbours(self, peer_name: str) -> list[dict] | None:
+        time.sleep(0.3)
+        return [
+            {"pubkey": "a1b2c3d4e5f6", "name": None, "secs_ago": 42, "snr": 9.5},
+            {"pubkey": "13ab5c7e0011", "name": "Hilltop", "secs_ago": 610, "snr": -3.25},
+            {"pubkey": "77cc0011aabb", "name": None, "secs_ago": 86400, "snr": 1.0},
+        ]
+
+    def get_repeater_access_list(self, peer_name: str) -> list[dict] | None:
+        return [
+            {"key": "46a5a5adaf41", "role": "admin", "name": self._settings.node_name},
+            {"key": "a1b2c3d4e5f6", "role": "guest", "name": None},
+        ]
 
     def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None:
         return self._repeater_sessions.get(peer_name)
@@ -416,7 +524,7 @@ class MockMeshcoreClient(MeshcoreService):
 
         is_direct = payload_type_name == PayloadType.TXT_MSG
         if is_direct:
-            channel_name = sender_name.lower()
+            channel_name = dm_channel_id(sender_name)
         else:
             channel_name = (data.get("channel_name") or "public").lower()
 

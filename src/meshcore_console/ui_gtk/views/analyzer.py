@@ -25,6 +25,15 @@ from meshcore_console.ui_gtk.widgets import DaySeparator, DetailBlock, PathVisua
 from meshcore_console.ui_gtk.widgets.node_badge import STYLE_DEFAULT, STYLE_SELF
 
 
+def signal_part(value: float | None, fmt: str) -> str:
+    return fmt.format(value) if value is not None else "n/a"
+
+
+def signal_text(rssi: int | None, snr: float | None) -> str:
+    """Row label "RSSI / SNR", with n/a for values that weren't measured."""
+    return f"{signal_part(rssi, '{:d}')} / {signal_part(snr, '{:.2f}')}"
+
+
 @dataclass(slots=True)
 class PacketRecord:
     timestamp: str
@@ -32,8 +41,8 @@ class PacketRecord:
     packet_type: str
     node: str
     content: str
-    rssi: int
-    snr: float
+    rssi: int | None  # None: not measured (e.g. our own TX)
+    snr: float | None
     packet_id: str
     raw_hex: str
     payload_text: str
@@ -67,6 +76,7 @@ class AnalyzerView(Gtk.Box):
         self._packets: deque[PacketRecord] = deque(maxlen=400)
         self._selected_packet: PacketRecord | None = None
         self._paused = False
+        self._render_pending = False
         self._dedupe = False
         self._active_filter = AnalyzerFilter.ALL
 
@@ -75,6 +85,16 @@ class AnalyzerView(Gtk.Box):
         toolbar.add_css_class("analyzer-toolbar")
         self.append(toolbar)
 
+        # The filters scroll sideways instead of widening the window past a
+        # 1024 px screen.
+        filters = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        filter_scroll = Gtk.ScrolledWindow()
+        filter_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        filter_scroll.set_propagate_natural_width(True)
+        filter_scroll.set_hexpand(True)
+        filter_scroll.set_child(filters)
+        toolbar.append(filter_scroll)
+
         self._filter_buttons: dict[AnalyzerFilter, Gtk.ToggleButton] = {}
         for filter_type in AnalyzerFilter:
             button = Gtk.ToggleButton.new_with_label(filter_type.value)
@@ -82,7 +102,7 @@ class AnalyzerView(Gtk.Box):
             button.add_css_class(f"filter-{self._type_class(filter_type.value)}")
             button.connect("clicked", self._on_filter_clicked, filter_type)
             self._filter_buttons[filter_type] = button
-            toolbar.append(button)
+            filters.append(button)
         self._filter_buttons[AnalyzerFilter.ALL].set_active(True)
 
         # Dedupe toggle
@@ -90,12 +110,7 @@ class AnalyzerView(Gtk.Box):
         self._dedupe_btn.add_css_class("analyzer-filter")
         self._dedupe_btn.set_tooltip_text("Hide duplicate packets (same hash, different hops)")
         self._dedupe_btn.connect("toggled", self._on_dedupe_toggled)
-        toolbar.append(self._dedupe_btn)
-
-        # Spacer to push play/pause to the right
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        toolbar.append(spacer)
+        filters.append(self._dedupe_btn)
 
         # Play/pause toggle button with icon
         self._pause = Gtk.ToggleButton()
@@ -198,6 +213,9 @@ class AnalyzerView(Gtk.Box):
         else:
             self._pause_icon.set_from_icon_name("media-playback-pause-symbolic")
             button.set_tooltip_text("Pause stream")
+            if self._render_pending:
+                self._render_pending = False
+                self._refresh_all()
 
     def _on_dedupe_toggled(self, button: Gtk.ToggleButton) -> None:
         self._dedupe = button.get_active()
@@ -211,9 +229,11 @@ class AnalyzerView(Gtk.Box):
         self._refresh_all()
 
     def _poll_events(self) -> bool:
-        if self._paused:
-            return True
-        self._cursor, events = self._event_store.since(self._cursor, limit=200)
+        # Keep collecting while paused (only rendering stops): the event store
+        # keeps a bounded window, so a paused cursor fell behind and the
+        # packets received meanwhile were skipped on resume.
+        # the whole store window (500): a smaller limit dropped the oldest of a burst
+        self._cursor, events = self._event_store.since(self._cursor, limit=500)
         if not events:
             return True
         if self._geom_debug:
@@ -234,7 +254,10 @@ class AnalyzerView(Gtk.Box):
                 self._packets.appendleft(record)
                 new_records.append(record)
         if new_records:
-            self._append_new_rows(new_records)
+            if self._paused:
+                self._render_pending = True
+            else:
+                self._append_new_rows(new_records)
         if self._geom_debug:
             print(f"[ui-geom] analyzer post-refresh packets={len(self._packets)}")
             self._debug_width_report("post")
@@ -400,8 +423,10 @@ class AnalyzerView(Gtk.Box):
         signature = f"{packet_type}:{node}:{data.get('payload_hex', '')[:32]}"
         digest = hashlib.sha1(signature.encode("utf-8")).hexdigest()[:8].upper()
 
-        rssi = int(data.get("rssi") or -112)
-        snr = float(data.get("snr") or -9.0)
+        # Missing values stay missing: "or -112" turned a real SNR of 0.0 into
+        # -9.00 and made unmeasured packets look measured.
+        rssi = int(data["rssi"]) if data.get("rssi") is not None else None
+        snr = float(data["snr"]) if data.get("snr") is not None else None
         route_type = str(data.get("route_type_name") or "FLOOD")
         # packet events don't have raw_hex, only payload_hex
         raw_hex = str(data.get("payload_hex") or "")
@@ -642,7 +667,7 @@ class AnalyzerView(Gtk.Box):
         content_label.set_ellipsize(Pango.EllipsizeMode.END)
         line.append(content_label)
 
-        sig_label = Gtk.Label(label=f"{packet.rssi} / {packet.snr:.2f}")
+        sig_label = Gtk.Label(label=signal_text(packet.rssi, packet.snr))
         sig_label.add_css_class("analyzer-rssi")
         sig_label.set_xalign(0)
         sig_label.set_width_chars(self.COL_SIGNAL_CHARS)
@@ -748,7 +773,8 @@ class AnalyzerView(Gtk.Box):
         self._details_content.append(
             DetailBlock(
                 "Radio Signal",
-                f"RSSI {packet.rssi} dBm   SNR {packet.snr:.2f} dB",
+                f"RSSI {signal_part(packet.rssi, '{:d} dBm')}   "
+                f"SNR {signal_part(packet.snr, '{:.2f} dB')}",
                 wrap_chars=wrap,
             )
         )

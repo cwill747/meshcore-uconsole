@@ -11,7 +11,7 @@ from meshcore_console.core.models import Channel, Message, Peer
 
 logger = logging.getLogger(__name__)
 
-MAX_MESSAGES = 500
+MAX_MESSAGES = 500  # per channel
 
 
 class MessageStore:
@@ -38,13 +38,18 @@ class MessageStore:
                 json.dumps(message.path_hops) if message.path_hops else None,
             ),
         )
-        # Prune oldest messages beyond limit
-        count = self._conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        # Prune the oldest messages of this channel beyond the limit.  The limit
+        # used to be global, so a busy public channel (or anyone posting 500
+        # times to it) deleted the stored DMs and private-channel history.
+        count = self._conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE channel_id = ?", (message.channel_id,)
+        ).fetchone()[0]
         if count > MAX_MESSAGES:
             self._conn.execute(
                 "DELETE FROM messages WHERE message_id IN "
-                "(SELECT message_id FROM messages ORDER BY created_at ASC LIMIT ?)",
-                (count - MAX_MESSAGES,),
+                "(SELECT message_id FROM messages WHERE channel_id = ? "
+                "ORDER BY created_at ASC LIMIT ?)",
+                (message.channel_id, count - MAX_MESSAGES),
             )
         self._conn.commit()
 
@@ -132,6 +137,10 @@ class PeerStore:
             peer = _row_to_peer(row)
             result[peer.display_name or peer.peer_id] = peer
         return result
+
+    def remove(self, peer_id: str) -> None:
+        self._conn.execute("DELETE FROM peers WHERE peer_id = ?", (peer_id,))
+        self._conn.commit()
 
     def set_favorite(self, peer_id: str, favorite: bool) -> None:
         """Update just the is_favorite flag for a peer."""

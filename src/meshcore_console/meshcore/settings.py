@@ -13,6 +13,9 @@ class MeshcoreSettings:
     allow_telemetry: bool = True  # Allow telemetry requests from other nodes
     telemetry_favorites_only: bool = False
     autoconnect: bool = False  # Automatically connect to radio on app startup
+    # Fetch OpenStreetMap tiles; off keeps the map from telling the tile
+    # server your IP address and the area you look at.
+    online_map_tiles: bool = True
     gps_device: str = ""  # GPS serial port path; empty = auto-detect (#82)
     suppress_service_dialog: bool = False  # Don't prompt to stop conflicting services
     log_level: str = "INFO"  # stderr log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -25,7 +28,8 @@ class MeshcoreSettings:
     spreading_factor: int = 7
     coding_rate: int = 5
     tx_power: int = 22
-    preamble_length: int = 17
+    # MeshCore >= 1.16 sends 32 preamble symbols at SF <= 8 and 16 above.
+    preamble_length: int = 32
     path_hash_mode: int = 0
     flood_region: str = ""  # Default region scope for flood packets; empty = unscoped (#90)
 
@@ -66,15 +70,25 @@ RADIO_PRESETS: dict[str, dict[str, int]] = {
         "bandwidth": 62_500,
         "spreading_factor": 7,
         "coding_rate": 5,
-        "preamble_length": 17,
+        "preamble_length": 32,
         "tx_power": 22,
     },
+    # MeshCore's recommended EU/UK preset, used across e.g. Germany.
+    "meshcore-eu-narrow": {
+        "frequency": 869_618_000,
+        "bandwidth": 62_500,
+        "spreading_factor": 8,
+        "coding_rate": 8,
+        "preamble_length": 32,
+        "tx_power": 22,
+    },
+    # The older EU default ("long range"), still used by some meshes.
     "meshcore-eu": {
         "frequency": 869_525_000,
         "bandwidth": 250_000,
         "spreading_factor": 11,
         "coding_rate": 5,
-        "preamble_length": 17,
+        "preamble_length": 16,
         "tx_power": 22,
     },
 }
@@ -107,7 +121,8 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool | str]] = {
         "en_pins": "",
     },
     # Same wiring as the plain uConsole board, plus the LoRa power-enable pin
-    # that the HackerGadgets AIOv2 puts on GPIO 27 (#85).
+    # that the HackerGadgets AIOv2 puts on GPIO 16.  GPIO 27 is its GPS rail
+    # (HackerGadgets' aiov2_ctl: GPS=27, LORA=16; UConsoleGps enables GPS on 27).
     "hg-aiov2": {
         "bus_id": 1,
         "cs_id": 0,
@@ -120,7 +135,7 @@ HARDWARE_PRESETS: dict[str, dict[str, int | bool | str]] = {
         "is_waveshare": False,
         "use_dio2_rf": True,
         "use_dio3_tcxo": True,
-        "en_pins": "27",
+        "en_pins": "16",
     },
     "waveshare": {
         "bus_id": 0,

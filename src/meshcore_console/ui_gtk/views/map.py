@@ -26,6 +26,7 @@ except ImportError:
     SHUMATE_AVAILABLE = False
     print("[MapView] libshumate not available", file=sys.stderr)
 
+from meshcore_console.core.map_view import DEVICE_ZOOM, initial_view
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
@@ -35,11 +36,23 @@ from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
 from meshcore_console.platform.mbtiles import MBTilesReader, find_mbtiles_files
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
+from meshcore_console.ui_gtk.compat import new_toast
 
 
 # Tile URL templates - Shumate uses {z}, {x}, {y} placeholders
 CARTO_DARK_URL = "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
 OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+
+
+def marker_state(peers: list[Peer]) -> tuple:
+    """What the peer markers show: name, position, repeater flag."""
+    return tuple(
+        sorted(
+            (p.display_name, p.latitude, p.longitude, p.is_repeater)
+            for p in peers
+            if p.latitude is not None and p.longitude is not None
+        )
+    )
 
 
 class MapView(Gtk.Box):
@@ -54,10 +67,13 @@ class MapView(Gtk.Box):
         self._peer_markers: dict[str, object] = {}  # peer_id -> marker
         self._device_marker: object | None = None
         self._mbtiles: MBTilesReader | None = None
-        self._last_peer_count = 0
+        self._marker_state: tuple = ()
+        self._marker_looks: dict[str, tuple] = {}
         self._shown_gps_errors: set[str] = set()  # Track shown errors to avoid repeats
         self._following = False  # Whether map follows device location
         self._programmatic_move = False  # Suppress follow-disable during go_to
+        self._await_fix = False  # centre on the first GPS fix, until the user moves the map
+        self._save_view_id = 0  # pending save of the view, after it stops moving
 
         if not SHUMATE_AVAILABLE:
             self._build_fallback_ui()
@@ -116,23 +132,39 @@ class MapView(Gtk.Box):
         map_widget = self._map.get_map()
         self._viewport = map_widget.get_viewport()
 
-        # Set up tile source - CartoDB Dark Matter
+        # Set up tile source (OpenStreetMap), unless tile downloads are off
         self._tile_source = self._create_tile_source()
-        self._map.set_map_source(self._tile_source)
+        self._tiles_note = Gtk.Label(label="Map tiles are off (Settings > Download Map Tiles)")
+        self._tiles_note.add_css_class("panel-muted")
+        self._tiles_note.set_halign(Gtk.Align.CENTER)
+        self._tiles_note.set_valign(Gtk.Align.START)
+        self._tiles_note.set_margin_top(12)
+        self._online_tiles: bool | None = None
+        self._apply_tile_setting()
 
-        # Set initial view - center on SF Bay Area if mock mode, otherwise US
-        if self._service.is_mock_mode():
-            # SF Bay Area for mock data
-            self._viewport.set_zoom_level(12)
-            self._viewport.set_location(37.7749, -122.4194)
-        else:
-            # Centered on US
-            self._viewport.set_zoom_level(4)
-            self._viewport.set_location(39.8283, -98.5795)
+        # Open where the user left the map; on a first start at this device,
+        # else around the known peers (it used to open on the middle of the US)
+        device = self._service.get_device_location()
+        (lat, lon, zoom), source = initial_view(
+            gps_fix=device if self._service.has_gps_fix() else None,
+            saved=self._service.get_map_view(),
+            device=device,
+            peers=[
+                (p.latitude, p.longitude)
+                for p in self._service.list_peers()
+                if p.latitude is not None
+                and p.longitude is not None
+                and (p.latitude, p.longitude) != (0.0, 0.0)
+            ],
+        )
+        self._viewport.set_zoom_level(zoom)
+        self._viewport.set_location(lat, lon)
+        self._await_fix = source != "gps"
 
         # Detect user panning to disable follow mode
         self._viewport.connect("notify::latitude", self._on_viewport_moved)
         self._viewport.connect("notify::longitude", self._on_viewport_moved)
+        self._viewport.connect("notify::zoom-level", lambda *_a: self._schedule_view_save())
 
         # Create marker layer
         self._marker_layer = Shumate.MarkerLayer.new(self._viewport)
@@ -140,6 +172,7 @@ class MapView(Gtk.Box):
 
         # Add map as the base child of overlay
         overlay.set_child(self._map)
+        overlay.add_overlay(self._tiles_note)
 
         # Add control overlays
         self._add_map_controls(overlay)
@@ -250,6 +283,7 @@ class MapView(Gtk.Box):
     def _on_zoom_in(self, _button: Gtk.Button) -> None:
         """Zoom in on the map."""
         logger.debug("UI: map zoom in")
+        self._await_fix = False
         self._programmatic_move = True
         current = self._viewport.get_zoom_level()
         self._viewport.set_zoom_level(min(current + 1, 19))
@@ -258,6 +292,7 @@ class MapView(Gtk.Box):
     def _on_zoom_out(self, _button: Gtk.Button) -> None:
         """Zoom out on the map."""
         logger.debug("UI: map zoom out")
+        self._await_fix = False
         self._programmatic_move = True
         current = self._viewport.get_zoom_level()
         self._viewport.set_zoom_level(max(current - 1, 0))
@@ -269,6 +304,7 @@ class MapView(Gtk.Box):
         location = self._service.get_device_location()
         if location:
             lat, lon = location
+            self._await_fix = False
             self._set_following(True)
             self._programmatic_move = True
             self._viewport.set_zoom_level(12)
@@ -283,8 +319,36 @@ class MapView(Gtk.Box):
 
     def _on_viewport_moved(self, viewport: object, pspec: object) -> None:
         """Disable follow mode when user pans the map."""
-        if not self._programmatic_move and self._following:
+        self._schedule_view_save()
+        if self._programmatic_move:
+            return
+        self._await_fix = False
+        if self._following:
             self._set_following(False)
+
+    def _schedule_view_save(self) -> None:
+        """Save the view once it has stopped moving (one write per pan, not per frame)."""
+        if self._save_view_id:
+            GLib.source_remove(self._save_view_id)
+        self._save_view_id = GLib.timeout_add_seconds(3, self._save_view_timeout)
+
+    def _save_view_timeout(self) -> bool:
+        self._save_view_id = 0
+        self.remember_view()
+        return False
+
+    def remember_view(self) -> None:
+        """Store the current view; the map opens there next time."""
+        if not SHUMATE_AVAILABLE:
+            return
+        try:
+            self._service.save_map_view(
+                self._viewport.get_latitude(),
+                self._viewport.get_longitude(),
+                self._viewport.get_zoom_level(),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not save the map view")
 
     def _set_following(self, active: bool) -> None:
         """Toggle follow mode and update button visual."""
@@ -317,13 +381,23 @@ class MapView(Gtk.Box):
                 name = metadata.get("name", files[0].name)
                 print(f"[MapView] Loaded offline tiles: {name}", file=sys.stderr)
 
+    def _apply_tile_setting(self) -> None:
+        """Attach the online tile source only while tile downloads are on."""
+        online = self._service.get_settings().online_map_tiles
+        if online == self._online_tiles:
+            return
+        self._online_tiles = online
+        self._map.set_map_source(self._tile_source if online else None)
+        self._tiles_note.set_visible(not online)
+
     def _on_events_available(self, _store: object) -> None:
         """Handle events-available signal — refresh peer markers."""
-        peers = self._service.list_peers()
-        peers_with_location = [
-            p for p in peers if p.latitude is not None and p.longitude is not None
-        ]
-        if len(peers_with_location) != self._last_peer_count:
+        self._apply_tile_setting()
+        # Compare what the markers show, not how many there are: a moved or
+        # renamed peer kept its old marker while the count stayed the same.
+        state = marker_state(self._service.list_peers())
+        if state != self._marker_state:
+            self._marker_state = state
             self._refresh_markers()
 
     def _poll_gps(self) -> bool:
@@ -348,7 +422,6 @@ class MapView(Gtk.Box):
             import gi
 
             gi.require_version("Adw", "1")
-            from gi.repository import Adw
 
             root = self.get_root()
             if root is None:
@@ -357,14 +430,14 @@ class MapView(Gtk.Box):
             # Look for toast overlay on the main window
             toast_overlay = getattr(root, "_toast_overlay", None)
             if toast_overlay is not None and hasattr(toast_overlay, "add_toast"):
-                toast_overlay.add_toast(Adw.Toast.new(message))
+                toast_overlay.add_toast(new_toast(message))
         except Exception as e:
             print(f"[MapView] Toast error: {e}", file=sys.stderr)
 
     def _refresh_markers(self) -> None:
         """Refresh all peer markers."""
         peers = self._service.list_peers()
-        self._last_peer_count = sum(1 for p in peers if p.latitude is not None)
+        self._marker_state = marker_state(peers)
 
         # Track which peers we've seen
         seen_ids: set[str] = set()
@@ -375,6 +448,11 @@ class MapView(Gtk.Box):
 
             seen_ids.add(peer.peer_id)
 
+            look = (peer.display_name, peer.is_repeater, peer.is_favorite)
+            if peer.peer_id in self._peer_markers and self._marker_looks.get(peer.peer_id) != look:
+                # renamed or restyled: the marker's label is built once, rebuild it
+                self._marker_layer.remove_marker(self._peer_markers.pop(peer.peer_id))
+            self._marker_looks[peer.peer_id] = look
             if peer.peer_id in self._peer_markers:
                 # Update existing marker position
                 marker = self._peer_markers[peer.peer_id]
@@ -474,6 +552,15 @@ class MapView(Gtk.Box):
             self._marker_layer.add_marker(self._device_marker)
         else:
             self._device_marker.set_location(lat, lon)
+
+        # The first GPS fix since start: centre on it once, unless the user
+        # has moved the map meanwhile (a fixed position from Settings is no fix)
+        if self._await_fix and self._service.has_gps_fix():
+            self._await_fix = False
+            self._programmatic_move = True
+            self._viewport.set_zoom_level(max(self._viewport.get_zoom_level(), DEVICE_ZOOM))
+            self._viewport.set_location(lat, lon)
+            self._programmatic_move = False
 
         # Keep map centered on device when following
         if self._following:
@@ -630,4 +717,4 @@ class MapView(Gtk.Box):
 
     def _on_send_message_clicked(self, _button: Gtk.Button, peer: Peer) -> None:
         """Navigate to messages view and start a conversation with this peer."""
-        navigate(self, "messages", ("select_channel", peer.display_name))
+        navigate(self, "messages", ("select_dm", peer.display_name))

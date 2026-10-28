@@ -2,6 +2,18 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 
+# DM threads live in their own channel-id namespace.  They used to share it with
+# group channels (both were the lowercased name), so a DM from "Test" landed in
+# #test and the reply was broadcast there, and "Message" on a node named
+# "Public" posted to the Public channel.
+DM_PREFIX = "dm:"
+
+
+def dm_channel_id(peer_name: str) -> str:
+    """The channel id of the DM thread with ``peer_name``."""
+    return DM_PREFIX + peer_name.lower()
+
+
 @dataclass(slots=True)
 class DeviceStatus:
     node_id: str
@@ -40,6 +52,8 @@ class Message:
     path_hops: list[str] = field(default_factory=list)
     snr: float | None = None
     rssi: int | None = None
+    # Outgoing DMs: True once ACKed, False if no ACK came; None otherwise (not stored).
+    delivered: bool | None = None
 
 
 @dataclass(slots=True)

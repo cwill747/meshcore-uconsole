@@ -1,26 +1,44 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import concurrent.futures
 import logging
+import secrets
 import threading
 from collections import deque
 from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
 
+from meshcore_console.core.map_view import decode_view, encode_view
 from meshcore_console.core.enums import EventType, PayloadType
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
+from meshcore_console.core.models import (
+    DM_PREFIX,
+    Channel,
+    DeviceStatus,
+    Message,
+    Peer,
+    RepeaterLoginState,
+    dm_channel_id,
+)
 from meshcore_console.core.radio import rssi_to_signal_percent
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.types import MeshEventDict, SendResultDict
 from meshcore_console.meshcore.channel_db import (
     ChannelDatabase,
+    derive_channel_secret,
     normalize_channel_name,
     normalize_channel_secret,
 )
 from meshcore_console.meshcore.region import normalize_region_scope
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.db import open_db
+from meshcore_console.meshcore.discovery import (
+    DISCOVER_WINDOW_S,
+    is_placeholder_for,
+    placeholder_name,
+)
 from meshcore_console.meshcore.logging_setup import install_radio_error_handler
 from meshcore_console.meshcore.packet_codec import repair_utf8
 from meshcore_console.meshcore.packet_store import PacketStore
@@ -28,7 +46,12 @@ from meshcore_console.meshcore.repeater_store import RepeaterPasswordStore
 from meshcore_console.meshcore.session import OpenHopCoreSession
 from meshcore_console.meshcore.settings import MeshcoreSettings
 from meshcore_console.meshcore.settings_store import SettingsStore
-from meshcore_console.meshcore.state_store import MessageStore, PeerStore, UIChannelStore
+from meshcore_console.meshcore.state_store import (
+    MAX_MESSAGES,
+    MessageStore,
+    PeerStore,
+    UIChannelStore,
+)
 from meshcore_console.platform.gps import GpsProvider, create_gps_provider
 
 logger = logging.getLogger(__name__)
@@ -36,11 +59,101 @@ logger = logging.getLogger(__name__)
 _ROUTING_FIELDS = ("path_hops", "path_len", "snr", "rssi")
 
 
+def _take_matching_packet(queue: deque[dict], handler_data: dict) -> dict | None:
+    """Remove and return the queued packet event this decoded message came from.
+
+    Matched by packet hash: packet events carry its first 16 hex chars, message
+    events the full hash.  Pairing by arrival order instead gave a message the
+    SNR, RSSI and path of whatever packet was oldest in the queue (our own
+    echoes, duplicates, other channels' traffic), and wrote the message's text
+    into that packet's analyzer row.
+    """
+    full = handler_data.get("packet_hash") or handler_data.get("message_id")
+    if not full:
+        return None
+    key = str(full)[:16].upper()
+    for packet in queue:
+        if str(packet.get("packet_hash", ""))[:16].upper() == key:
+            queue.remove(packet)
+            return packet
+    return None
+
+
 def _propagate_routing_fields(packet_data: dict, handler_data: dict) -> None:
     for key in _ROUTING_FIELDS:
         val = packet_data.get(key)
         if val is not None and handler_data.get(key) is None:
             handler_data[key] = list(val) if isinstance(val, list) else val
+
+
+# MeshCore TXT_MSG types (flags >> 2)
+TXT_TYPE_CLI_DATA = 1  # a CLI command or reply
+TXT_TYPE_SIGNED_PLAIN = 2  # room-server post: 4-byte author key prefix + text
+
+# Upper bound for a blocking radio call without its own timeout (a DM waits for
+# listen-before-talk, airtime and the ACK).
+RUN_ASYNC_CAP_S = 60.0
+CONNECT_TIMEOUT_S = 30.0
+# Three DM attempts, each: listen-before-talk (up to 4 s), airtime, 5 s ACK wait.
+DM_SEND_TIMEOUT_S = 45.0
+MAX_PEERS = 500
+MAP_VIEW_KEY = "ui.map_view"  # settings-table row: the map's last view
+# Repeater neighbour lists: firmware fills at most 130 bytes of entries per
+# reply (key prefix + 4-byte age + 1-byte SNR each).
+NEIGHBOUR_KEY_PREFIX = 6
+NEIGHBOURS_PER_PAGE = 130 // (NEIGHBOUR_KEY_PREFIX + 5)
+NEIGHBOUR_PAGES_MAX = 10
+ACL_ROLES = {0: "guest", 1: "read-only", 2: "read-write", 3: "admin"}  # PERM_ACL_*
+
+
+def dm_message_id(data: dict) -> str | None:
+    """A stable id for a received DM: sender key, exact sender timestamp, text."""
+    pubkey, timestamp = data.get("contact_pubkey"), data.get("timestamp")
+    text = data.get("message_text") or data.get("payload_text") or data.get("text")
+    if not pubkey or timestamp is None or text is None:
+        return None
+    digest = hashlib.sha256(f"{pubkey}:{timestamp}:{text}".encode()).hexdigest()[:16]
+    return f"dm_{digest}"
+
+
+def hop_count(path_len: int | None) -> int:
+    """Hops from openhop_core's encoded path length byte.
+
+    Bits 6-7 hold the hash size and bits 0-5 the hop count; direct messages
+    report 0xFF ("unknown"), which the details panel showed as "255 hops".
+    """
+    if not path_len or path_len == 0xFF:
+        return 0
+    return int(path_len) & 0x3F
+
+
+def hops_from_path(path: bytes | None, path_len_encoded: int | None) -> list[str]:
+    """Hop hashes (hex) from a packet path; the path length byte carries the
+    hash size in bits 6-7 (size - 1) and the hop count in bits 0-5."""
+    if not path or not path_len_encoded:
+        return []
+    size = (path_len_encoded >> 6) + 1
+    count = path_len_encoded & 0x3F
+    return [
+        path[i * size : (i + 1) * size].hex() for i in range(count) if (i + 1) * size <= len(path)
+    ]
+
+
+async def _no_system_exit(coro: object) -> object:
+    """openhop_core calls sys.exit() on fatal GPIO errors.  Raised inside a task
+    that would stop the whole event loop thread; turn it into an error instead."""
+    try:
+        return await coro  # type: ignore[misc]
+    except SystemExit as exc:
+        raise RuntimeError(f"Radio hardware error (exit code {exc.code})") from exc
+
+
+async def _cancel_pending_tasks() -> None:
+    current = asyncio.current_task()
+    tasks = [task for task in asyncio.all_tasks() if task is not current]
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class MeshcoreClient(MeshcoreService):
@@ -60,8 +173,11 @@ class MeshcoreClient(MeshcoreService):
         gps_provider: GpsProvider | None = None,
     ) -> None:
         self._connected = False
+        self._connect_lock = threading.RLock()
+        self._advert_timestamps: dict[str, int] = {}  # newest advert per public key
         self._event_notify: Callable[[], None] | None = None
-        self._event_buffer: list[MeshEventDict] = []
+        # deque: worker threads append while the GTK thread drains it
+        self._event_buffer: deque[MeshEventDict] = deque()
         self._event_history: list[MeshEventDict] = []
         # Cross-batch queues for enriching packet events with handler data.
         # The raw packet callback fires before handler decryption, so these
@@ -134,16 +250,39 @@ class MeshcoreClient(MeshcoreService):
         return loop
 
     def _run_async(self, coro: object, *, timeout: float | None = None) -> object:
-        """Submit a coroutine to the persistent loop and block for its result."""
+        """Submit a coroutine to the persistent loop and block for its result.
+
+        The wait always ends: ``timeout`` (or RUN_ASYNC_CAP_S) is also enforced
+        on this side, because a ``wait_for`` inside the loop never fires once
+        the loop has been stopped by a disconnect.
+        """
         loop = self._ensure_loop()
         if timeout is not None:
             coro = asyncio.wait_for(coro, timeout=timeout)  # type: ignore[arg-type]
-        future = asyncio.run_coroutine_threadsafe(coro, loop)  # type: ignore[arg-type]
-        return future.result()
+        future = asyncio.run_coroutine_threadsafe(_no_system_exit(coro), loop)  # type: ignore[arg-type]
+        deadline = (timeout + 5.0) if timeout is not None else RUN_ASYNC_CAP_S
+        try:
+            return future.result(timeout=deadline)
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            raise TimeoutError(f"radio operation did not finish within {deadline:.0f}s") from exc
+        except concurrent.futures.CancelledError as exc:
+            raise RuntimeError("cancelled: the radio was disconnected") from exc
 
     def _shutdown_loop(self) -> None:
-        """Stop the persistent event loop and join the thread."""
+        """Cancel pending work, stop the persistent event loop and join the thread.
+
+        Cancelling first resolves the futures callers are blocked on; stopping
+        the loop with tasks still pending left those callers waiting forever
+        (Discover "still listening", Admin busy, Telemetry "Requesting...").
+        """
         if self._loop is not None and self._loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(_cancel_pending_tasks(), self._loop).result(
+                    timeout=3.0
+                )
+            except Exception:  # noqa: BLE001
+                pass  # best effort; stopping the loop below still happens
             self._loop.call_soon_threadsafe(self._loop.stop)
         if self._loop_thread is not None:
             self._loop_thread.join(timeout=3.0)
@@ -153,6 +292,12 @@ class MeshcoreClient(MeshcoreService):
         self._loop_thread = None
 
     def connect(self) -> None:
+        # Serialised: Send, Advert, Discover and Admin connect implicitly from
+        # worker threads, and two concurrent starts initialised the radio twice.
+        with self._connect_lock:
+            self._connect_locked()
+
+    def _connect_locked(self) -> None:
         if not self._openhop_available:
             raise RuntimeError(
                 "openhop_core is not installed. Run in mock mode or install openhop_core."
@@ -174,17 +319,20 @@ class MeshcoreClient(MeshcoreService):
                 raise ConflictError(report)
 
         try:
-            self._run_async(self._session.start(), timeout=8.0)
-        except SystemExit as exc:
-            # openhop_core calls sys.exit() on fatal GPIO errors.  Convert to
-            # RuntimeError so the UI can show the failure instead of crashing.
-            self._session = self._new_session()
-            self._connected = False
-            raise RuntimeError(f"Radio hardware init failed (exit code {exc.code})") from exc
+            # (a sys.exit() from openhop_core's GPIO code arrives as RuntimeError,
+            # see _no_system_exit).  The timeout covers start()'s own radio.begin()
+            # retries (2 + 4 + 6 s of back-off plus four init attempts).
+            self._run_async(self._session.start(), timeout=CONNECT_TIMEOUT_S)
         except Exception:
-            # Recover from partial startup by creating a clean session for next attempt.
-            self._session = self._new_session()
+            # Recover from partial startup with a clean session for the next
+            # attempt, releasing the GPIO lines/SPI the failed one may hold.
+            failed, self._session = self._session, self._new_session()
             self._connected = False
+            try:
+                self._run_async(failed.stop(), timeout=10.0)
+            except Exception:  # noqa: BLE001
+                pass
+            failed.close()
             raise
         self._connected = True
         self._session.set_is_favorite_fn(self._is_peer_favorite)
@@ -196,6 +344,10 @@ class MeshcoreClient(MeshcoreService):
         )
 
     def disconnect(self) -> None:
+        with self._connect_lock:
+            self._disconnect_locked()
+
+    def _disconnect_locked(self) -> None:
         runtime_connected = bool(self._session.status().get("connected"))
         if self._connected or runtime_connected:
             try:
@@ -204,8 +356,9 @@ class MeshcoreClient(MeshcoreService):
                 pass
             finally:
                 # Always rotate to a fresh session after disconnect to avoid stale IRQ state.
-                self._session = self._new_session()
+                old, self._session = self._session, self._new_session()
                 self._shutdown_loop()
+                old.close()
         self._connected = False
         self._repeater_sessions.clear()
         self._gps_provider.stop()
@@ -239,31 +392,47 @@ class MeshcoreClient(MeshcoreService):
             self._channel_store.add_or_update(channel)
         return sorted(self._channels.values(), key=lambda c: c.display_name.lower())
 
+    def ensure_dm_channel(self, peer_name: str) -> Channel:
+        """The DM thread with ``peer_name``, created if necessary."""
+        channel_id = dm_channel_id(peer_name)
+        channel = self._channels.get(channel_id)
+        if channel is None:
+            channel = Channel(
+                channel_id=channel_id,
+                display_name=peer_name,
+                unread_count=0,
+                peer_name=peer_name,
+                kind="dm",
+            )
+            self._channels[channel_id] = channel
+            self._channel_store.add_or_update(channel)
+        return channel
+
     def ensure_channel(self, channel_id: str, display_name: str | None = None) -> Channel:
         """Ensure a channel exists, creating it if necessary."""
+        if channel_id in self._channels:
+            return self._channels[channel_id]
+        if channel_id.startswith(DM_PREFIX):
+            return self.ensure_dm_channel(display_name or channel_id[len(DM_PREFIX) :])
         is_group = (
             channel_id == "public"
             or channel_id.startswith("#")
             or (display_name is not None and display_name.startswith("#"))
         )
-        # DM channel IDs are always lowercase for consistency
-        normalized_id = channel_id if is_group else channel_id.lower()
-        if normalized_id in self._channels:
-            return self._channels[normalized_id]
+        if not is_group:
+            return self.ensure_dm_channel(channel_id)  # a bare peer name
         channel = Channel(
-            channel_id=normalized_id,
-            display_name=display_name or (f"#{channel_id}" if is_group else channel_id),
+            channel_id=channel_id,
+            display_name=display_name or f"#{channel_id}",
             unread_count=0,
-            peer_name=channel_id if not is_group else None,
-            kind="group" if is_group else "dm",
+            kind="group",
         )
-        self._channels[normalized_id] = channel
+        self._channels[channel_id] = channel
         self._channel_store.add_or_update(channel)
-        if is_group:
-            # Hashtag channels need a row in channel_secrets or openhop_core cannot
-            # encrypt for them at send time and cannot match them at receive
-            # time (issue #81).
-            self._ensure_channel_secret(channel)
+        # Hashtag channels need a row in channel_secrets or openhop_core cannot
+        # encrypt for them at send time and cannot match them at receive
+        # time (issue #81).
+        self._ensure_channel_secret(channel)
         return channel
 
     def import_channel(self, channel_id: str, display_name: str, secret: str) -> Channel:
@@ -324,14 +493,25 @@ class MeshcoreClient(MeshcoreService):
             return False
         removed = self._channels.pop(channel_id, None)
         if removed is not None and removed.kind == "group":
-            # Only derived hashtag secrets are dropped; an imported secret is
-            # not recoverable, so it outlives the channel entry (issue #81).
+            # The secret goes too, imported (private) ones included: a kept
+            # secret kept the channel decrypting, and it came back at the next
+            # start and with the next message.  The confirmation dialog says the
+            # key is deleted (see is_private_channel).
             name = removed.display_name.lstrip("#") or removed.channel_id
-            self._channel_secrets.remove_derived_secret(name)
+            self._channel_secrets.remove_channel(name)
         self._messages = [m for m in self._messages if m.channel_id != channel_id]
         self._channel_store.remove(channel_id)
         self._message_store.remove_for_channel(channel_id)
         return True
+
+    def is_private_channel(self, channel_id: str) -> bool:
+        """True for a group channel joined with its own key (not derived from
+        its name), which cannot be re-derived once removed."""
+        channel = self._channels.get(channel_id)
+        if channel is None or channel.kind != "group" or channel_id == "public":
+            return False
+        row = self._channel_secrets.get_channel(channel.display_name.lstrip("#") or channel_id)
+        return row is not None and row["secret"] != derive_channel_secret(row["name"])
 
     def mark_channel_read(self, channel_id: str) -> None:
         if channel_id in self._channels:
@@ -358,25 +538,11 @@ class MeshcoreClient(MeshcoreService):
         if not self._connected:
             self.connect()
 
-        # Look up existing channel to determine kind; fall back to string heuristic
-        # for channels not yet in the store (e.g. first DM send).
-        existing = self._channels.get(peer_id.lower()) or self._channels.get(peer_id)
-        if existing is not None:
-            is_group = existing.kind == "group"
-        else:
-            is_group = peer_id == "public" or peer_id.startswith("#")
-        # DM channel IDs are always lowercase to match _process_message_event
-        channel_id = peer_id if is_group else peer_id.lower()
-        if channel_id not in self._channels:
-            display = f"#{channel_id}" if is_group else peer_id
-            channel = Channel(
-                channel_id=channel_id,
-                display_name=display,
-                peer_name=peer_id if not is_group else None,
-                kind="group" if is_group else "dm",
-            )
-            self._channels[channel_id] = channel
-            self._channel_store.add_or_update(channel)
+        # ``peer_id`` is a channel id ("public", "ops", "dm:bob"); a bare peer
+        # name means that peer's DM thread, never a group that shares the name.
+        channel = self._channels.get(peer_id) or self.ensure_channel(peer_id)
+        is_group = channel.kind == "group"
+        channel_id = channel.channel_id
 
         if is_group:
             # Ensure a secret exists and resolve the name openhop_core knows the
@@ -384,17 +550,24 @@ class MeshcoreClient(MeshcoreService):
             # channels, so a channel that predates issue #81 is repaired too.
             channel_name = self._ensure_channel_secret(self._channels[channel_id])
             region_scope = self._channel_secrets.get_region_scope(channel_name)
-            self._run_async(
+            result = self._run_async(
                 self._session.send_group_text(
                     channel_name=channel_name, message=body, region_scope=region_scope
                 )
             )
+            if isinstance(result, dict) and result.get("success") is False:
+                raise RuntimeError("the radio did not transmit the message")
+            delivered = None  # channel messages are not acknowledged
         else:
             # Use the original-case peer name from the channel so openhop_core
             # can find the contact in the contact book (case-sensitive lookup).
-            channel = self._channels.get(channel_id)
-            resolved_name = (channel.peer_name or channel.display_name) if channel else peer_id
-            self._run_async(self._session.send_text(peer_name=resolved_name, message=body))
+            resolved_name = channel.peer_name or channel.display_name
+            result = self._run_async(
+                self._session.send_text(peer_name=resolved_name, message=body),
+                timeout=DM_SEND_TIMEOUT_S,
+            )
+            acked = result.get("success") if isinstance(result, dict) else None
+            delivered = None if acked is None else bool(acked)
         message = Message(
             message_id=str(uuid4()),
             sender_id=self._settings.node_name,
@@ -402,9 +575,9 @@ class MeshcoreClient(MeshcoreService):
             channel_id=channel_id,
             created_at=datetime.now(UTC),
             is_outgoing=True,
+            delivered=delivered,
         )
-        self._messages.append(message)
-        self._message_store.append(message)
+        self._remember_message(message)
         self._append_event(
             {
                 "type": EventType.MESSAGE_SENT,
@@ -442,6 +615,145 @@ class MeshcoreClient(MeshcoreService):
         )
         return result
 
+    def discover_nodes(self) -> list[dict]:
+        """Zero-hop discover; each answer becomes a peer, under a placeholder name
+        until its advert names it.  Returns the answers, each with its peer ``name``."""
+        if not self._connected:
+            self.connect()
+        results = self._run_async(self._session.discover_nodes(), timeout=DISCOVER_WINDOW_S + 10)
+        # snapshot: the GTK thread mutates _peers while this runs on a worker
+        key_of = {name: (p.public_key or "").lower() for name, p in list(self._peers.items())}
+        name_of = {key: name for name, key in key_of.items() if key}
+        for result in results:
+            key = result["pub_key"]
+            current = name_of.get(key)
+            name = current or placeholder_name(result["node_type"], key)
+            if current is None or is_placeholder_for(current, key):
+                # a discover answer has no name; the node tells us when asked
+                real = self._run_async(self._session.request_owner_name(key), timeout=15)
+                if real and key_of.get(real, key) == key:  # never take another key's name
+                    name = real
+            result["name"] = name
+            self._append_event(
+                {
+                    "type": EventType.MESH_NODE_DISCOVERED,
+                    "data": {
+                        "name": result["name"],
+                        "peer_id": key[:16],  # what its adverts carry as sender_id
+                        "public_key": key,
+                        "contact_type": result["node_type"],
+                        "snr": result["snr_here"],
+                        "rssi": result["rssi"],
+                        "path_hops": [],
+                        "direct_route": True,  # it answered zero-hop: a direct neighbour
+                    },
+                }
+            )
+        return results
+
+    def _remember_message(self, message: Message) -> None:
+        """Keep a message in memory and the database, at most MAX_MESSAGES per
+        channel in both (the in-memory list used to grow without bound)."""
+        self._messages.append(message)
+        self._message_store.append(message)
+        same = [m for m in self._messages if m.channel_id == message.channel_id]
+        if len(same) > MAX_MESSAGES:
+            drop = {id(m) for m in same[: len(same) - MAX_MESSAGES]}
+            self._messages = [m for m in self._messages if id(m) not in drop]
+
+    def _name_for_key_prefix(self, prefix_hex: str) -> str:
+        """The peer whose key starts with ``prefix_hex``, else the prefix itself."""
+        prefix = prefix_hex.lower()
+        if prefix:
+            for name, peer in list(self._peers.items()):
+                if peer.public_key and peer.public_key.lower().startswith(prefix):
+                    return name
+        return prefix or "unknown author"
+
+    def _peer_name_for_key(self, public_key: str) -> str | None:
+        key = public_key.lower()
+        for name, peer in self._peers.items():
+            if peer.public_key and peer.public_key.lower() == key:
+                return name
+        return None
+
+    def _claim_name(self, public_key: str, name: str) -> str:
+        """The peer name to use for a verified advert of ``name`` by ``public_key``.
+
+        A name belongs to the first key seen with it.  Another key advertising
+        the same name gets a distinct name (``Alice (9f3a1c)``) instead of taking
+        over the contact: before, any node could advertise "Alice" with its own
+        key and receive the user's DMs to Alice (and a repeater's saved admin
+        password).  A known key advertising a new name is renamed in place, so a
+        renamed node (or a discovery placeholder) stays one peer.
+        """
+        owner = self._peers.get(name)
+        if (
+            owner is not None
+            and owner.public_key
+            and owner.public_key.lower() != public_key.lower()
+        ):
+            name = f"{name} ({public_key[:6].lower()})"
+        current = self._peer_name_for_key(public_key)
+        if current is not None and current != name:
+            self._rename_peer(current, name)
+        return name
+
+    def _make_room_for_peer(self) -> None:
+        """Keep the peer list bounded, like firmware's fixed contact table.
+
+        Valid keys cost nothing to generate, so signed adverts from throwaway
+        keys could otherwise grow the list (and the database) without limit,
+        and every inbound DM is tried against each contact sharing its 1-byte
+        hash.  The least recently heard peer goes first; favourites, peers with
+        a DM thread and logged-in repeaters are kept.
+        """
+        if len(self._peers) < MAX_PEERS:
+            return
+        dm_peers = {c.peer_name for c in self._channels.values() if c.kind == "dm"}
+        candidates = [
+            (name, peer)
+            for name, peer in self._peers.items()
+            if not peer.is_favorite and name not in dm_peers and name not in self._repeater_sessions
+        ]
+        if not candidates:
+            return
+        name, peer = min(
+            candidates,
+            key=lambda item: item[1].last_advert_time or datetime.min.replace(tzinfo=UTC),
+        )
+        del self._peers[name]
+        self._peer_store.remove(peer.peer_id)
+        if peer.public_key:
+            self._advert_timestamps.pop(peer.public_key, None)
+            if self._connected:
+                self._session.contact_book.remove_key(peer.public_key)
+
+    def _rename_peer(self, old: str, new: str) -> None:
+        """Move a peer and everything keyed by its name (contact, login session,
+        DM thread, saved password) to a new name; the peer_id, and so the DB
+        row, favourite and history, stay the same."""
+        peer = self._peers.pop(old)
+        peer.display_name = new
+        self._peers[new] = peer
+        self._peer_store.add_or_update(peer)
+        if self._connected:  # the contact book exists only on a live session
+            contact = self._session.contact_book.get_by_name(old)
+            if contact is not None:
+                contact.name = new
+        if old in self._repeater_sessions:
+            self._repeater_sessions[new] = self._repeater_sessions.pop(old)
+        for channel in self._channels.values():
+            if channel.kind == "dm" and channel.peer_name == old:
+                channel.peer_name = new
+                if channel.display_name == old:
+                    channel.display_name = new
+                self._channel_store.add_or_update(channel)
+        password = self._repeater_password_store.get_password(old)
+        if password is not None:
+            self._repeater_password_store.save_password(new, password)
+            self._repeater_password_store.delete_password(old)
+
     def poll_events(self, limit: int = 50) -> list[MeshEventDict]:
         events: list[MeshEventDict] = []
         try:
@@ -450,26 +762,29 @@ class MeshcoreClient(MeshcoreService):
                 events.extend(drained)
         except (RuntimeError, OSError) as exc:
             logger.debug("drain_events error: %s", exc)
-        if self._event_buffer:
-            events.extend(self._event_buffer)
-            self._event_buffer.clear()
+        while self._event_buffer:  # popleft is atomic; extend()+clear() lost appends
+            events.append(self._event_buffer.popleft())
 
         # Enrich packet events with sender names before processing/persisting
         self._enrich_sender_names(events)
 
         for event in events:
             self._append_history(event)
-            self._process_event_for_peers(event)
-            # Persist packet events to state storage
-            if event.get("type") in (EventType.PACKET, EventType.RAW_PACKET):
-                try:
+            # One bad event (a sqlite3.Error from a locked or full database, a
+            # malformed field) must not take the rest of the batch with it:
+            # those events were already drained and would be lost, messages too.
+            try:
+                self._process_event_for_peers(event)
+                # Persist packet events to state storage.  Only "packet": every
+                # frame also arrives as "raw_packet", which the analyzer ignores,
+                # so storing both halved the kept history and doubled the writes.
+                if event.get("type") == EventType.PACKET:
                     self._packet_store.append(event)
-                except OSError as exc:
-                    # Log but don't let storage failures break event processing
-                    logger.warning("packet_store error: %s: %s", type(exc).__name__, exc)
+            except Exception:  # noqa: BLE001
+                logger.exception("could not process %s event", event.get("type"))
 
-        if len(events) > limit:
-            return events[-limit:]
+        # Every event here was drained and processed: hand all of them to the
+        # UI (``limit`` only bounds the drain), or a burst loses its oldest ones.
         return events
 
     def _build_peer_lookup(self) -> dict[str, str]:
@@ -528,8 +843,8 @@ class MeshcoreClient(MeshcoreService):
                         self._unenriched_txt.append(data)
 
             elif event_type == EventType.MESH_CHANNEL_MESSAGE_NEW:
-                if self._unenriched_grp:
-                    target = self._unenriched_grp.popleft()
+                target = _take_matching_packet(self._unenriched_grp, data)
+                if target is not None:
                     updates: dict[str, str] = {}
                     sender = data.get("sender_name") or data.get("peer_name")
                     if sender and not target.get("sender_name"):
@@ -550,8 +865,8 @@ class MeshcoreClient(MeshcoreService):
                     _propagate_routing_fields(target, data)
 
             elif event_type == EventType.MESH_MESSAGE_NEW:
-                if self._unenriched_txt:
-                    target = self._unenriched_txt.popleft()
+                target = _take_matching_packet(self._unenriched_txt, data)
+                if target is not None:
                     sender = data.get("sender_name") or data.get("peer_name")
                     if sender:
                         target["sender_name"] = repair_utf8(str(sender))
@@ -595,10 +910,12 @@ class MeshcoreClient(MeshcoreService):
         if event_type == EventType.RAW_PACKET:
             return
 
-        payload_type_name = data.get("payload_type_name", "")
-
-        # Check for ADVERT packets to add new peers
-        if payload_type_name == PayloadType.ADVERT or event_type in (
+        # Peers come only from adverts openhop_core has verified (signature,
+        # dedupe, own-advert filter) and published as mesh.network.node_discovered,
+        # plus the app's own discovery results.  Raw "packet" ADVERT events arrive
+        # before any of that: a forged or replayed advert used to rewrite a
+        # contact's key, route, position or name.
+        if event_type in (
             EventType.CONTACT_RECEIVED,
             EventType.ADVERT_RECEIVED,
             EventType.MESH_CONTACT_NEW,
@@ -626,15 +943,34 @@ class MeshcoreClient(MeshcoreService):
             return
         peer_name = repair_utf8(str(peer_name))
 
-        peer_id = data.get("sender_id") or data.get("peer_id")
         public_key = data.get("sender_pubkey") or data.get("public_key")
+        # node_discovered carries no sender_id; use the same key prefix that
+        # packet events call sender_id, so a peer keeps one row and id.
+        peer_id = (
+            data.get("sender_id")
+            or data.get("peer_id")
+            or (public_key[:16] if public_key else None)
+        )
 
         # Skip our own advert reflected back through a repeater.
         self_pubkey = self.get_self_public_key()
         if self_pubkey and public_key and self_pubkey == public_key:
             return
 
-        path_hops = data.get("path_hops", [])
+        # Ignore replays: an advert is signed with its timestamp, so an old one
+        # replayed later still verifies, and would roll name/position/route back.
+        advert_ts = data.get("advert_timestamp")
+        if public_key and advert_ts is not None:
+            if advert_ts <= self._advert_timestamps.get(public_key, -1):
+                return
+            self._advert_timestamps[public_key] = advert_ts
+
+        if public_key:
+            peer_name = self._claim_name(public_key, peer_name)
+
+        path_hops = data.get("path_hops") or hops_from_path(
+            data.get("inbound_path"), data.get("path_len_encoded")
+        )
         rssi_raw = data.get("rssi")
         snr_raw = data.get("snr")
 
@@ -665,23 +1001,17 @@ class MeshcoreClient(MeshcoreService):
         advert_type = data.get("advert_type") or data.get("contact_type")
         is_repeater = int(advert_type) == 2 if advert_type is not None else False
 
-        # Extract raw routing path so the ContactBook Contact gets
-        # out_path/out_path_len for direct routing.  NODE_DISCOVERED events
-        # carry inbound_path (bytes) + path_len_encoded directly; for "packet"
-        # events reconstruct from the decoded path_hops list.  Only derive
-        # path when the event actually carries routing data ("path_hops" key
-        # present) — identity-only events like mesh.contact.new must not
-        # overwrite a previously learned route.
-        inbound_path: bytes | None = data.get("inbound_path")  # type: ignore[assignment]
-        path_len_encoded: int | None = data.get("path_len_encoded")  # type: ignore[assignment]
-        if path_len_encoded is None and public_key and "path_hops" in data:
-            if not path_hops:
-                inbound_path = b""
-                path_len_encoded = 0
-            else:
-                hash_size = len(path_hops[0]) // 2 or 1
-                inbound_path = bytes.fromhex("".join(path_hops))
-                path_len_encoded = ((hash_size - 1) << 6) | len(path_hops)
+        # Routes are not taken from adverts.  An advert's path lists the hops
+        # from the advertiser to us, but a direct send consumes path[0] as the
+        # next hop, so that list points the wrong way; and every copy of an
+        # advert overwrote the route openhop_core had learned from a PATH
+        # return.  Unknown routes flood (out_path_len -1) and openhop_core learns
+        # the real route from the reply.  The only route set here is the
+        # zero-hop one of a node that answered our own discover request.
+        inbound_path: bytes | None = None
+        path_len_encoded: int | None = None
+        if data.get("direct_route"):
+            inbound_path, path_len_encoded = b"", 0
 
         if peer_name in self._peers:
             self._update_existing_peer(
@@ -766,6 +1096,7 @@ class MeshcoreClient(MeshcoreService):
         path_len_encoded: int | None = None,
     ) -> None:
         """Create a new peer from advert data."""
+        self._make_room_for_peer()
         peer = Peer(
             peer_id=peer_id or peer_name,
             display_name=peer_name,
@@ -806,40 +1137,58 @@ class MeshcoreClient(MeshcoreService):
             or event_type == EventType.MESH_MESSAGE_NEW
             or not data.get("channel_name")
         )
-        if is_direct:
-            raw_channel = sender_name
-        else:
-            raw_channel = data["channel_name"]
-        channel_name = raw_channel.lower()
+        channel_name = dm_channel_id(sender_name) if is_direct else data["channel_name"].lower()
         # Preserve the original-case sender name so we can resolve contacts later.
         peer_display_name = sender_name if is_direct else None
 
+        txt_type = data.get("txt_type") if is_direct else None
+        if txt_type == TXT_TYPE_CLI_DATA:
+            # A repeater's CLI reply that arrived after its command timed out
+            # (in-time replies are caught by the command waiter).  It is not a
+            # chat message: hand it to the Admin console instead of a DM thread.
+            self._append_event(
+                {
+                    "type": EventType.REPEATER_COMMAND_RESPONSE,
+                    "data": {"peer_name": sender_name, "late": True, "response_text": message_text},
+                }
+            )
+            return
+        author = sender_name
+        if txt_type == TXT_TYPE_SIGNED_PLAIN:
+            # A room server relays posts signed with the author's 4-byte key
+            # prefix: show who wrote it, not the room, in the room's thread.
+            author = self._name_for_key_prefix(str(data.get("sender_prefix") or ""))
+
         # Deduplicate by message_id — handles radio retransmissions of the
-        # same packet (openhop_core derives a deterministic id from the decrypted
-        # timestamp + content hash, so copies of the same packet share an id).
-        msg_id = data.get("message_id") or str(uuid4())
+        # same packet.  Group messages carry the packet hash.  For DMs,
+        # openhop_core's id hashes the sender timestamp rounded down to 1000 s
+        # with Python's per-process hash(), so two identical DMs ("ok") within
+        # ~16 minutes collapsed into one; key DMs on the exact timestamp instead
+        # (a retry repeats the timestamp and text, a new message doesn't).
+        msg_id = (
+            (dm_message_id(data) if is_direct else None) or data.get("message_id") or str(uuid4())
+        )
         existing_ids = {m.message_id for m in self._messages[-100:]}
         if msg_id in existing_ids:
             return
 
         snr = data.get("snr")
         rssi = data.get("rssi")
-        path_len = data.get("path_len") or 0
+        path_len = hop_count(data.get("path_len"))
         path_hops = data.get("path_hops", [])
         message = Message(
             message_id=msg_id,
-            sender_id=sender_name,
+            sender_id=author,
             body=message_text,
             channel_id=channel_name,
             created_at=datetime.now(UTC),
             is_outgoing=False,
-            path_len=int(path_len) if path_len else 0,
+            path_len=path_len,
             path_hops=list(path_hops) if path_hops else [],
             snr=float(snr) if snr is not None else None,
             rssi=int(rssi) if rssi is not None else None,
         )
-        self._messages.append(message)
-        self._message_store.append(message)
+        self._remember_message(message)
 
         # Ensure channel exists
         if channel_name not in self._channels:
@@ -902,7 +1251,8 @@ class MeshcoreClient(MeshcoreService):
         # but do NOT restart the radio here — the user must restart the app
         # for radio-parameter changes to take effect.
         if not self._connected:
-            self._session = self._new_session()
+            old, self._session = self._session, self._new_session()
+            old.close()
 
         self._append_event(
             {"type": EventType.SETTINGS_UPDATED, "data": {"node_name": updated.node_name}}
@@ -920,19 +1270,29 @@ class MeshcoreClient(MeshcoreService):
             and (lat != 0.0 or lon != 0.0)
         )
 
-    def _resolve_position(self, *, use_settings: bool = True) -> tuple[float, float] | None:
+    def _resolve_position(self) -> tuple[float, float] | None:
         """Live GPS first, then settings fixed position as fallback."""
         loc = self._gps_provider.get_location()
         if loc and self._valid_coords(loc[0], loc[1]):
             return loc
-        if use_settings:
-            lat, lon = self._settings.latitude, self._settings.longitude
-            if self._valid_coords(lat, lon):
-                return (lat, lon)
+        lat, lon = self._settings.latitude, self._settings.longitude
+        if self._valid_coords(lat, lon):
+            return (lat, lon)
         return None
 
+    def get_map_view(self) -> tuple[float, float, float] | None:
+        return decode_view(self._settings_store.load_value(MAP_VIEW_KEY))
+
+    def save_map_view(self, lat: float, lon: float, zoom: float) -> None:
+        self._settings_store.save_value(MAP_VIEW_KEY, encode_view(lat, lon, zoom))
+
     def get_device_location(self) -> tuple[float, float] | None:
-        return self._resolve_position(use_settings=self._settings.share_position)
+        """Where this device is, for this app's own display (the map).
+
+        Not gated by share_position: that setting decides what goes on air,
+        and send_advert() and the telemetry reply check it themselves.  The
+        map used to lose the fixed position whenever sharing was off."""
+        return self._resolve_position()
 
     def _on_radio_error(self, message: str) -> None:
         """Callback from RadioErrorHandler — emit as a UI event."""
@@ -1052,6 +1412,91 @@ class MeshcoreClient(MeshcoreService):
         )
         return result
 
+    # --- remote repeater management (binary requests; needs a login) -------
+
+    def _repeater_request(self, peer_name: str, req_type: int, data: bytes = b"") -> bytes | None:
+        if not self._connected:
+            self.connect()
+        return self._run_async(
+            self._session.repeater_request(peer_name, req_type, data), timeout=15.0
+        )
+
+    def _repeater_key(self, peer_name: str) -> str:
+        peer = self._peers.get(peer_name)
+        return (peer.public_key or "") if peer else ""
+
+    def get_repeater_status(self, peer_name: str) -> dict | None:
+        """The repeater's counters: battery, uptime, airtime, noise floor, packets."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.STATUS)
+        if data is None:
+            return None
+        key_prefix = self._repeater_key(peer_name)[:12] or "000000000000"
+        return parse_binary_response(BinaryReqType.STATUS, data, pubkey_prefix=key_prefix)
+
+    def get_repeater_owner_info(self, peer_name: str) -> dict | None:
+        """Firmware version, node name and owner info."""
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.OWNER_INFO)
+        if data is None:
+            return None
+        # the reply ends in the zero padding of its last AES block
+        text = data.rstrip(b"\x00").decode("utf-8", "replace")
+        version, name, owner = (text.split("\n", 2) + ["", ""])[:3]
+        return {"version": version.strip(), "name": name.strip(), "owner_info": owner.strip()}
+
+    def get_repeater_neighbours(self, peer_name: str) -> list[dict] | None:
+        """Every neighbour the repeater has heard, newest first, fetched page by
+        page (one reply holds at most 11 entries with 6-byte key prefixes)."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        neighbours: list[dict] = []
+        offset = 0
+        for _ in range(NEIGHBOUR_PAGES_MAX):
+            request = bytes([0, NEIGHBOURS_PER_PAGE]) + offset.to_bytes(2, "little")
+            request += bytes([0, NEIGHBOUR_KEY_PREFIX]) + secrets.token_bytes(4)
+            data = self._repeater_request(peer_name, BinaryReqType.NEIGHBOURS, request)
+            if data is None:
+                return neighbours or None
+            page = parse_binary_response(
+                BinaryReqType.NEIGHBOURS,
+                data,
+                context={"pubkey_prefix_length": NEIGHBOUR_KEY_PREFIX},
+            )
+            for entry in page.get("neighbours", []):
+                entry["name"] = self._known_name_for_prefix(entry["pubkey"])
+                neighbours.append(entry)
+            offset += page.get("results_count", 0)
+            if not page.get("results_count") or offset >= page.get("neighbours_count", 0):
+                break
+        return neighbours
+
+    def get_repeater_access_list(self, peer_name: str) -> list[dict] | None:
+        """Who may log in, by 6-byte key prefix and role (admin login only)."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.ACL, b"\x00\x00")
+        if data is None:
+            return None
+        entries = parse_binary_response(BinaryReqType.ACL, data).get("acl", [])
+        return [
+            {
+                "key": e["key"],
+                "role": ACL_ROLES.get(e["perm"] & 3, "guest"),
+                "name": self._known_name_for_prefix(e["key"]),
+            }
+            for e in entries
+        ]
+
+    def _known_name_for_prefix(self, prefix_hex: str) -> str | None:
+        name = self._name_for_key_prefix(prefix_hex)
+        return None if name == prefix_hex.lower() else name
+
     def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None:
         return self._repeater_sessions.get(peer_name)
 
@@ -1065,8 +1510,12 @@ class MeshcoreClient(MeshcoreService):
         self._repeater_password_store.delete_password(peer_name)
 
     def _get_local_telemetry(self) -> dict:
-        """Provide local telemetry data for inbound requests."""
-        pos = self._resolve_position(use_settings=self._settings.allow_telemetry)
+        """Provide local telemetry data for inbound requests.
+
+        The position goes out only when the user shares it (the same switch
+        adverts use); otherwise any node could ask where this device is.
+        """
+        pos = self._resolve_position() if self._settings.share_position else None
         return {
             "allow": self._settings.allow_telemetry,
             "favorites_only": self._settings.telemetry_favorites_only,
@@ -1092,21 +1541,17 @@ class MeshcoreClient(MeshcoreService):
             return None
 
     def _seed_contact_book(self) -> None:
-        """Populate the session's contact book with known peers that have public keys."""
+        """Populate the session's contact book with known peers that have public keys.
+
+        Routes start unknown (DMs flood, openhop_core learns the route from the
+        PATH return).  They used to be rebuilt from each peer's stored last
+        path, which is the inbound path of an advert: the reverse of a usable
+        route, and possibly stale.
+        """
         book = self._session.contact_book
         for peer in self._peers.values():
-            if not peer.public_key:
-                continue
-            book.add_contact({"name": peer.display_name, "public_key": peer.public_key})
-            contact = book.get_by_name(peer.display_name)
-            if contact is not None and peer.last_path is not None:
-                if not peer.last_path:
-                    contact.out_path = []
-                    contact.out_path_len = 0
-                else:
-                    hash_size = len(peer.last_path[0]) // 2 or 1
-                    contact.out_path = list(bytes.fromhex("".join(peer.last_path)))
-                    contact.out_path_len = ((hash_size - 1) << 6) | len(peer.last_path)
+            if peer.public_key:
+                book.add_contact({"name": peer.display_name, "public_key": peer.public_key})
 
     def _sync_contact_to_book(
         self,
@@ -1131,8 +1576,8 @@ class MeshcoreClient(MeshcoreService):
         self._session.set_event_notify(notify_fn)
 
     def _append_event(self, event: MeshEventDict) -> None:
+        # (history is recorded once, when poll_events() delivers the event)
         self._event_buffer.append(event)
-        self._append_history(event)
         if self._event_notify is not None:
             try:
                 self._event_notify()

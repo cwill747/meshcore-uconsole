@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import os
 import asyncio
 import importlib.metadata
 import traceback
 
 
 def main() -> int:
+    # Everything the app writes is private: identity seed, database (channel
+    # secrets, repeater passwords, messages), logs and log exports.
+    os.umask(0o077)
     parser = argparse.ArgumentParser(
         prog="meshcore-console",
         description="MeshCore console — GUI and headless CLI",
