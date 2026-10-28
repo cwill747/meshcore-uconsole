@@ -1472,8 +1472,8 @@ class MeshcoreClient(MeshcoreService):
         self._session.set_event_notify(notify_fn)
 
     def _append_event(self, event: MeshEventDict) -> None:
+        # (history is recorded once, when poll_events() delivers the event)
         self._event_buffer.append(event)
-        self._append_history(event)
         if self._event_notify is not None:
             try:
                 self._event_notify()

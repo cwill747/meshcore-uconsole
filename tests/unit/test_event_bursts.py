@@ -66,3 +66,11 @@ def test_each_packet_is_stored_once(tmp_path, monkeypatch) -> None:
     client.poll_events(limit=100)
 
     assert stored == ["packet"]
+
+
+def test_app_events_are_recorded_once_in_history(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(client._session, "drain_events", lambda max_items=50: [])
+    client._append_event({"type": "radio_error", "data": {"message": "x"}})
+    client.poll_events()
+    assert [e["type"] for e in client.list_recent_events()] == ["radio_error"]
