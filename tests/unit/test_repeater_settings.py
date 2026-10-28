@@ -133,3 +133,20 @@ def test_apply_reports_each_key_and_stops_after_no_reply() -> None:
         ("lon", False),
     ]
     assert "advert" not in sent
+
+
+def test_only_changed_values_are_sent() -> None:
+    lat, radio = rs.BY_KEY["lat"], rs.BY_KEY["radio"]
+    assert rs.changed_value(lat, "51.339700", "51.3397") is None  # same number
+    assert rs.changed_value(lat, "51.3397", "51.34") == "51.34"
+    assert rs.changed_value(radio, "869.618,62.500,8,8", "869.618,62.5,8,8") is None
+    assert rs.changed_value(lat, None, "51.0") is None  # never read: never sent
+    assert rs.changed_value(rs.BY_KEY["loop.detect"], "aggressive", "") is None
+    with pytest.raises(ValueError):
+        rs.changed_value(lat, "51.3", "north")
+
+
+def test_secrets_are_write_only() -> None:
+    guest = rs.BY_KEY["guest.password"]
+    assert rs.changed_value(guest, None, "") is None
+    assert rs.changed_value(guest, None, "hunter2") == "hunter2"

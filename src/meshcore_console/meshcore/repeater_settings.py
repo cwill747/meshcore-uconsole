@@ -214,6 +214,25 @@ def validate(setting: RepeaterSetting, text: str) -> str:
     return str(int(number)) if setting.kind == "int" else _float_text(number)
 
 
+def changed_value(setting: RepeaterSetting, loaded: str | None, text: str) -> str | None:
+    """What to send for a form field showing ``text``: None if it equals the
+    value read from the repeater (or nothing was read); ValueError if invalid.
+    A secret is never read back: any text in its field is a change."""
+    if setting.kind == "secret":
+        return validate(setting, text) if text else None
+    if loaded is None:
+        return None
+    if setting.kind == "choice" and not text:
+        return None  # the repeater has a value this app doesn't list; left alone
+    value = validate(setting, text)
+    if setting.kind in ("float", "radio"):
+        try:  # compare as the app would send it, not as firmware printed it
+            loaded = validate(setting, loaded)
+        except ValueError:
+            pass
+    return None if value == loaded else value
+
+
 def set_command(setting: RepeaterSetting, value: str) -> str:
     return f"set {setting.key} {value}"
 
