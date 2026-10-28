@@ -255,6 +255,8 @@ class OpenHopCoreSession:
         our_hash = our_pubkey[0]
         our_privkey = identity.get_private_key()
 
+        last_request_ts: dict[str, int] = {}  # newest request timestamp per contact key
+
         async def _handle_req(pkt: Any) -> None:
             # ProtocolRequestHandler._get_client matches on first byte only,
             # which collides when multiple contacts share a hash prefix.
@@ -296,6 +298,13 @@ class OpenHopCoreSession:
                 timestamp = struct.unpack("<I", plaintext[0:4])[0]
                 req_type = plaintext[4]
                 req_data = plaintext[5:] if len(plaintext) > 5 else b""
+                # Like firmware's per-client last_timestamp: a captured request
+                # replayed later would otherwise be answered (and transmitted
+                # for) again.
+                if timestamp <= last_request_ts.get(contact.public_key, -1):
+                    self._log(f"REQ from {contact.name}: replayed (ts={timestamp}), ignoring")
+                    return
+                last_request_ts[contact.public_key] = timestamp
                 self._log(
                     f"REQ from {contact.name} (0x{src_hash:02X}) "
                     f"type=0x{req_type:02X} ts={timestamp}"
@@ -329,7 +338,9 @@ class OpenHopCoreSession:
                 f"REQ from 0x{src_hash:02X}: HMAC failed for all {len(candidates)} candidate(s)"
             )
 
-        dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req)
+        # local_delivery: like openhop_core's own payload handlers, so direct
+        # packets still in transit (hops left on their path) are not consumed.
+        dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req, local_delivery=True)
 
     async def _call_maybe_async(self, target: Any, name: str) -> None:
         fn = getattr(target, name, None)

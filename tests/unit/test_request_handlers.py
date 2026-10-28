@@ -133,3 +133,23 @@ def test_a_broken_contact_key_does_not_block_others_with_the_same_hash(monkeypat
     asyncio.run(handler(_telemetry_request_from(good, session._identity.get_public_key())))
 
     assert len(sent) == 1  # answered despite the broken contact tried first
+
+
+def test_a_replayed_request_is_not_answered_again(monkeypatch) -> None:
+    import asyncio
+
+    from meshcore_console.meshcore.contact_book import Contact
+
+    session, node = session_on_real_node()
+    sender = LocalIdentity()
+    session.contact_book.add_contact(
+        Contact(name="sender", public_key=sender.get_public_key().hex())
+    )
+    sent = _answers(session, node, monkeypatch)
+    handler = node.dispatcher._handler_instances[PAYLOAD_TYPE_REQ]
+    request = _telemetry_request_from(sender, session._identity.get_public_key())
+
+    asyncio.run(handler(request))
+    asyncio.run(handler(request))  # captured and replayed
+
+    assert len(sent) == 1
