@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import json
 import os
+import sys
 import time
 from typing import Any
 
@@ -59,7 +61,11 @@ def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: igno
 
     import_ch = sub.add_parser("import-channel", help="Import a channel by name and secret key")
     import_ch.add_argument("--name", required=True, help="Channel display name (e.g. 'Emergency')")
-    import_ch.add_argument("--secret", required=True, help="Channel secret key (hex string)")
+    import_ch.add_argument(
+        "--secret",
+        help="Channel secret key (hex). Leave it out to be asked for it (or pipe it on "
+        "stdin): a key on the command line lands in shell history and /proc.",
+    )
 
     export = sub.add_parser("export-logs", help="Export application logs for bug reports")
     export.add_argument(
@@ -255,6 +261,13 @@ async def _run_advert(
     return 0
 
 
+def read_secret() -> str:
+    """The channel key from a hidden prompt, or from stdin when it is piped."""
+    if sys.stdin.isatty():
+        return getpass.getpass("Channel secret (hex): ").strip()
+    return sys.stdin.readline().strip()
+
+
 def _import_channel(name: str, secret: str) -> int:
     from meshcore_console.core.models import Channel
     from meshcore_console.meshcore.channel_db import (
@@ -303,7 +316,7 @@ def _export_logs(output: str | None) -> int:
 
 async def _async_main(args: argparse.Namespace) -> int:
     if args.command == "import-channel":
-        return _import_channel(args.name, args.secret)
+        return _import_channel(args.name, args.secret or read_secret())
 
     if args.command == "export-logs":
         return _export_logs(args.output)
