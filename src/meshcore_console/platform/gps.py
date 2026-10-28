@@ -439,10 +439,14 @@ class GpsdProvider:
 
     def stop(self) -> None:
         self._running = False
+        self._has_fix = False
+        self._latitude = self._longitude = None
         logger.debug("GpsdProvider: stopped")
 
     def get_location(self) -> tuple[float, float] | None:
-        if self._latitude is not None and self._longitude is not None:
+        # Only a current fix: after the fix (or gpsd) was lost the last
+        # position went on into adverts, telemetry and the map as if current.
+        if self._has_fix and self._latitude is not None and self._longitude is not None:
             return (self._latitude, self._longitude)
         return None
 
@@ -496,6 +500,7 @@ class GpsdProvider:
             except Exception as e:
                 if not self._running:
                     return
+                self._has_fix = False  # no gpsd, no current position
                 self._last_error = f"gpsd connection error: {e}"
                 logger.warning("GpsdProvider: %s (retry in %.0fs)", e, backoff)
                 # Sleep in small increments so we can check _running

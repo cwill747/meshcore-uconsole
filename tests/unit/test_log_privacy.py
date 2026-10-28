@@ -38,3 +38,14 @@ def test_gps_fix_is_logged_without_the_position(caplog) -> None:
         gps._update_location(52.516389, 13.377778)
     assert "fix acquired" in caplog.text
     assert "52.5" not in caplog.text and "13.3" not in caplog.text
+
+
+def test_gpsd_position_is_only_reported_with_a_current_fix() -> None:
+    gps = GpsdProvider(host="127.0.0.1", port=1)
+    gps._update_location(52.5, 13.4)
+    assert gps.get_location() == (52.5, 13.4)
+    gps._has_fix = False  # what a mode < 2 TPV report or a lost gpsd connection does
+    assert gps.get_location() is None
+    gps._update_location(52.5, 13.4)
+    gps.stop()
+    assert gps.get_location() is None
