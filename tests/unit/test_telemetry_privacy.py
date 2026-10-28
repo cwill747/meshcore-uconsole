@@ -44,3 +44,28 @@ def test_position_when_shared(tmp_path, monkeypatch) -> None:
     client = _client(tmp_path, monkeypatch, allow_telemetry=True, share_position=True)
     data = client._get_local_telemetry()
     assert (data["lat"], data["lon"]) == (52.516389, 13.377778)
+
+
+class NoGps(FixedGps):
+    def get_location(self) -> None:
+        return None
+
+
+def test_own_map_shows_the_fixed_position_even_when_not_shared(tmp_path, monkeypatch) -> None:
+    client = _client(
+        tmp_path, monkeypatch, share_position=False, latitude=51.3397, longitude=12.3731
+    )
+    client._gps_provider = NoGps()
+    assert client.get_device_location() == (51.3397, 12.3731)
+    # ...while nothing about it goes on air
+    assert client._get_local_telemetry()["lat"] is None
+    sent: dict = {}
+
+    async def send_advert(name=None, lat=0.0, lon=0.0, route_type="flood"):
+        sent.update(lat=lat, lon=lon)
+        return {"success": True}
+
+    monkeypatch.setattr(client._session, "send_advert", send_advert)
+    client._connected = True
+    client.send_advert()
+    assert sent == {"lat": 0.0, "lon": 0.0}

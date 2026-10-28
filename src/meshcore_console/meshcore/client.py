@@ -1261,19 +1261,23 @@ class MeshcoreClient(MeshcoreService):
             and (lat != 0.0 or lon != 0.0)
         )
 
-    def _resolve_position(self, *, use_settings: bool = True) -> tuple[float, float] | None:
+    def _resolve_position(self) -> tuple[float, float] | None:
         """Live GPS first, then settings fixed position as fallback."""
         loc = self._gps_provider.get_location()
         if loc and self._valid_coords(loc[0], loc[1]):
             return loc
-        if use_settings:
-            lat, lon = self._settings.latitude, self._settings.longitude
-            if self._valid_coords(lat, lon):
-                return (lat, lon)
+        lat, lon = self._settings.latitude, self._settings.longitude
+        if self._valid_coords(lat, lon):
+            return (lat, lon)
         return None
 
     def get_device_location(self) -> tuple[float, float] | None:
-        return self._resolve_position(use_settings=self._settings.share_position)
+        """Where this device is, for this app's own display (the map).
+
+        Not gated by share_position: that setting decides what goes on air,
+        and send_advert() and the telemetry reply check it themselves.  The
+        map used to lose the fixed position whenever sharing was off."""
+        return self._resolve_position()
 
     def _on_radio_error(self, message: str) -> None:
         """Callback from RadioErrorHandler — emit as a UI event."""
