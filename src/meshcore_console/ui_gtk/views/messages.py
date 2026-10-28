@@ -118,10 +118,25 @@ class MessagesView(Gtk.Box):
         self._thread_title = Gtk.Label(label="#public")
         self._thread_title.add_css_class("panel-title")
         self._thread_title.set_halign(Gtk.Align.START)
+        self._thread_title.set_hexpand(True)
         self._thread_title.set_margin_start(12)
         self._thread_title.set_margin_top(8)
         self._thread_title.set_margin_bottom(8)
-        self._chat_panel.append(self._thread_title)
+        # Channel actions (region scope, remove) were only on a right-click of
+        # the channel row: unreachable from the keyboard.  The header button
+        # opens the same actions for the open channel.
+        self._channel_menu = Gtk.MenuButton.new()
+        self._channel_menu.set_icon_name("view-more-symbolic")
+        self._channel_menu.set_tooltip_text("Channel actions")
+        self._channel_menu.update_property([Gtk.AccessibleProperty.LABEL], ["Channel actions"])
+        self._channel_menu.set_margin_end(8)
+        menu_popover = Gtk.Popover.new()
+        menu_popover.connect("show", self._fill_channel_menu)
+        self._channel_menu.set_popover(menu_popover)
+        thread_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        thread_header.append(self._thread_title)
+        thread_header.append(self._channel_menu)
+        self._chat_panel.append(thread_header)
 
         # Scrolled window for messages
         self._scroll = Gtk.ScrolledWindow.new()
@@ -627,6 +642,37 @@ class MessagesView(Gtk.Box):
             idx += 1
             row = self._channel_list.get_row_at_index(idx)
 
+    def _build_channel_actions(self, popover: Gtk.Popover, channel_id: str) -> bool:
+        """Put the actions for ``channel_id`` into ``popover``; False if none apply."""
+        channel = next(
+            (c for c in self._service.list_channels() if c.channel_id == channel_id), None
+        )
+        is_group = channel is not None and channel.kind == "group"
+        can_remove = channel_id != "public"
+        if not is_group and not can_remove:
+            return False
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        popover.set_child(action_box)
+
+        if is_group:
+            scope_btn = Gtk.Button.new_with_label("Set region scope")
+            scope_btn.add_css_class("flat")
+            scope_btn.connect("clicked", self._on_set_region_scope_clicked, channel_id, popover)
+            action_box.append(scope_btn)
+
+        if can_remove:
+            remove_btn = Gtk.Button.new_with_label("Remove channel")
+            remove_btn.add_css_class("flat")
+            remove_btn.connect("clicked", self._on_remove_channel_clicked, channel_id, popover)
+            action_box.append(remove_btn)
+        return True
+
+    def _fill_channel_menu(self, popover: Gtk.Popover) -> None:
+        """Header menu: the actions for the channel that is open right now."""
+        if not self._build_channel_actions(popover, self._selected_channel_id):
+            popover.set_child(Gtk.Label(label="No actions for this channel", margin_top=8))
+
     def _on_channel_right_click(
         self,
         gesture: Gtk.GestureClick,
@@ -641,29 +687,9 @@ class MessagesView(Gtk.Box):
         if not channel_id:
             return
 
-        channel = next(
-            (c for c in self._service.list_channels() if c.channel_id == channel_id), None
-        )
-        is_group = channel is not None and channel.kind == "group"
-        can_remove = channel_id != "public"
-        if not is_group and not can_remove:
-            return
-
-        action_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         popover = Gtk.Popover.new()
-        popover.set_child(action_box)
-
-        if is_group:
-            scope_btn = Gtk.Button.new_with_label("Set region scope")
-            scope_btn.add_css_class("flat")
-            scope_btn.connect("clicked", self._on_set_region_scope_clicked, channel_id, popover)
-            action_box.append(scope_btn)
-
-        if can_remove:
-            remove_btn = Gtk.Button.new_with_label("Remove channel")
-            remove_btn.add_css_class("flat")
-            remove_btn.connect("clicked", self._on_remove_channel_clicked, channel_id, popover)
-            action_box.append(remove_btn)
+        if not self._build_channel_actions(popover, channel_id):
+            return
 
         popover.set_parent(row)
         popover.set_position(Gtk.PositionType.RIGHT)
