@@ -6,7 +6,6 @@ import getpass
 import json
 import os
 import sys
-import time
 from typing import Any
 
 from meshcore_console.meshcore.config import RuntimeRadioConfig, runtime_config_from_settings
@@ -182,14 +181,22 @@ async def _run_listen(
     await asyncio.wait_for(session.start(), timeout=start_timeout)
     _debug(debug, "mesh node started")
     print(json.dumps({"status": "started", **session.status()}))
-    started = time.monotonic()
     _debug(debug, "waiting for events")
-    try:
+
+    async def print_events() -> None:
         async for event in session.listen_events():
             print(json.dumps(event, default=str))
-            if duration > 0 and time.monotonic() - started >= duration:
+
+    try:
+        if duration > 0:
+            # A deadline, not a check after each event: on a quiet channel the
+            # loop never woke up, so --duration never ended the listen.
+            try:
+                await asyncio.wait_for(print_events(), timeout=duration)
+            except asyncio.TimeoutError:
                 _debug(debug, "listen duration reached, stopping")
-                break
+        else:
+            await print_events()
     finally:
         _debug(debug, "stopping mesh node")
         await session.stop()

@@ -56,3 +56,29 @@ def test_cli_send_knows_the_stored_peers() -> None:
     session = Session()
     seed_contacts(session)
     assert session.contact_book.get_by_name("Bergblick").public_key == "aa" * 32
+
+
+def test_listen_duration_ends_on_a_quiet_channel() -> None:
+    import asyncio
+    import time
+
+    from meshcore_console.radio_cli import _run_listen
+
+    class QuietSession:
+        stopped = False
+
+        async def start(self) -> None: ...
+
+        def status(self) -> dict:
+            return {"connected": True}
+
+        async def listen_events(self):
+            await asyncio.sleep(3600)  # nothing ever arrives
+            yield {}
+
+        async def stop(self) -> None:
+            QuietSession.stopped = True
+
+    started = time.monotonic()
+    assert asyncio.run(_run_listen(QuietSession(), 1, False, 5.0)) == 0
+    assert time.monotonic() - started < 3 and QuietSession.stopped
