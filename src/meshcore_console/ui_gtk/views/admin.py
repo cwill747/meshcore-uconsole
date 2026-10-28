@@ -11,6 +11,7 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 
+from meshcore_console.core.enums import EventType
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
@@ -738,7 +739,16 @@ class AdminView(Gtk.Box):
     # -- Events ----------------------------------------------------------------
 
     def _on_events(self, _store: object) -> None:
-        self._event_cursor, _events = self._event_store.since(self._event_cursor, limit=200)
+        self._event_cursor, events = self._event_store.since(self._event_cursor, limit=200)
+        for event in events:
+            data = event.get("data") or {}
+            if (
+                event.get("type") == EventType.REPEATER_COMMAND_RESPONSE
+                and data.get("late")
+                and self._selected_repeater is not None
+                and data.get("peer_name") == self._selected_repeater.display_name
+            ):
+                self._append_console_response(f"(late reply) {data.get('response_text', '')}")
         # Repeaters arrive through adverts (plain "packet" events), discovery,
         # contact events and logins; compare what the list shows instead of
         # enumerating event types (the old list matched types nothing emits).

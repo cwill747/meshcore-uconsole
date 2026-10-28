@@ -22,6 +22,9 @@ def _client(tmp_path, monkeypatch):
         session=MockOpenHopCoreSession(runtime_config_from_settings(MeshcoreSettings())),
         require_openhop=False,
     )
+    from meshcore_console.meshcore.contact_book import ContactBook
+
+    monkeypatch.setattr(client._session, "contact_book", ContactBook(), raising=False)
     client._connected = True
     sent: list[tuple[str, str]] = []
 
@@ -170,3 +173,38 @@ def test_messages_pair_with_their_own_packet(tmp_path, monkeypatch) -> None:
     assert decoded["data"]["snr"] == 7.0  # not the echo's -12
     assert real["data"]["payload_text"] == "hi" and "payload_text" not in echo["data"]
     assert list(client._unenriched_grp) == [echo["data"]]
+
+
+def test_late_cli_reply_goes_to_admin_not_a_dm_thread(tmp_path, monkeypatch) -> None:
+    client, _sent = _client(tmp_path, monkeypatch)
+    reply = {"sender_name": "Bergblick", "message_text": "v1.18.0", "txt_type": 1}
+    client._process_message_event(reply, EventType.MESH_MESSAGE_NEW)
+
+    assert client.list_messages_for_channel("dm:bergblick") == []
+    late = [e for e in client._event_buffer if e["type"] == EventType.REPEATER_COMMAND_RESPONSE]
+    assert late[0]["data"] == {"peer_name": "Bergblick", "late": True, "response_text": "v1.18.0"}
+
+
+def test_room_post_shows_its_author(tmp_path, monkeypatch) -> None:
+    client, _sent = _client(tmp_path, monkeypatch)
+    client._process_event_for_peers(
+        {
+            "type": EventType.MESH_NODE_DISCOVERED,
+            "data": {"name": "Alice", "public_key": "a1b2c3d4" + "00" * 28, "advert_timestamp": 1},
+        }
+    )
+    post = {
+        "sender_name": "Leipzig Room",
+        "message_text": "hello room",
+        "txt_type": 2,
+        "sender_prefix": "a1b2c3d4",
+    }
+    client._process_message_event(post, EventType.MESH_MESSAGE_NEW)
+    unknown = dict(post, message_text="who?", sender_prefix="99887766")
+    client._process_message_event(unknown, EventType.MESH_MESSAGE_NEW)
+
+    thread = client.list_messages_for_channel("dm:leipzig room")
+    assert [(m.sender_id, m.body) for m in thread] == [
+        ("Alice", "hello room"),
+        ("99887766", "who?"),
+    ]

@@ -78,6 +78,10 @@ def _propagate_routing_fields(packet_data: dict, handler_data: dict) -> None:
             handler_data[key] = list(val) if isinstance(val, list) else val
 
 
+# MeshCore TXT_MSG types (flags >> 2)
+TXT_TYPE_CLI_DATA = 1  # a CLI command or reply
+TXT_TYPE_SIGNED_PLAIN = 2  # room-server post: 4-byte author key prefix + text
+
 # Upper bound for a blocking radio call without its own timeout (a DM waits for
 # listen-before-talk, airtime and the ACK).
 RUN_ASYNC_CAP_S = 60.0
@@ -620,6 +624,15 @@ class MeshcoreClient(MeshcoreService):
             )
         return results
 
+    def _name_for_key_prefix(self, prefix_hex: str) -> str:
+        """The peer whose key starts with ``prefix_hex``, else the prefix itself."""
+        prefix = prefix_hex.lower()
+        if prefix:
+            for name, peer in list(self._peers.items()):
+                if peer.public_key and peer.public_key.lower().startswith(prefix):
+                    return name
+        return prefix or "unknown author"
+
     def _peer_name_for_key(self, public_key: str) -> str | None:
         key = public_key.lower()
         for name, peer in self._peers.items():
@@ -1089,6 +1102,24 @@ class MeshcoreClient(MeshcoreService):
         # Preserve the original-case sender name so we can resolve contacts later.
         peer_display_name = sender_name if is_direct else None
 
+        txt_type = data.get("txt_type") if is_direct else None
+        if txt_type == TXT_TYPE_CLI_DATA:
+            # A repeater's CLI reply that arrived after its command timed out
+            # (in-time replies are caught by the command waiter).  It is not a
+            # chat message: hand it to the Admin console instead of a DM thread.
+            self._append_event(
+                {
+                    "type": EventType.REPEATER_COMMAND_RESPONSE,
+                    "data": {"peer_name": sender_name, "late": True, "response_text": message_text},
+                }
+            )
+            return
+        author = sender_name
+        if txt_type == TXT_TYPE_SIGNED_PLAIN:
+            # A room server relays posts signed with the author's 4-byte key
+            # prefix: show who wrote it, not the room, in the room's thread.
+            author = self._name_for_key_prefix(str(data.get("sender_prefix") or ""))
+
         # Deduplicate by message_id — handles radio retransmissions of the
         # same packet.  Group messages carry the packet hash.  For DMs,
         # openhop_core's id hashes the sender timestamp rounded down to 1000 s
@@ -1108,7 +1139,7 @@ class MeshcoreClient(MeshcoreService):
         path_hops = data.get("path_hops", [])
         message = Message(
             message_id=msg_id,
-            sender_id=sender_name,
+            sender_id=author,
             body=message_text,
             channel_id=channel_name,
             created_at=datetime.now(UTC),
