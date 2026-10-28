@@ -694,6 +694,9 @@ class MessagesView(Gtk.Box):
         popover.set_parent(row)
         popover.set_position(Gtk.PositionType.RIGHT)
         popover.set_pointing_to(Gdk.Rectangle())
+        # A fresh popover per right-click: detach it once closed, or every
+        # right-click left one more popover parented to the row.
+        popover.connect("closed", lambda p: GLib.idle_add(p.unparent))
         popover.popup()
 
     def _on_remove_channel_clicked(
