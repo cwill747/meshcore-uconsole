@@ -5,6 +5,7 @@ import gc
 import inspect
 import logging
 import queue
+import random
 import threading
 import time
 from typing import Any, AsyncIterator, Callable
@@ -40,10 +41,18 @@ if "utils.cayenne_lpp_helpers" not in _sys.modules:
 
 from .channel_db import ChannelDatabase
 from .config import RuntimeRadioConfig, load_hardware_config_from_env
-from .contact_book import ContactBook
+from .contact_book import Contact, ContactBook
 from .db import open_db
+from .discovery import (
+    NODE_TYPE_CHAT,
+    AnswerLimiter,
+    decode_owner_reply,
+    discover,
+    wants_node_type,
+)
 from .event_bridge import attach_dispatcher_callbacks, attach_event_service_subscriber
 from .operations import (
+    request_owner_info,
     request_telemetry,
     send_advert,
     send_group_text,
@@ -64,6 +73,7 @@ class OpenHopCoreSession:
         self._logger = logger
         self._radio: SX1262RadioProtocol | None = None
         self._identity: LocalIdentityProtocol | None = None
+        self._background_tasks: set[asyncio.Task[None]] = set()
         self._node: MeshNodeProtocol | None = None
         self._event_service: EventServiceProtocol | None = None
         self._event_subscriber: EventSubscriberProtocol | None = None
@@ -105,8 +115,10 @@ class OpenHopCoreSession:
     def _register_discovery_handler(self) -> None:
         """Register a handler that responds to incoming discovery requests.
 
-        When another node sends a CONTROL discovery request, we reply with
-        our public key and node type so they can discover us.
+        When another node sends a CONTROL discovery request for chat nodes, we
+        reply with our public key and node type so they can discover us, at
+        most 4 times per 2 minutes (like firmware repeaters) and after a random
+        delay so simultaneous answerers don't collide.
         """
         from openhop_core.protocol.constants import ADVERT_FLAG_IS_CHAT_NODE
         from openhop_core.protocol.packet_builder import PacketBuilder
@@ -119,19 +131,21 @@ class OpenHopCoreSession:
 
         # Capture identity ref for the closure
         identity = self._identity
+        limiter = AnswerLimiter()
 
         def _on_discovery_request(request_data: dict) -> None:
+            if not wants_node_type(request_data.get("filter", 0), NODE_TYPE_CHAT):
+                return  # e.g. a repeater's discover.neighbors, which asks for repeaters
+            if not limiter.allow():
+                self._log("discovery request not answered (rate limit)")
+                return
             tag = request_data.get("tag", 0)
             prefix_only = request_data.get("prefix_only", False)
             inbound_snr = request_data.get("snr", 0.0)
 
-            # Get our public key
-            get_pk = getattr(identity, "get_shared_public_key", None)
-            pub_key = get_pk() if callable(get_pk) else None
-            if pub_key is None:
-                return
-            if isinstance(pub_key, str):
-                pub_key = bytes.fromhex(pub_key)
+            # Our Ed25519 identity key (what adverts carry), not the X25519
+            # get_shared_public_key() ECDH key.
+            pub_key = identity.get_public_key()
 
             response = PacketBuilder.create_discovery_response(
                 tag=tag,
@@ -142,6 +156,7 @@ class OpenHopCoreSession:
             )
 
             async def _send() -> None:
+                await asyncio.sleep(random.uniform(0.2, 2.0))
                 try:
                     await dispatcher.send_packet(response, wait_for_ack=False)
                     self._log(f"sent discovery response for tag=0x{tag:08X}")
@@ -150,9 +165,11 @@ class OpenHopCoreSession:
 
             try:
                 loop = asyncio.get_running_loop()
-                loop.create_task(_send())
             except RuntimeError:
-                pass  # No running loop — skip
+                return  # No running loop — skip
+            task = loop.create_task(_send())
+            self._background_tasks.add(task)  # keep a reference until it is done
+            task.add_done_callback(self._background_tasks.discard)
 
         control_handler.set_request_callback(_on_discovery_request)
 
@@ -188,32 +205,31 @@ class OpenHopCoreSession:
             if not payload:
                 self._log("telemetry request: no sensor data available")
                 return None
-            self._log(f"responding to telemetry request (voltage={voltage}, lat={lat}, lon={lon})")
+            self._log(
+                f"responding to telemetry request (voltage={voltage}, location={lat is not None})"
+            )
             return payload
 
         return _handle_telemetry
 
     def _register_req_handler(self) -> None:
-        """Register handlers for incoming REQ and ANON_REQ packets.
+        """Register a handler for incoming REQ packets.
 
         openhop_core's register_default_handlers() does not register a handler
         for PAYLOAD_TYPE_REQ (0x00), so incoming requests are silently
         dropped.  We register ProtocolRequestHandler here and wrap it so
         that any generated RESPONSE packet is actually transmitted.
 
-        ANON_REQ (0x07) packets carry the sender's public key inline, so
-        they don't require prior key exchange.  The default AnonReqResponseHandler
-        only handles login responses; we replace it with one that also handles
-        telemetry requests.
+        ANON_REQ (0x07) stays with openhop_core's own handler: in an anonymous
+        request 0x03 is ANON_REQ_TYPE_BASIC (clock), not a telemetry request,
+        and telemetry is only for senders already in the contact book.
         """
         import struct
 
         from openhop_core.node.handlers.protocol_request import ProtocolRequestHandler
-        from openhop_core.protocol import CryptoUtils, Identity, PacketBuilder
+        from openhop_core.protocol import CryptoUtils, Identity
         from openhop_core.protocol.constants import (
-            PAYLOAD_TYPE_ANON_REQ,
             PAYLOAD_TYPE_REQ,
-            PAYLOAD_TYPE_RESPONSE,
         )
 
         REQ_TYPE_GET_TELEMETRY_DATA = 0x03  # noqa: N806
@@ -239,6 +255,8 @@ class OpenHopCoreSession:
         our_hash = our_pubkey[0]
         our_privkey = identity.get_private_key()
 
+        last_request_ts: dict[str, int] = {}  # newest request timestamp per contact key
+
         async def _handle_req(pkt: Any) -> None:
             # ProtocolRequestHandler._get_client matches on first byte only,
             # which collides when multiple contacts share a hash prefix.
@@ -261,12 +279,14 @@ class OpenHopCoreSession:
                 return
 
             for contact in candidates:
-                peer_id = Identity(bytes.fromhex(contact.public_key))
-                ss = peer_id.calc_shared_secret(our_privkey)
-                aes_key = ss[:16]
+                # Key handling inside the try: one contact with an unusable
+                # stored key used to abort the request for every contact
+                # sharing its hash byte.
                 try:
+                    peer_id = Identity(bytes.fromhex(contact.public_key))
+                    ss = peer_id.calc_shared_secret(our_privkey)
                     plaintext = CryptoUtils.mac_then_decrypt(
-                        aes_key,
+                        ss[:16],
                         ss,
                         encrypted_data,
                     )
@@ -278,6 +298,13 @@ class OpenHopCoreSession:
                 timestamp = struct.unpack("<I", plaintext[0:4])[0]
                 req_type = plaintext[4]
                 req_data = plaintext[5:] if len(plaintext) > 5 else b""
+                # Like firmware's per-client last_timestamp: a captured request
+                # replayed later would otherwise be answered (and transmitted
+                # for) again.
+                if timestamp <= last_request_ts.get(contact.public_key, -1):
+                    self._log(f"REQ from {contact.name}: replayed (ts={timestamp}), ignoring")
+                    return
+                last_request_ts[contact.public_key] = timestamp
                 self._log(
                     f"REQ from {contact.name} (0x{src_hash:02X}) "
                     f"type=0x{req_type:02X} ts={timestamp}"
@@ -311,89 +338,9 @@ class OpenHopCoreSession:
                 f"REQ from 0x{src_hash:02X}: HMAC failed for all {len(candidates)} candidate(s)"
             )
 
-        dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req)
-
-        # --- ANON_REQ handler ---
-        existing_anon = dispatcher._handler_instances.get(PAYLOAD_TYPE_ANON_REQ)
-
-        async def _handle_anon_req(pkt: Any) -> None:
-            if len(pkt.payload) < 34:
-                return
-
-            dest_hash = pkt.payload[0]
-            if dest_hash != our_hash:
-                # Not addressed to us — delegate to existing handler
-                # (e.g. login responses where dest_hash is a repeater)
-                if existing_anon is not None:
-                    await existing_anon(pkt)
-                return
-
-            client_pubkey = bytes(pkt.payload[1:33])
-            encrypted_data = bytes(pkt.payload[33:])
-            client_identity = Identity(client_pubkey)
-            shared_secret = client_identity.calc_shared_secret(our_privkey)
-            aes_key = shared_secret[:16]
-
-            try:
-                plaintext = CryptoUtils.mac_then_decrypt(
-                    aes_key,
-                    shared_secret,
-                    encrypted_data,
-                )
-            except Exception as e:
-                self._log(f"ANON_REQ decrypt failed: {e}")
-                if existing_anon is not None:
-                    await existing_anon(pkt)
-                return
-
-            if len(plaintext) < 5:
-                self._log("ANON_REQ payload too short")
-                if existing_anon is not None:
-                    await existing_anon(pkt)
-                return
-
-            timestamp = struct.unpack("<I", plaintext[0:4])[0]
-            req_type = plaintext[4]
-            req_data = plaintext[5:] if len(plaintext) > 5 else b""
-
-            handler_fn = request_handlers.get(req_type)
-            if handler_fn is None:
-                # Not a request type we handle (e.g. login) — delegate
-                if existing_anon is not None:
-                    await existing_anon(pkt)
-                return
-
-            contact = contact_book.get_by_key(client_pubkey)
-            sender = contact.name if contact else f"{client_pubkey[:4].hex()}..."
-            self._log(f"ANON_REQ from {sender} type=0x{req_type:02X} ts={timestamp}")
-
-            response_payload = handler_fn(contact, timestamp, req_data)
-            if response_payload is None:
-                self._log("ANON_REQ: handler returned no data")
-                return
-
-            reply_data = struct.pack("<I", timestamp) + response_payload
-            client_hash = client_pubkey[0]
-            path_list = list(pkt.path[: pkt.path_len]) if pkt.path_len > 0 else []
-
-            try:
-                response_pkt = PacketBuilder.create_path_return(
-                    dest_hash=client_hash,
-                    src_hash=our_hash,
-                    secret=shared_secret,
-                    path=path_list,
-                    extra_type=PAYLOAD_TYPE_RESPONSE,
-                    extra=bytes(reply_data),
-                )
-                self._log(
-                    f"ANON_REQ: sending PATH response to "
-                    f"0x{client_hash:02X} ({len(response_pkt.payload)} bytes)"
-                )
-                await dispatcher.send_packet(response_pkt, wait_for_ack=False)
-            except Exception as e:
-                self._log(f"ANON_REQ: failed to build/send response: {e}")
-
-        dispatcher.register_handler(PAYLOAD_TYPE_ANON_REQ, _handle_anon_req)
+        # local_delivery: like openhop_core's own payload handlers, so direct
+        # packets still in transit (hops left on their path) are not consumed.
+        dispatcher.register_handler(PAYLOAD_TYPE_REQ, _handle_req, local_delivery=True)
 
     async def _call_maybe_async(self, target: Any, name: str) -> None:
         fn = getattr(target, name, None)
@@ -617,6 +564,12 @@ class OpenHopCoreSession:
             except queue.Empty:
                 break
 
+    def close(self) -> None:
+        """Release the session's own database connection.  The client makes a
+        new session on every disconnect or failed connect; the old ones kept
+        their connection open for as long as the app ran."""
+        self._db.close()
+
     async def send_text(self, peer_name: str, message: str) -> object:
         if self._node is None:
             raise RuntimeError("Session is not started.")
@@ -656,6 +609,49 @@ class OpenHopCoreSession:
             lon=lon,
             route_type=route_type,
         )
+
+    async def discover_nodes(self) -> list[dict[str, Any]]:
+        """Zero-hop discover: which repeaters/sensors hear us directly (see discovery.py)."""
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        from openhop_core.protocol.packet_builder import PacketBuilder
+
+        dispatcher = self._node.dispatcher
+
+        async def send(packet: Any) -> None:
+            await dispatcher.send_packet(packet, wait_for_ack=False)
+
+        results = await discover(
+            send,
+            dispatcher.control_handler,
+            PacketBuilder.create_discovery_request,
+            self_pub_key=self.get_public_key(),
+        )
+        self._log(f"discover: {len(results)} answer(s)")
+        return results
+
+    async def request_owner_name(self, pub_key_hex: str) -> str | None:
+        """Ask a zero-hop neighbour (e.g. a discovered repeater) for its name.
+
+        openhop_core decrypts the reply through the contact book, so a stand-in
+        contact (direct zero-hop route) sits there for the duration of the request.
+        """
+        if self._node is None:
+            raise RuntimeError("Session is not started.")
+        contact = Contact(
+            name=f"owner-query {pub_key_hex[:8]}",
+            public_key=pub_key_hex,
+            out_path=[],
+            out_path_len=0,
+        )
+        self._contact_book.contacts.append(contact)
+        try:
+            reply = await request_owner_info(node=self._node, contact=contact)
+        finally:
+            self._contact_book.contacts.remove(contact)
+        decoded = decode_owner_reply(reply) if reply else None
+        self._log(f"owner query {pub_key_hex[:8]}: {decoded[0] if decoded else 'no answer'}")
+        return decoded[0] if decoded else None
 
     async def send_telemetry_request(
         self,
@@ -731,13 +727,6 @@ class OpenHopCoreSession:
         """Return this node's public key as a hex string, or None if unavailable."""
         if self._identity is None:
             return None
-        # openhop_core LocalIdentity exposes get_shared_public_key()
-        get_pk = getattr(self._identity, "get_shared_public_key", None)
-        pk = get_pk() if callable(get_pk) else None
-        if pk is None:
-            return None
-        if isinstance(pk, bytes):
-            return pk.hex()
-        if isinstance(pk, str):
-            return pk
-        return None
+        # The Ed25519 identity key: what adverts, path hashes and contacts use.
+        # get_shared_public_key() is the X25519 ECDH key, nobody's address.
+        return self._identity.get_public_key().hex()

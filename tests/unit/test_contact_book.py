@@ -48,17 +48,27 @@ def test_contact_book_update_preserves_out_path() -> None:
     contact.out_path_len = 1
 
     # Re-adding with a dict (no path info) preserves existing path
-    book.add_contact({"name": "Alice", "public_key": "cd" * 32})
+    book.add_contact({"name": "Alice", "public_key": "ab" * 32})
     updated = book.get_by_name("Alice")
     assert updated is not None
-    assert updated.public_key == "cd" * 32
+    assert updated.public_key == "ab" * 32
     assert updated.out_path == b"\xa2"
     assert updated.out_path_len == 1
 
     # Re-adding with a Contact that has explicit path overwrites
-    new_contact = Contact(name="Alice", public_key="ef" * 32, out_path=b"", out_path_len=0)
+    new_contact = Contact(name="Alice", public_key="ab" * 32, out_path=b"", out_path_len=0)
     book.add_contact(new_contact)
     updated2 = book.get_by_name("Alice")
     assert updated2 is not None
     assert updated2.out_path == b""
     assert updated2.out_path_len == 0
+
+
+def test_contact_book_never_rebinds_a_name_to_another_key() -> None:
+    """A different key arriving under an existing name must not take over the
+    contact: DMs to that name would be encrypted to the newcomer."""
+    book = ContactBook()
+    book.add_contact({"name": "Alice", "public_key": "ab" * 32})
+    book.add_contact({"name": "Alice", "public_key": "cd" * 32})
+    assert book.get_by_name("Alice").public_key == "ab" * 32
+    assert len(book.list_contacts()) == 1

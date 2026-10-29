@@ -7,7 +7,7 @@ import logging
 import sqlite3
 
 from .channel_db import PUBLIC_CHANNEL_SECRET
-from .paths import db_path
+from .paths import db_path, make_private
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,14 @@ MIGRATIONS: list[tuple[str, ...]] = [
     # The ALTER runs in _add_region_scope_column() so it stays idempotent
     # when schema_version is behind the actual schema.
     (),
+    # v8 -> v9: DM threads move to their own id namespace ("dm:<name>"); they
+    # used to share ids with group channels of the same name.
+    (
+        "UPDATE messages SET channel_id = 'dm:' || channel_id WHERE channel_id IN "
+        "(SELECT channel_id FROM channels WHERE kind = 'dm' AND channel_id NOT LIKE 'dm:%')",
+        "UPDATE channels SET channel_id = 'dm:' || channel_id "
+        "WHERE kind = 'dm' AND channel_id NOT LIKE 'dm:%'",
+    ),
 ]
 
 
@@ -177,28 +185,39 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if current >= target:
         return
     logger.info("Migrating database from v%d to v%d", current, target)
-    for version_index in range(current, target):
-        for stmt in MIGRATIONS[version_index]:
-            conn.execute(stmt)
-    # Data backfills run after all DDL so the columns they read (e.g. channels.kind,
-    # added in v5) are guaranteed to exist.
-    if current < 7:
-        _backfill_channel_secrets(conn)
-    if current < 8:
-        _add_region_scope_column(conn)
-    conn.execute("UPDATE schema_version SET version = ?", (target,))
+    # One transaction for the whole upgrade (SQLite DDL is transactional).
+    # Python's sqlite3 runs DDL outside its implicit transactions, so each
+    # ALTER used to commit on its own while the version was bumped only at the
+    # end: an interrupted upgrade (power loss on a battery handheld) left
+    # columns that the next start's ALTER rejected as duplicates, forever.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        for version_index in range(current, target):
+            for stmt in MIGRATIONS[version_index]:
+                conn.execute(stmt)
+        # Data backfills run after all DDL so the columns they read (e.g.
+        # channels.kind, added in v5) are guaranteed to exist.
+        if current < 7:
+            _backfill_channel_secrets(conn)
+        if current < 8:
+            _add_region_scope_column(conn)
+        conn.execute("UPDATE schema_version SET version = ?", (target,))
+    except BaseException:
+        conn.rollback()
+        raise
     conn.commit()
 
 
 def open_db(path: str | None = None) -> sqlite3.Connection:
     """Open (and migrate if needed) the application database."""
     db = db_path() if path is None else __import__("pathlib").Path(path)
-    db.parent.mkdir(parents=True, exist_ok=True)
+    db.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     # check_same_thread=False is required because openhop_core reads the
     # channel_secrets table from the meshcore-aio thread while the connection
     # is created on the main thread.  WAL mode makes concurrent access safe.
     conn = sqlite3.connect(str(db), check_same_thread=False)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    make_private(db, db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm"))
     _migrate(conn)
     return conn

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from typing import Any
 
 from meshcore_console.core.types import (
@@ -13,7 +14,7 @@ from meshcore_console.core.types import (
 )
 
 from .config import HardwareRadioConfig
-from .paths import identity_key_path
+from .paths import identity_key_path, make_private
 
 
 def import_openhop_core() -> tuple[
@@ -31,6 +32,9 @@ def import_openhop_core() -> tuple[
     except ImportError as exc:
         raise RuntimeError("openhop_core is not available. Run `uv sync` in this project.") from exc
     return SX1262Radio, EventService, EventSubscriber, MeshNode, LocalIdentity  # type: ignore[return-value]
+
+
+MESHCORE_SYNC_WORD = 0x1424
 
 
 def create_radio(
@@ -53,6 +57,12 @@ def create_radio(
         "bandwidth": config.bandwidth,
         "coding_rate": config.coding_rate,
         "preamble_length": config.preamble_length,
+        # MeshCore's private LoRa sync word 0x12, as the SX126x register value.
+        # openhop_core's default is 0x3444 (public LoRaWAN); it isn't written
+        # today (setSyncWord's register write is commented out in 1.1.3), so the
+        # chip keeps its reset value 0x1424, which happens to be MeshCore's.
+        # Pass it explicitly so a fixed setSyncWord can't make the radio deaf.
+        "sync_word": MESHCORE_SYNC_WORD,
         "is_waveshare": config.is_waveshare,
         "gpio_chip": config.gpio_chip,
         "use_gpiod_backend": config.use_gpiod_backend,
@@ -86,13 +96,17 @@ def create_mesh_node(
 ) -> tuple[LocalIdentityProtocol, MeshNodeProtocol]:
     key_path = identity_key_path()
     if key_path.exists():
+        make_private(key_path)
         seed = key_path.read_bytes()
     else:
-        # Generate a new identity and persist the seed for future sessions
+        # Generate a new identity and persist the seed for future sessions;
+        # the seed is the node's private key, so create it owner-only.
         tmp = local_identity_type()
         seed = tmp.get_signing_key_bytes()
-        key_path.parent.mkdir(parents=True, exist_ok=True)
-        key_path.write_bytes(seed)
+        key_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(seed)
     identity = local_identity_type(seed)
     config_payload = {"node": {"name": node_name}}
     if node_config:

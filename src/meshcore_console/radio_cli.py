@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import json
 import os
-import time
+import sys
 from typing import Any
 
-from meshcore_console.meshcore.config import load_runtime_config
+from meshcore_console.meshcore.config import RuntimeRadioConfig, runtime_config_from_settings
 from meshcore_console.meshcore.session import OpenHopCoreSession
 
 
 def _add_global_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--node-name", default="uconsole-node", help="Mesh node name")
+    p.add_argument("--node-name", default=None, help="Mesh node name (default: the saved one)")
     p.add_argument(
         "--debug",
         dest="debug",
@@ -59,7 +60,11 @@ def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: igno
 
     import_ch = sub.add_parser("import-channel", help="Import a channel by name and secret key")
     import_ch.add_argument("--name", required=True, help="Channel display name (e.g. 'Emergency')")
-    import_ch.add_argument("--secret", required=True, help="Channel secret key (hex string)")
+    import_ch.add_argument(
+        "--secret",
+        help="Channel secret key (hex). Leave it out to be asked for it (or pipe it on "
+        "stdin): a key on the command line lands in shell history and /proc.",
+    )
 
     export = sub.add_parser("export-logs", help="Export application logs for bug reports")
     export.add_argument(
@@ -68,6 +73,24 @@ def register_subcommands(sub: argparse._SubParsersAction) -> None:  # type: igno
         default=None,
         help="Write logs to file (default: stdout)",
     )
+
+
+def load_saved_runtime_config(node_name: str | None = None) -> RuntimeRadioConfig:
+    """The saved settings with the environment on top, exactly what the GTK app
+    uses.  listen/send/advert used built-in defaults instead (910.525 MHz, SF7,
+    gpiochip 0, node name "uconsole-node") while using the node's real identity,
+    so an `advert` could rename the node mesh-wide on the wrong frequency."""
+    from meshcore_console.meshcore.db import open_db
+    from meshcore_console.meshcore.settings_store import SettingsStore
+
+    conn = open_db()
+    try:
+        settings = SettingsStore(conn).load()
+    finally:
+        conn.close()
+    if node_name:
+        settings.node_name = node_name
+    return runtime_config_from_settings(settings)
 
 
 def _doctor_hardware_config() -> Any:
@@ -158,14 +181,22 @@ async def _run_listen(
     await asyncio.wait_for(session.start(), timeout=start_timeout)
     _debug(debug, "mesh node started")
     print(json.dumps({"status": "started", **session.status()}))
-    started = time.monotonic()
     _debug(debug, "waiting for events")
-    try:
+
+    async def print_events() -> None:
         async for event in session.listen_events():
             print(json.dumps(event, default=str))
-            if duration > 0 and time.monotonic() - started >= duration:
+
+    try:
+        if duration > 0:
+            # A deadline, not a check after each event: on a quiet channel the
+            # loop never woke up, so --duration never ended the listen.
+            try:
+                await asyncio.wait_for(print_events(), timeout=duration)
+            except asyncio.TimeoutError:
                 _debug(debug, "listen duration reached, stopping")
-                break
+        else:
+            await print_events()
     finally:
         _debug(debug, "stopping mesh node")
         await session.stop()
@@ -237,6 +268,32 @@ async def _run_advert(
     return 0
 
 
+def seed_contacts(session: OpenHopCoreSession) -> None:
+    """Load the known peers into the session's contact book, as the GTK client
+    does on connect; `send` otherwise failed with "Contact not found" for
+    every peer."""
+    from meshcore_console.meshcore.db import open_db
+    from meshcore_console.meshcore.state_store import PeerStore
+
+    conn = open_db()
+    try:
+        peers = PeerStore(conn).get_all()
+    finally:
+        conn.close()
+    for peer in peers.values():
+        if peer.public_key:
+            session.contact_book.add_contact(
+                {"name": peer.display_name, "public_key": peer.public_key}
+            )
+
+
+def read_secret() -> str:
+    """The channel key from a hidden prompt, or from stdin when it is piped."""
+    if sys.stdin.isatty():
+        return getpass.getpass("Channel secret (hex): ").strip()
+    return sys.stdin.readline().strip()
+
+
 def _import_channel(name: str, secret: str) -> int:
     from meshcore_console.core.models import Channel
     from meshcore_console.meshcore.channel_db import (
@@ -285,7 +342,7 @@ def _export_logs(output: str | None) -> int:
 
 async def _async_main(args: argparse.Namespace) -> int:
     if args.command == "import-channel":
-        return _import_channel(args.name, args.secret)
+        return _import_channel(args.name, args.secret or read_secret())
 
     if args.command == "export-logs":
         return _export_logs(args.output)
@@ -295,12 +352,13 @@ async def _async_main(args: argparse.Namespace) -> int:
         _debug(args.debug, "running doctor checks")
         return _doctor()
 
-    config = load_runtime_config(node_name=args.node_name)
+    config = load_saved_runtime_config(node_name=args.node_name)
     session = OpenHopCoreSession(config, logger=lambda msg: _debug(args.debug, f"session: {msg}"))
 
     if args.command == "listen":
         return await _run_listen(session, args.duration, args.debug, args.start_timeout)
     if args.command == "send":
+        seed_contacts(session)
         return await _run_send(session, args.peer, args.message, args.debug, args.start_timeout)
     if args.command == "advert":
         return await _run_advert(

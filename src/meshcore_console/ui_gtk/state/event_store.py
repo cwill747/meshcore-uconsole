@@ -39,6 +39,8 @@ class UiEventStore(GObject.Object):
             self._events.append((self._seq, event))
         if events:
             self.emit("events-available")
+        if len(events) >= 100:
+            self.schedule_pump()  # a full batch: more may be waiting
         return False  # One-shot idle
 
     def pump(self, limit: int = 100) -> list[MeshEventDict]:

@@ -46,7 +46,11 @@ class PathVisualization(Gtk.FlowBox):
         self.set_homogeneous(False)
         self.set_row_spacing(4)
         self.set_column_spacing(2)
-        self.set_halign(Gtk.Align.START)
+        # FILL, not START: aligned START, the FlowBox is given the width it
+        # asks for at its one-row height, which is one badge wide; it then
+        # stacked the badges one per row inside a one-row allocation, drawing
+        # them over the widgets below (e.g. the public key in Peers).
+        self.set_halign(Gtk.Align.FILL)
         self.set_min_children_per_line(1)
         self.set_max_children_per_line(6)
         self.add_css_class("path-visualization")
@@ -55,7 +59,11 @@ class PathVisualization(Gtk.FlowBox):
             prefix, name, peer, style = start
             self.append(self._hop_pair(arrow, prefix, name, peer, style, hide_arrow=True))
 
-        for hop in hops:
+        # ``hops`` come as the packet carried them: each relay appends its
+        # hash, so the sender's side is first and our neighbour last.  The
+        # chain starts at this device, so it walks them backwards; drawn in
+        # list order, the relay next to the sender stood next to "Me".
+        for hop in reversed(hops):
             hop_peer = find_peer_for_hop(peers, hop)
             hop_name = hop_peer.display_name if hop_peer else hop
             hop_prefix = hop.upper() if len(hop) <= 6 else hop[:2].upper()
@@ -76,6 +84,7 @@ class PathVisualization(Gtk.FlowBox):
         hide_arrow: bool = False,
     ) -> Gtk.Box:
         pair = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        pair.set_halign(Gtk.Align.START)  # a line's spare width goes between pairs
         lbl = Gtk.Label(label=arrow)
         lbl.add_css_class("panel-muted")
         if hide_arrow:

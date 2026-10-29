@@ -19,8 +19,14 @@ from gi.repository import Adw, Gdk, GLib, Gtk
 from gi.repository import Pango
 
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.meshcore.discovery import summarize
 from meshcore_console.platform.conflicts import ConflictError, ConflictReport
-from meshcore_console.ui_gtk.compat import build_alert_dialog, build_toolbar_page, present_dialog
+from meshcore_console.ui_gtk.compat import (
+    build_alert_dialog,
+    build_toolbar_page,
+    new_toast,
+    present_dialog,
+)
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.ui_gtk.widgets import ConflictScreen, LoadingScreen, StatusPill
 
@@ -83,6 +89,10 @@ class MainWindow(Adw.ApplicationWindow):
         self._stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self._stack.set_hexpand(True)
         self._stack.set_vexpand(True)
+        # Size the window by the visible page, not the largest one: the
+        # uConsole's logical screen is 1024x576.
+        self._stack.set_hhomogeneous(False)
+        self._stack.set_vhomogeneous(False)
         self._stack.add_named(AnalyzerView(self._service, self._event_store, layout), "analyzer")
         self._stack.add_named(PeersView(self._service, self._event_store, layout), "peers")
         self._stack.add_named(MessagesView(self._service, self._event_store, layout), "messages")
@@ -197,6 +207,11 @@ class MainWindow(Adw.ApplicationWindow):
         direct_btn = Gtk.Button.new_with_label("Direct Advert")
         direct_btn.connect("clicked", self._on_advert_direct, advert_popover)
         advert_box.append(direct_btn)
+        discover_btn = Gtk.Button.new_with_label("Discover Nearby")
+        discover_btn.set_tooltip_text("Ask repeaters in direct range to answer")
+        discover_btn.connect("clicked", self._on_discover, advert_popover)
+        advert_box.append(discover_btn)
+        self._discovering = False
         advert_popover.set_child(advert_box)
         self._advert_btn.set_popover(advert_popover)
         header_bar.pack_end(self._advert_btn)
@@ -213,6 +228,12 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._shutting_down = True
         logger.info("Shutdown requested, showing shutdown screen")
+
+        # the map saves its view a few seconds after it stops moving; catch a
+        # move made just before closing
+        map_view = self._stack.get_child_by_name("map")
+        if map_view is not None:
+            map_view.remember_view()
 
         if self._radio_error_badge_id:
             GLib.source_remove(self._radio_error_badge_id)
@@ -321,6 +342,33 @@ class MainWindow(Adw.ApplicationWindow):
         popover.popdown()
         self._send_advert(route_type="direct")
 
+    def _on_discover(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
+        logger.debug("UI: discover button clicked")
+        popover.popdown()
+        if self._discovering:
+            self._toast_overlay.add_toast(new_toast("Discover is still listening"))
+            return
+        self._discovering = True
+        self._toast_overlay.add_toast(new_toast("Discovering nearby nodes..."))
+
+        def do_discover() -> None:
+            text: str
+            try:
+                results = self._service.discover_nodes()
+                text = summarize(results, {r["pub_key"]: r["name"] for r in results})
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Discover failed: %s", exc)
+                text = f"Discover failed: {str(exc) or type(exc).__name__}"
+
+            def on_done() -> bool:
+                self._discovering = False
+                self._toast_overlay.add_toast(new_toast(text))
+                return False
+
+            GLib.idle_add(on_done)
+
+        threading.Thread(target=do_discover, daemon=True).start()
+
     def _send_advert(self, route_type: str) -> None:
         def do_send() -> None:
             error: str | None = None
@@ -333,10 +381,10 @@ class MainWindow(Adw.ApplicationWindow):
                 if error:
                     logger.error("Advert failed: %s", error)
                     logger.debug("UI: toast 'Advert failed: %s'", error)
-                    self._toast_overlay.add_toast(Adw.Toast.new(f"Advert failed: {error}"))
+                    self._toast_overlay.add_toast(new_toast(f"Advert failed: {error}"))
                 else:
                     logger.debug("UI: toast 'Sent %s advert'", route_type)
-                    self._toast_overlay.add_toast(Adw.Toast.new(f"Sent {route_type} advert"))
+                    self._toast_overlay.add_toast(new_toast(f"Sent {route_type} advert"))
                 return False
 
             GLib.idle_add(on_done)
@@ -540,11 +588,11 @@ class MainWindow(Adw.ApplicationWindow):
         elif error:
             logger.error("Connection error: %s", error)
             logger.debug("UI: toast 'Connection error: %s'", error)
-            self._toast_overlay.add_toast(Adw.Toast.new(f"Connection error: {error}"))
+            self._toast_overlay.add_toast(new_toast(f"Connection error: {error}"))
         else:
             msg = "Disconnected" if was_disconnect else "Connected"
             logger.debug("UI: toast '%s'", msg)
-            self._toast_overlay.add_toast(Adw.Toast.new(msg))
+            self._toast_overlay.add_toast(new_toast(msg))
         self._refresh_connection_state()
         return False  # Don't repeat
 
@@ -619,11 +667,11 @@ class MainWindow(Adw.ApplicationWindow):
                 if error:
                     logger.error("Failed to stop %s: %s", service_name, error)
                     self._toast_overlay.add_toast(
-                        Adw.Toast.new(f"Could not stop {service_name}: {error}")
+                        new_toast(f"Could not stop {service_name}: {error}")
                     )
                 else:
                     logger.info("Stopped %s, retrying connection", service_name)
-                    self._toast_overlay.add_toast(Adw.Toast.new(f"Stopped {service_name}"))
+                    self._toast_overlay.add_toast(new_toast(f"Stopped {service_name}"))
                     # Auto-retry after a brief delay
                     GLib.timeout_add(1000, self._delayed_retry)
                 return False
@@ -736,7 +784,7 @@ class MainWindow(Adw.ApplicationWindow):
             elif etype == "radio_error":
                 msg = (event.get("data") or {}).get("message", "Unknown radio error")
                 if self._service.get_settings().show_radio_error_toasts:
-                    self._toast_overlay.add_toast(Adw.Toast.new(msg))
+                    self._toast_overlay.add_toast(new_toast(msg))
                 self._flash_radio_error()
         self._service.flush_stores()
 

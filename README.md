@@ -153,9 +153,9 @@ command line. Notable radio bring-up flags:
 - `MESHCORE_GPIO_CHIP=15` — which `/dev/gpiochipN` carries the 40-pin header.
   It is 0 on CM4, but 15 on CM5 and Pi 5 kernels, where the header hangs off
   the RP1. `doctor` lists the chips your host actually has.
-- `MESHCORE_EN_PINS=27` — GPIO pins driven HIGH at init to power the radio.
-  The HackerGadgets AIOv2 enable pin is 27; the **uConsole HG AIOv2** board
-  preset sets this for you.
+- `MESHCORE_EN_PINS=16` — GPIO pins driven HIGH at init to power the radio.
+  The HackerGadgets AIOv2 LoRa enable pin is 16 (27 is its GPS rail); the
+  **uConsole HG AIOv2** board preset sets this for you.
 - `MESHCORE_USE_GPIOD_BACKEND=1` — poll for IRQ edges instead of asking the
   kernel for edge interrupts. Try this if the radio connects but receives
   nothing, which happens on kernels that reject the edge request.

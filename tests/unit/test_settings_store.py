@@ -55,3 +55,30 @@ def test_flood_region_defaults_empty_and_round_trips(tmp_path) -> None:
     store.save(MeshcoreSettings(flood_region="#germany"))
     assert store.load().flood_region == "#germany"
     conn.close()
+
+
+def test_a_bad_row_falls_back_to_its_default(tmp_path) -> None:
+    from meshcore_console.meshcore.db import open_db
+    from meshcore_console.meshcore.settings import MeshcoreSettings
+    from meshcore_console.meshcore.settings_store import SettingsStore
+
+    conn = open_db(str(tmp_path / "s.db"))
+    store = SettingsStore(conn)
+    store.save(MeshcoreSettings(node_name="DF9ES"))
+    conn.execute("UPDATE settings SET value = 'abc' WHERE key = 'frequency'")
+    conn.commit()
+
+    settings = store.load()
+    assert settings.frequency == MeshcoreSettings().frequency
+    assert settings.node_name == "DF9ES"
+
+
+def test_map_tile_downloads_default_on_and_persist(tmp_path) -> None:
+    from meshcore_console.meshcore.db import open_db
+    from meshcore_console.meshcore.settings import MeshcoreSettings
+    from meshcore_console.meshcore.settings_store import SettingsStore
+
+    assert MeshcoreSettings().online_map_tiles is True  # unchanged default behaviour
+    store = SettingsStore(open_db(str(tmp_path / "t.db")))
+    store.save(MeshcoreSettings(online_map_tiles=False))
+    assert store.load().online_map_tiles is False

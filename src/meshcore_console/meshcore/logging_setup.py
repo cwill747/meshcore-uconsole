@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import sys
 import threading
@@ -18,8 +19,12 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Callable
 
-LOG_DIR = Path.home() / ".local" / "state" / "meshcore-uconsole"
-LOG_FILE = LOG_DIR / "app.log"
+from .paths import make_private, state_dir
+
+# None = the app's state directory (XDG_STATE_HOME/meshcore-uconsole, next to
+# the database), resolved when used; tests may point these elsewhere.
+LOG_DIR: Path | None = None
+LOG_FILE: Path | None = None
 LOG_FORMAT = "[%(name)s] %(message)s"
 FILE_LOG_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
 MAX_BYTES = 1_000_000  # 1 MB per file
@@ -29,6 +34,14 @@ VALID_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 _stderr_handler: logging.StreamHandler | None = None
 _configured = False
+
+
+def log_dir() -> Path:
+    return LOG_DIR if LOG_DIR is not None else state_dir()
+
+
+def log_file() -> Path:
+    return LOG_FILE if LOG_FILE is not None else log_dir() / "app.log"
 
 
 def configure_logging(console_level: str | None = None) -> None:
@@ -61,13 +74,16 @@ def configure_logging(console_level: str | None = None) -> None:
     _stderr_handler.setLevel(getattr(logging, effective_level))
     _stderr_handler.setFormatter(logging.Formatter(LOG_FORMAT))
     _stderr_handler.addFilter(RfNoiseFilter(_stderr_handler))
+    _stderr_handler.addFilter(PrivacyFilter())
     root.addHandler(_stderr_handler)
 
     # Rotating file handler
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT)
+    log_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+    file_handler = RotatingFileHandler(log_file(), maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT)
+    make_private(*get_log_files_chronological())
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT))
+    file_handler.addFilter(PrivacyFilter())
     root.addHandler(file_handler)
 
     _configured = True
@@ -84,20 +100,22 @@ def set_stderr_level(level_name: str) -> None:
 
 def get_log_files_chronological() -> list[Path]:
     """Return all log files oldest-first (backup.3 -> backup.1 -> current)."""
+    current = log_file()
     files: list[Path] = []
     for i in range(BACKUP_COUNT, 0, -1):
-        p = LOG_FILE.with_suffix(f".log.{i}")
+        p = current.with_suffix(f".log.{i}")
         if p.exists():
             files.append(p)
-    if LOG_FILE.exists():
-        files.append(LOG_FILE)
+    if current.exists():
+        files.append(current)
     return files
 
 
 def export_logs_to_path(dest: str | Path) -> Path:
     """Concatenate all log files into *dest* (oldest first). Returns dest path."""
     dest = Path(dest)
-    with dest.open("w") as out:
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as out:
         for log_file in get_log_files_chronological():
             with log_file.open() as f:
                 shutil.copyfileobj(f, out)
@@ -215,6 +233,34 @@ _rf_noise_counter = RfNoiseCounter()
 def get_rf_noise_counts() -> dict[str, int]:
     """Return the RF reception noise counts since start, keyed by category."""
     return _rf_noise_counter.totals()
+
+
+# openhop_core's Dispatcher logs every decrypted message at INFO; keep who and
+# where, drop what was said.
+_WITHHELD = (
+    (re.compile(r"^(Received TXT_MSG: ).*", re.S), r"\1(text withheld)"),
+    (re.compile(r"^(<<< Channel \[[^\]]*\] [^:]*: ).*( >>>)$", re.S), r"\1(text withheld)\2"),
+)
+
+
+class PrivacyFilter(logging.Filter):
+    """Withhold decrypted message text and neutralise control characters.
+
+    Message text and node names come from the air: a newline or an escape
+    sequence in them would forge log lines or drive the terminal reading the log.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if record.name == "Dispatcher":
+            for pattern, replacement in _WITHHELD:
+                message = pattern.sub(replacement, message)
+        cleaned = "".join(
+            ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii")
+            for ch in message
+        )
+        record.msg, record.args = cleaned, None
+        return True
 
 
 class RfNoiseFilter(logging.Filter):

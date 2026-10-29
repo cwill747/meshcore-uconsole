@@ -24,6 +24,14 @@ def _resolve_contact(node: MeshNodeProtocol, peer_name: str) -> object:
     raise RuntimeError(f"Contact '{peer_name}' not found")
 
 
+def _route_type(contact: object) -> str:
+    """Flood while the route is unknown (out_path_len -1), like firmware's
+    sendMessage(); direct (incl. zero-hop) once a route is known.
+    create_text_message() defaults to direct, which sent zero-hop DIRECT packets
+    to contacts with no route, and nobody but a direct neighbour could hear them."""
+    return "direct" if getattr(contact, "out_path_len", -1) >= 0 else "flood"
+
+
 def _text_message_contact(contact: object) -> object:
     """Return a PacketBuilder-compatible contact without changing the contact book."""
     out_path = getattr(contact, "out_path", None)
@@ -34,19 +42,40 @@ def _text_message_contact(contact: object) -> object:
     return normalized
 
 
-async def send_text(*, node: MeshNodeProtocol, peer_name: str, message: str) -> dict:
-    """Send a direct text message to a peer via PacketBuilder."""
+DM_ATTEMPTS = 3
+
+
+async def send_text(
+    *, node: MeshNodeProtocol, peer_name: str, message: str, attempts: int = DM_ATTEMPTS
+) -> dict:
+    """Send a direct text message and wait for its ACK, retrying like the MeshCore apps.
+
+    Each retry carries the next attempt number with the same timestamp (the
+    receiver drops duplicates; the expected ACK changes with the attempt).  If
+    a known direct route fails twice, it is forgotten and the last attempt
+    floods.  ``success`` is True only when an ACK arrived.
+    """
     from openhop_core.protocol.packet_builder import PacketBuilder
 
-    contact = _text_message_contact(_resolve_contact(node, peer_name))
-
-    pkt, ack_crc = PacketBuilder.create_text_message(
-        contact=contact,
-        local_identity=node.identity,
-        message=message,
-    )
-    success = await node.dispatcher.send_packet(pkt, wait_for_ack=True, expected_crc=ack_crc)
-    return {"success": success, "crc": ack_crc}
+    original = _resolve_contact(node, peer_name)
+    timestamp = int(time.time())
+    ack_crc = 0
+    for attempt in range(attempts):
+        if attempt == attempts - 1 and attempt > 0 and getattr(original, "out_path_len", -1) >= 0:
+            original.out_path_len = -1  # type: ignore[attr-defined]  # route went stale
+            original.out_path = []  # type: ignore[attr-defined]
+        contact = _text_message_contact(original)
+        pkt, ack_crc = PacketBuilder.create_text_message(
+            contact=contact,
+            local_identity=node.identity,
+            message=message,
+            attempt=attempt,
+            message_type=_route_type(contact),
+            timestamp=timestamp,
+        )
+        if await node.dispatcher.send_packet(pkt, wait_for_ack=True, expected_crc=ack_crc):
+            return {"success": True, "attempts": attempt + 1, "crc": ack_crc}
+    return {"success": False, "attempts": attempts, "crc": ack_crc}
 
 
 async def send_group_text(
@@ -96,7 +125,9 @@ async def request_telemetry(
 
     contact = _resolve_contact(node, contact_name)
 
-    pkt, _ts = PacketBuilder.create_telem_request(
+    # The request timestamp is the tag the responder reflects; openhop_core
+    # matches replies on (full public key, tag).
+    pkt, tag = PacketBuilder.create_telem_request(
         contact=contact,
         local_identity=node.identity,
         want_base=True,
@@ -104,7 +135,7 @@ async def request_telemetry(
         want_environment=False,
     )
 
-    contact_hash = bytes.fromhex(contact.public_key)[0]
+    pubkey = bytes.fromhex(contact.public_key)
     response_handler = node.dispatcher.protocol_response_handler
 
     response_event = asyncio.Event()
@@ -116,7 +147,7 @@ async def request_telemetry(
         response_data["parsed"] = parsed
         response_event.set()
 
-    response_handler.set_response_callback(contact_hash, _on_response)
+    response_handler.set_response_callback(pubkey, tag, _on_response)
     t0 = time.monotonic()
     try:
         await node.dispatcher.send_packet(pkt, wait_for_ack=False)
@@ -124,7 +155,7 @@ async def request_telemetry(
     except asyncio.TimeoutError:
         got_response = False
     finally:
-        response_handler.clear_response_callback(contact_hash)
+        response_handler.clear_response_callback(pubkey, tag)
 
     rtt = (time.monotonic() - t0) * 1000
 
@@ -153,6 +184,46 @@ async def request_telemetry(
     }
 
 
+async def request_owner_info(
+    *,
+    node: MeshNodeProtocol,
+    contact: object,
+    timeout: float = 8.0,
+) -> dict | None:
+    """Anonymous ANON_REQ_TYPE_OWNER: a repeater answers "name\nowner", no login.
+
+    Firmware only answers direct (``isRouteDirect``) requests, so ``contact``
+    needs a known route (``out_path_len >= 0``; 0 for a zero-hop neighbour) and
+    must be in the contact book for openhop_core to decrypt the reply.  Returns
+    openhop's parsed reply dict, or None on timeout.
+    """
+    from openhop_core.protocol.constants import ANON_REQ_TYPE_OWNER
+    from openhop_core.protocol.packet_builder import PacketBuilder
+
+    # req_data = [type][reply path length byte][reply path...]; 0 = zero-hop reply
+    pkt, tag = PacketBuilder.create_anon_request(
+        contact, node.identity, req_data=bytes([ANON_REQ_TYPE_OWNER, 0x00])
+    )
+    pubkey = bytes.fromhex(contact.public_key)  # type: ignore[attr-defined]
+    response_handler = node.dispatcher.protocol_response_handler
+    reply: dict = {}
+    done = asyncio.Event()
+
+    def _on_response(_success: bool, _text: str, parsed: dict) -> None:
+        reply.update(parsed)
+        done.set()
+
+    response_handler.set_response_callback(pubkey, tag, _on_response)
+    try:
+        await node.dispatcher.send_packet(pkt, wait_for_ack=False)
+        await asyncio.wait_for(done.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return None
+    finally:
+        response_handler.clear_response_callback(pubkey, tag)
+    return reply
+
+
 async def send_login(
     *,
     node: MeshNodeProtocol,
@@ -166,8 +237,8 @@ async def send_login(
     contact = _resolve_contact(node, peer_name)
 
     login_handler = node.dispatcher.login_response_handler
-    dest_hash = bytes.fromhex(contact.public_key)[0]
-    login_handler.store_login_password(dest_hash, password)
+    pubkey = bytes.fromhex(contact.public_key)
+    dest_hash = pubkey[0]
 
     login_event = asyncio.Event()
     login_result: dict = {"success": False, "data": {}}
@@ -177,8 +248,9 @@ async def send_login(
         login_result["data"] = data
         login_event.set()
 
-    login_handler.set_login_callback(_on_login)
+    login_handler.register_login_callback(pubkey, _on_login)
     try:
+        login_handler.store_login_password(dest_hash, password)
         pkt = PacketBuilder.create_login_packet(
             contact=contact,
             local_identity=node.identity,
@@ -189,7 +261,7 @@ async def send_login(
     except asyncio.TimeoutError:
         return {"success": False, "reason": "Login response timeout"}
     finally:
-        login_handler.set_login_callback(None)
+        login_handler.remove_login_callback(pubkey, _on_login)
         login_handler.clear_login_password(dest_hash)
 
     data = login_result["data"]
@@ -205,16 +277,10 @@ async def send_login(
 
 
 async def send_logout(*, node: MeshNodeProtocol, peer_name: str) -> dict:
-    """Send a logout/disconnect to a repeater."""
-    from openhop_core.protocol.packet_builder import PacketBuilder
-
-    contact = _resolve_contact(node, peer_name)
-
-    pkt, _crc = PacketBuilder.create_logout_packet(
-        contact=contact,
-        local_identity=node.identity,
-    )
-    await node.dispatcher.send_packet(pkt, wait_for_ack=False)
+    """Forget the repeater session.  Local only: MeshCore firmware has no logout
+    command (companion CMD_LOGOUT just drops the connection), and the old CLI
+    "logout" only drew an "Unknown command" reply that surfaced as a DM."""
+    _resolve_contact(node, peer_name)
     return {"success": True, "repeater": peer_name}
 
 
@@ -243,12 +309,14 @@ async def send_repeater_command(
         response_data["text"] = message_text
         response_event.set()
 
-    text_handler.set_command_response_callback(_on_response)
+    pubkey = bytes.fromhex(expected_key)
+    text_handler.register_command_response(pubkey, _on_response)
     try:
         pkt, _crc = PacketBuilder.create_text_message(
             contact=contact,
             local_identity=node.identity,
             message=command,
+            message_type=_route_type(contact),
             txt_type=TXT_TYPE_CLI_DATA,
         )
         await node.dispatcher.send_packet(pkt, wait_for_ack=False)
@@ -268,7 +336,7 @@ async def send_repeater_command(
             "reason": "Command response timeout",
         }
     finally:
-        text_handler.set_command_response_callback(None)
+        text_handler.unregister_command_response(pubkey, _on_response)
 
 
 async def send_advert(

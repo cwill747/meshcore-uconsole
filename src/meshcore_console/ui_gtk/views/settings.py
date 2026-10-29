@@ -6,7 +6,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import GLib, Gio, Gtk
+from gi.repository import GLib, Gtk
 
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.config import hardware_env_overrides, parse_pin_list
@@ -22,6 +22,7 @@ from meshcore_console.meshcore.settings import (
     apply_hardware_preset,
     apply_preset,
 )
+from meshcore_console.ui_gtk.compat import choose_save_path
 from meshcore_console.ui_gtk.widgets.qr_dialog import QrCodeDialog
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,26 @@ def _abbreviate_key(key: str | None) -> str:
     if len(key) <= 16:
         return key
     return f"{key[:8]}...{key[-8:]}"
+
+
+def parse_coordinate(text: str, key: str, limit: float) -> float:
+    """A fixed-position coordinate from the settings form.
+
+    Empty means "no fixed position" (0.0, which the app treats as unset) and an
+    explicit 0 is a valid value: the old ``parsed or current`` kept the previous
+    position in both cases, so a fixed position, once entered, could not be
+    removed and kept going out in adverts.
+    """
+    text = text.strip()
+    if not text:
+        return 0.0
+    try:
+        value = float(text)
+    except ValueError as exc:
+        raise ValueError(f"{key} must be a number") from exc
+    if not -limit <= value <= limit:
+        raise ValueError(f"{key} must be between -{limit:g} and {limit:g}")
+    return value
 
 
 class SettingsView(Gtk.Box):
@@ -166,6 +187,15 @@ class SettingsView(Gtk.Box):
         )
         grid.attach(gps_entry, 1, 8, 2, 1)
 
+        # Row 9: Online map tiles
+        grid.attach(self._grid_label("Download Map Tiles"), 0, 9, 1, 1)
+        tiles_switch = self._grid_switch("online_map_tiles")
+        tiles_switch.set_tooltip_text(
+            "Fetch map tiles from OpenStreetMap. The tile server sees your IP address "
+            "and the area you look at, e.g. around your own position."
+        )
+        grid.attach(tiles_switch, 1, 9, 1, 1)
+
         panel.append(grid)
         return panel
 
@@ -186,7 +216,8 @@ class SettingsView(Gtk.Box):
         grid.attach(self._grid_label("Preset"), 0, 0, 1, 1)
         self._preset = Gtk.ComboBoxText.new()
         self._preset.append("meshcore-us", "USA/Canada")
-        self._preset.append("meshcore-eu", "Europe")
+        self._preset.append("meshcore-eu-narrow", "EU/UK Narrow")
+        self._preset.append("meshcore-eu", "EU/UK Long Range")
         self._preset.append("custom", "Custom")
         self._preset.set_active_id("meshcore-us")
         self._preset.connect("changed", self._on_preset_changed)
@@ -450,28 +481,19 @@ class SettingsView(Gtk.Box):
         from datetime import datetime, timezone
 
         ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Export Logs")
-        dialog.set_initial_name(f"meshcore-logs-{ts}.txt")
-        txt_filter = Gtk.FileFilter()
-        txt_filter.set_name("Text files")
-        txt_filter.add_pattern("*.txt")
-        filters = Gio.ListStore.new(Gtk.FileFilter)
-        filters.append(txt_filter)
-        dialog.set_filters(filters)
-
         window = self.get_root()
         parent = window if isinstance(window, Gtk.Window) else None
-        dialog.save(parent, None, self._on_export_save_done)
+        choose_save_path(
+            parent,
+            "Export Logs",
+            f"meshcore-logs-{ts}.txt",
+            ("Text files", "*.txt"),
+            self._on_export_path_chosen,
+        )
 
-    def _on_export_save_done(self, dialog: Gtk.FileDialog, result: Gio.AsyncResult) -> None:
-        try:
-            gfile = dialog.save_finish(result)
-        except Exception:  # noqa: BLE001
-            return  # user cancelled
-        dest = gfile.get_path()
+    def _on_export_path_chosen(self, dest: str | None) -> None:
         if not dest:
-            return
+            return  # user cancelled
         try:
             export_logs_to_path(dest)
             self._status_label.set_text(f"Logs exported to {dest}")
@@ -606,6 +628,7 @@ class SettingsView(Gtk.Box):
         self._set_entry_float("longitude", settings.longitude)
         self._set_switch("share_position", settings.share_position)
         self._set_switch("allow_telemetry", settings.allow_telemetry)
+        self._set_switch("online_map_tiles", settings.online_map_tiles)
         self._set_switch("telemetry_favorites_only", settings.telemetry_favorites_only)
         self._set_switch("autoconnect", settings.autoconnect)
         self._set_entry("gps_device", settings.gps_device)
@@ -657,10 +680,11 @@ class SettingsView(Gtk.Box):
 
         # Public Info
         out.node_name = self._entries["node_name"].get_text().strip() or current.node_name
-        out.latitude = self._parse_float("latitude", allow_partial) or current.latitude
-        out.longitude = self._parse_float("longitude", allow_partial) or current.longitude
+        out.latitude = self._parse_coordinate("latitude", 90.0, allow_partial, current.latitude)
+        out.longitude = self._parse_coordinate("longitude", 180.0, allow_partial, current.longitude)
         out.share_position = self._switches["share_position"].get_active()
         out.allow_telemetry = self._switches["allow_telemetry"].get_active()
+        out.online_map_tiles = self._switches["online_map_tiles"].get_active()
         out.telemetry_favorites_only = self._switches["telemetry_favorites_only"].get_active()
         out.autoconnect = self._switches["autoconnect"].get_active()
         out.gps_device = self._entries["gps_device"].get_text().strip()
@@ -714,6 +738,16 @@ class SettingsView(Gtk.Box):
         out.show_radio_error_toasts = self._switches["show_radio_error_toasts"].get_active()
 
         return out
+
+    def _parse_coordinate(
+        self, key: str, limit: float, allow_partial: bool, fallback: float
+    ) -> float:
+        try:
+            return parse_coordinate(self._entries[key].get_text(), key, limit)
+        except ValueError:
+            if allow_partial:
+                return fallback
+            raise
 
     def _parse_float(self, key: str, allow_partial: bool) -> float | None:
         text = self._entries[key].get_text().strip()

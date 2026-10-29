@@ -55,9 +55,21 @@ class MeshcoreService(Protocol):
 
     def send_message(self, peer_id: str, body: str) -> Message: ...
 
+    def is_private_channel(self, channel_id: str) -> bool:
+        """True for a group channel joined with its own (non-derivable) key."""
+        ...
+
+    def ensure_dm_channel(self, peer_name: str) -> Channel:
+        """The DM thread with ``peer_name`` (channel id ``dm:<name>``), created if needed."""
+        ...
+
     def send_advert(
         self, name: str | None = None, *, route_type: str = "flood"
     ) -> SendResultDict: ...
+
+    def discover_nodes(self) -> list[dict]:
+        """Zero-hop discover of nearby repeaters/sensors; blocks for the answer window."""
+        ...
 
     def poll_events(self, limit: int = 50) -> list[MeshEventDict]: ...
 
@@ -72,6 +84,12 @@ class MeshcoreService(Protocol):
     def update_settings(self, settings: MeshcoreSettings) -> None: ...
 
     def get_device_location(self) -> tuple[float, float] | None: ...
+
+    def get_map_view(self) -> tuple[float, float, float] | None:
+        """The map's last view (latitude, longitude, zoom), if one was saved."""
+        ...
+
+    def save_map_view(self, lat: float, lon: float, zoom: float) -> None: ...
 
     def is_mock_mode(self) -> bool:
         """Return True if running in mock mode."""
