@@ -164,6 +164,7 @@ class MessagesView(Gtk.Box):
         self._scroll_overlay.add_overlay(self._scroll_bottom_btn)
 
         self._is_at_bottom = True
+        self._follow_id = 0  # a pending _follow_to_end
         adjustment = self._scroll.get_vadjustment()
         adjustment.connect("value-changed", self._on_scroll_value_changed)
         adjustment.connect("changed", self._on_scroll_extent_changed)
@@ -287,14 +288,25 @@ class MessagesView(Gtk.Box):
     def _on_scroll_value_changed(self, adj: Gtk.Adjustment) -> None:
         self._set_at_bottom(adj.get_value() >= adj.get_upper() - adj.get_page_size() - 50)
 
-    def _on_scroll_extent_changed(self, adj: Gtk.Adjustment) -> None:
+    def _on_scroll_extent_changed(self, _adj: Gtk.Adjustment) -> None:
         """Stay on the newest message while the view was there.
 
         New bubbles change the scroll range only when the next frame lays them
-        out.  Scrolling to the end from an idle callback could run before that,
-        so it stopped at the old end, with the newest message just below."""
-        if self._is_at_bottom:
-            adj.set_value(adj.get_upper() - adj.get_page_size())
+        out.  Scrolling to the end from an idle callback queued with the new
+        bubbles could run before that, so it stopped at the old end, with the
+        newest message just below.  The range changes during the layout,
+        where moving the view is lost (the adjustment says "at the end", the
+        messages stay where they were), so the scroll follows in an idle, at
+        a priority above redraws, which can hold a default idle back for
+        over a second."""
+        if self._is_at_bottom and not self._follow_id:
+            self._follow_id = GLib.idle_add(self._follow_to_end, priority=GLib.PRIORITY_HIGH_IDLE)
+
+    def _follow_to_end(self) -> bool:
+        self._follow_id = 0
+        if self._is_at_bottom:  # not scrolled away (or to an unread message) since
+            self._scroll_to_bottom()
+        return False
 
     def _set_at_bottom(self, at_bottom: bool) -> None:
         if at_bottom != self._is_at_bottom:
@@ -389,9 +401,6 @@ class MessagesView(Gtk.Box):
         self._reload_messages()
 
     def _reload_messages(self) -> None:
-        # a channel opens at its newest message, or at the first unread one
-        # (below), even if the last one was scrolled up
-        self._set_at_bottom(True)
         clear_children(self._message_box)
 
         # Hide details when reloading
@@ -412,6 +421,7 @@ class MessagesView(Gtk.Box):
         if not messages:
             self._last_message_date = None
             self._message_box.append(EmptyState("No messages in this channel yet.", vexpand=True))
+            self._set_at_bottom(True)  # follow from the first message
             return
 
         first_unread_widget: Gtk.Widget | None = None
@@ -430,6 +440,9 @@ class MessagesView(Gtk.Box):
                 first_unread_widget = bubble
         self._last_message_date = prev_date
 
+        # Open at the first unread message, else at the newest, and follow
+        # new messages from there (also when the last channel was scrolled up)
+        self._set_at_bottom(first_unread_widget is None)
         if first_unread_widget is not None:
             GLib.idle_add(self._scroll_to_widget, first_unread_widget)
         else:
