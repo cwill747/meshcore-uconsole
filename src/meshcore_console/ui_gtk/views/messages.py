@@ -193,7 +193,16 @@ class MessagesView(Gtk.Box):
         self._details_box.set_margin_end(12)
         self._details_box.set_margin_top(8)
         self._details_box.set_margin_bottom(8)
-        self._details_revealer.set_child(self._details_box)
+        # The details of a relayed message are some 350 px tall: unbounded,
+        # they made the window taller than a 576 px screen, with their Close
+        # button and the message entry below its edge.  At most this tall,
+        # they scroll; the messages keep the rest.
+        details_scroll = Gtk.ScrolledWindow.new()
+        details_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        details_scroll.set_propagate_natural_height(True)
+        details_scroll.set_max_content_height(220)
+        details_scroll.set_child(self._details_box)
+        self._details_revealer.set_child(details_scroll)
 
         split.append(self._chat_panel)
 
