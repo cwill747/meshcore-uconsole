@@ -164,7 +164,9 @@ class MessagesView(Gtk.Box):
         self._scroll_overlay.add_overlay(self._scroll_bottom_btn)
 
         self._is_at_bottom = True
-        self._scroll.get_vadjustment().connect("value-changed", self._on_scroll_value_changed)
+        adjustment = self._scroll.get_vadjustment()
+        adjustment.connect("value-changed", self._on_scroll_value_changed)
+        adjustment.connect("changed", self._on_scroll_extent_changed)
 
         self._message_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._message_box.set_margin_start(12)
@@ -261,7 +263,8 @@ class MessagesView(Gtk.Box):
                     )
                 self._last_message_id = new_messages[-1].message_id
                 if self._is_at_bottom:
-                    GLib.idle_add(self._scroll_to_bottom)
+                    # the view follows once the new bubbles are laid out
+                    # (_on_scroll_extent_changed)
                     self._service.mark_channel_read(self._selected_channel_id)
             for channel in self._service.list_channels():
                 self._update_channel_unread_display(channel.channel_id, channel.unread_count)
@@ -282,7 +285,18 @@ class MessagesView(Gtk.Box):
         return False
 
     def _on_scroll_value_changed(self, adj: Gtk.Adjustment) -> None:
-        at_bottom = adj.get_value() >= adj.get_upper() - adj.get_page_size() - 50
+        self._set_at_bottom(adj.get_value() >= adj.get_upper() - adj.get_page_size() - 50)
+
+    def _on_scroll_extent_changed(self, adj: Gtk.Adjustment) -> None:
+        """Stay on the newest message while the view was there.
+
+        New bubbles change the scroll range only when the next frame lays them
+        out.  Scrolling to the end from an idle callback could run before that,
+        so it stopped at the old end, with the newest message just below."""
+        if self._is_at_bottom:
+            adj.set_value(adj.get_upper() - adj.get_page_size())
+
+    def _set_at_bottom(self, at_bottom: bool) -> None:
         if at_bottom != self._is_at_bottom:
             self._is_at_bottom = at_bottom
             self._scroll_bottom_btn.set_visible(not at_bottom)
@@ -375,6 +389,9 @@ class MessagesView(Gtk.Box):
         self._reload_messages()
 
     def _reload_messages(self) -> None:
+        # a channel opens at its newest message, or at the first unread one
+        # (below), even if the last one was scrolled up
+        self._set_at_bottom(True)
         clear_children(self._message_box)
 
         # Hide details when reloading
