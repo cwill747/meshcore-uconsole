@@ -59,7 +59,11 @@ class PathVisualization(Gtk.FlowBox):
             prefix, name, peer, style = start
             self.append(self._hop_pair(arrow, prefix, name, peer, style, hide_arrow=True))
 
-        for hop in hops:
+        # ``hops`` come as the packet carried them: each relay appends its
+        # hash, so the sender's side is first and our neighbour last.  The
+        # chain starts at this device, so it walks them backwards; drawn in
+        # list order, the relay next to the sender stood next to "Me".
+        for hop in reversed(hops):
             hop_peer = find_peer_for_hop(peers, hop)
             hop_name = hop_peer.display_name if hop_peer else hop
             hop_prefix = hop.upper() if len(hop) <= 6 else hop[:2].upper()
