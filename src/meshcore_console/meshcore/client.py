@@ -6,6 +6,7 @@ import concurrent.futures
 import logging
 import threading
 from collections import deque
+from itertools import chain, count
 from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
@@ -694,15 +695,28 @@ class MeshcoreClient(MeshcoreService):
         key and receive the user's DMs to Alice (and a repeater's saved admin
         password).  A known key advertising a new name is renamed in place, so a
         renamed node (or a discovery placeholder) stays one peer.
+
+        A distinct name can be taken too (a node may advertise "Alice (9f3a1c)"
+        itself), so longer key prefixes are tried until a name is free or this
+        key's own.
         """
-        owner = self._peers.get(name)
-        if (
-            owner is not None
-            and owner.public_key
-            and owner.public_key.lower() != public_key.lower()
-        ):
-            name = f"{name} ({public_key[:6].lower()})"
-        current = self._peer_name_for_key(public_key)
+        key = public_key.lower()
+        current = self._peer_name_for_key(key)
+
+        def is_free(candidate: str) -> bool:
+            holder = self._peers.get(candidate)
+            if holder is None:
+                return True
+            if holder.public_key:
+                return holder.public_key.lower() == key
+            return current is None  # a keyless peer is taken over by a new key only
+
+        candidates = chain(
+            [name],
+            (f"{name} ({key[:width]})" for width in range(6, len(key) + 1, 2)),
+            (f"{name} ({key}) {n}" for n in count(2)),
+        )
+        name = next(c for c in candidates if is_free(c))
         if current is not None and current != name:
             self._rename_peer(current, name)
         return name
@@ -741,6 +755,8 @@ class MeshcoreClient(MeshcoreService):
         """Move a peer and everything keyed by its name (contact, login session,
         DM thread) to a new name; the peer_id, and so the DB row, favourite and
         history, stay the same, and a saved password is bound to the key."""
+        if new in self._peers:  # _claim_name picks a free name
+            raise ValueError(f"cannot rename {old!r}: {new!r} is another peer")
         peer = self._peers.pop(old)
         peer.display_name = new
         self._peers[new] = peer
@@ -1066,6 +1082,9 @@ class MeshcoreClient(MeshcoreService):
     ) -> None:
         """Update an existing peer with new advert data."""
         existing = self._peers[peer_name]
+        if public_key and existing.public_key and existing.public_key.lower() != public_key.lower():
+            # _claim_name gives another key's advert a name of its own
+            raise ValueError(f"peer {peer_name!r} belongs to another key")
         existing.signal_quality = signal if signal is not None else existing.signal_quality
         existing.last_advert_time = datetime.now(UTC)
         existing.last_path = path_hops if path_hops else existing.last_path
