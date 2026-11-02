@@ -405,9 +405,16 @@ class MeshcoreClient(MeshcoreService):
             self._channel_store.add_or_update(channel)
         return sorted(self._channels.values(), key=lambda c: c.display_name.lower())
 
+    def _dm_thread_id(self, peer_name: str, public_key: str | None = None) -> str:
+        """The id of the DM thread with a peer: by its key, given or the named peer's."""
+        if not public_key:
+            peer = self._peers.get(peer_name)
+            public_key = peer.public_key if peer is not None else None
+        return dm_channel_id(peer_name, public_key)
+
     def ensure_dm_channel(self, peer_name: str) -> Channel:
         """The DM thread with ``peer_name``, created if necessary."""
-        channel_id = dm_channel_id(peer_name)
+        channel_id = self._dm_thread_id(peer_name)
         channel = self._channels.get(channel_id)
         if channel is None:
             channel = Channel(
@@ -428,7 +435,8 @@ class MeshcoreClient(MeshcoreService):
         if channel_id.startswith(DM_PREFIX):
             if display_name is not None and display_name.startswith("#"):
                 check_channel_name(display_name)  # a group name in the DM namespace
-            return self.ensure_dm_channel(display_name or channel_id[len(DM_PREFIX) :])
+            rest = channel_id[len(DM_PREFIX) :]  # a key, or a name
+            return self.ensure_dm_channel(display_name or self._peer_name_for_key(rest) or rest)
         is_group = (
             channel_id == "public"
             or channel_id.startswith("#")
@@ -752,9 +760,10 @@ class MeshcoreClient(MeshcoreService):
                 self._session.contact_book.remove_key(peer.public_key)
 
     def _rename_peer(self, old: str, new: str) -> None:
-        """Move a peer and everything keyed by its name (contact, login session,
-        DM thread) to a new name; the peer_id, and so the DB row, favourite and
-        history, stay the same, and a saved password is bound to the key."""
+        """Move a peer and everything keyed by its name (contact, login session)
+        to a new name and relabel its DM thread; the peer_id, and so the DB row,
+        favourite and history, stay the same, and the DM thread and a saved
+        password are bound to the key."""
         if new in self._peers:  # _claim_name picks a free name
             raise ValueError(f"cannot rename {old!r}: {new!r} is another peer")
         peer = self._peers.pop(old)
@@ -1160,7 +1169,10 @@ class MeshcoreClient(MeshcoreService):
             or event_type == EventType.MESH_MESSAGE_NEW
             or not data.get("channel_name")
         )
-        channel_name = dm_channel_id(sender_name) if is_direct else data["channel_name"].lower()
+        if is_direct:
+            channel_name = self._dm_thread_id(sender_name, data.get("contact_pubkey"))
+        else:
+            channel_name = data["channel_name"].lower()
         if not is_direct and is_dm_channel_id(channel_name):
             # Only a secret stored before such names were refused can name one.
             logger.warning("Dropping a group message for reserved channel %r", channel_name)

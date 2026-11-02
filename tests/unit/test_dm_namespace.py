@@ -143,7 +143,7 @@ def test_identical_dms_minutes_apart_both_show_retries_do_not(tmp_path, monkeypa
     client._process_message_event(dm(1_761_595_000), EventType.MESH_MESSAGE_NEW)  # retry
     client._process_message_event(dm(1_761_595_600), EventType.MESH_MESSAGE_NEW)  # 10 min later
 
-    assert [m.body for m in client.list_messages_for_channel("dm:bob")] == ["ok", "ok"]
+    assert [m.body for m in client.list_messages_for_channel("dm:" + bob)] == ["ok", "ok"]
 
 
 def test_messages_pair_with_their_own_packet(tmp_path, monkeypatch) -> None:
@@ -275,3 +275,80 @@ def test_a_group_stored_under_a_dm_id_is_ignored(tmp_path, monkeypatch) -> None:
     thread = client.ensure_dm_channel("Bob")
     client.send_message(thread.channel_id, "private")
     assert thread.kind == "dm" and sent == [("dm", "Bob")]
+
+
+def _advert(name: str, key: str, ts: int) -> dict:
+    return {
+        "type": EventType.MESH_NODE_DISCOVERED,
+        "data": {"name": name, "public_key": key, "contact_type": 1, "advert_timestamp": ts},
+    }
+
+
+def _dm(name: str, key: str, text: str) -> dict:
+    return {"sender_name": name, "contact_pubkey": key, "message_text": text, "message_id": text}
+
+
+def test_a_renamed_peer_keeps_one_conversation(tmp_path, monkeypatch) -> None:
+    client, sent = _client(tmp_path, monkeypatch)
+    key = "aa" * 32
+    client._process_event_for_peers(_advert("Alice", key, 1))
+    thread = client.ensure_dm_channel("Alice")
+    client.send_message(thread.channel_id, "hi Alice")
+
+    client._process_event_for_peers(_advert("Bob", key, 2))  # same key, new name
+    client._process_message_event(_dm("Bob", key, "it's Bob now"), EventType.MESH_MESSAGE_NEW)
+    client.send_message(client.ensure_dm_channel("Bob").channel_id, "hi Bob")
+
+    dms = [(c.channel_id, c.display_name) for c in client.list_channels() if c.kind == "dm"]
+    assert dms == [("dm:" + key, "Bob")]
+    bodies = [m.body for m in client.list_messages_for_channel("dm:" + key)]
+    assert bodies == ["hi Alice", "it's Bob now", "hi Bob"]
+    assert sent == [("dm", "Alice"), ("dm", "Bob")]
+
+
+def test_names_differing_in_case_are_two_conversations(tmp_path, monkeypatch) -> None:
+    client, sent = _client(tmp_path, monkeypatch)
+    bob, other = "bb" * 32, "cc" * 32
+    client._process_event_for_peers(_advert("Bob", bob, 1))
+    client._process_event_for_peers(_advert("bob", other, 2))
+    client._process_message_event(_dm("Bob", bob, "from Bob"), EventType.MESH_MESSAGE_NEW)
+    client._process_message_event(_dm("bob", other, "from bob"), EventType.MESH_MESSAGE_NEW)
+
+    assert [m.body for m in client.list_messages_for_channel("dm:" + bob)] == ["from Bob"]
+    assert [m.body for m in client.list_messages_for_channel("dm:" + other)] == ["from bob"]
+    client.send_message("dm:" + bob, "reply")
+    assert sent == [("dm", "Bob")]
+
+
+def test_migration_keys_dm_threads_and_merges_split_ones(tmp_path) -> None:
+    path = tmp_path / "old.db"
+    conn = open_db(str(path))
+    conn.execute("UPDATE schema_version SET version = 10")
+    key = "aa" * 32
+    conn.execute(
+        "INSERT INTO peers (peer_id, display_name, public_key) VALUES (?, 'Bob', ?)",
+        (key[:16], key.upper()),
+    )
+    threads = [("dm:alice", "Bob", 1), ("dm:bob", "Bob", 2), ("dm:carol", "Carol", 0)]
+    for channel_id, peer_name, unread in threads:  # Alice renamed to Bob split hers
+        conn.execute(
+            "INSERT INTO channels (channel_id, display_name, unread_count, peer_name, kind) "
+            "VALUES (?, ?, ?, ?, 'dm')",
+            (channel_id, peer_name, unread, peer_name),
+        )
+        conn.execute(
+            "INSERT INTO messages (message_id, sender_id, body, channel_id, created_at) "
+            "VALUES (?, ?, ?, ?, '2026-10-30T20:00:00+00:00')",
+            (channel_id, peer_name, channel_id, channel_id),
+        )
+    conn.commit()
+    conn.close()
+
+    conn = open_db(str(path))
+    rows = conn.execute(
+        "SELECT channel_id, unread_count FROM channels WHERE kind = 'dm' ORDER BY channel_id"
+    ).fetchall()
+    assert rows == [("dm:" + key, 3), ("dm:carol", 0)]  # Carol: no known key
+    messages = dict(conn.execute("SELECT message_id, channel_id FROM messages"))
+    assert messages == {"dm:alice": "dm:" + key, "dm:bob": "dm:" + key, "dm:carol": "dm:carol"}
+    conn.close()
