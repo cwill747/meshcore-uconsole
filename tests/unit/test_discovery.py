@@ -223,6 +223,32 @@ def test_another_key_cannot_take_over_a_name(tmp_path, monkeypatch) -> None:
     assert peers["Bergblick (77cc00)"].public_key == OTHER
 
 
+def test_a_distinct_name_another_key_holds_is_not_taken_either(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    alias_owner = "22" * 32
+    client._process_event_for_peers(advert_event("Bergblick", KEY))
+    client._process_event_for_peers(advert_event("Bergblick (77cc00)", alias_owner))
+    client._process_event_for_peers(advert_event("Bergblick", OTHER))
+    client._process_event_for_peers(advert_event("Bergblick", OTHER))  # again: same name
+
+    owners = {p.display_name: p.public_key for p in client.list_peers()}
+    assert owners == {
+        "Bergblick": KEY,
+        "Bergblick (77cc00)": alias_owner,
+        "Bergblick (77cc0011)": OTHER,
+    }
+
+
+def test_a_rename_cannot_take_another_keys_name(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    client._process_event_for_peers(advert_event("Bergblick", KEY))
+    client._process_event_for_peers(advert_event("Talblick", OTHER))
+    client._process_event_for_peers(advert_event("Talblick", KEY))  # KEY renames itself
+
+    owners = {p.display_name: p.public_key for p in client.list_peers()}
+    assert owners == {"Talblick": OTHER, f"Talblick ({KEY[:6]})": KEY}
+
+
 def test_discovery_updates_a_known_peer_by_key(tmp_path, monkeypatch) -> None:
     client = _client(tmp_path, monkeypatch)
     client._process_event_for_peers(advert_event("Bergblick"))
