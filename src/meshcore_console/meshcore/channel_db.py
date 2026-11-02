@@ -4,6 +4,8 @@ import hashlib
 import sqlite3
 from dataclasses import dataclass
 
+from meshcore_console.core.models import DM_PREFIX, is_dm_channel_id
+
 
 # Default Public channel secret - shared across all MeshCore devices
 PUBLIC_CHANNEL_SECRET = "8b3387e9c5cdea6ac9e5edbaa115cd72"
@@ -12,6 +14,22 @@ PUBLIC_CHANNEL_SECRET = "8b3387e9c5cdea6ac9e5edbaa115cd72"
 def normalize_channel_name(name: str) -> str:
     """Canonical on-the-wire form of a hashtag channel name: no '#', lowercase."""
     return name.strip().lstrip("#").strip().lower()
+
+
+def is_reserved_channel_name(name: str) -> bool:
+    """True for a group name in the DM thread namespace ("dm:bob").
+
+    A group channel's id is its name, so a group named "dm:bob" would take
+    over the DM thread with Bob: his DMs would land in the group, and a reply
+    typed there would go out to everyone holding the group's key.
+    """
+    return is_dm_channel_id(normalize_channel_name(name))
+
+
+def check_channel_name(name: str) -> None:
+    """Raise ValueError for a name no group channel may have."""
+    if is_reserved_channel_name(name):
+        raise ValueError(f"Channel names starting with '{DM_PREFIX}' are kept for direct messages")
 
 
 def normalize_channel_secret(secret: str) -> str:
@@ -67,6 +85,7 @@ class ChannelDatabase:
             self.add_channel("Public", PUBLIC_CHANNEL_SECRET)
 
     def add_channel(self, name: str, secret: str) -> None:
+        check_channel_name(name)
         # Upsert rather than INSERT OR REPLACE: the latter deletes the row and
         # inserts a fresh one, which resets every column this method does not
         # name. That silently dropped a channel's region_scope whenever a
@@ -85,6 +104,7 @@ class ChannelDatabase:
         case-insensitively so an existing 'Public'/'Chicago' entry is never
         overwritten). Returns the secret in effect for the channel.
         """
+        check_channel_name(name)
         row = self._conn.execute(
             "SELECT secret FROM channel_secrets WHERE name = ? COLLATE NOCASE",
             (normalize_channel_name(name),),
@@ -152,9 +172,17 @@ class ChannelDatabase:
         self._conn.commit()
 
     def get_channels(self) -> list[dict[str, str]]:
-        """Return channels in the format expected by openhop_core GroupTextHandler."""
+        """Return channels in the format expected by openhop_core GroupTextHandler.
+
+        A row stored under a reserved name before such names were refused is
+        left out, so nothing is decrypted into (or sent from) a DM thread's id.
+        """
         rows = self._conn.execute("SELECT name, secret FROM channel_secrets").fetchall()
-        return [{"name": row[0], "secret": row[1]} for row in rows]
+        return [
+            {"name": row[0], "secret": row[1]}
+            for row in rows
+            if not is_reserved_channel_name(row[0])
+        ]
 
     def get_channel(self, name: str) -> dict[str, str] | None:
         row = self._conn.execute(

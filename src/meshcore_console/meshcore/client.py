@@ -20,12 +20,14 @@ from meshcore_console.core.models import (
     Peer,
     RepeaterLoginState,
     dm_channel_id,
+    is_dm_channel_id,
 )
 from meshcore_console.core.radio import rssi_to_signal_percent
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.core.types import MeshEventDict, SendResultDict
 from meshcore_console.meshcore.channel_db import (
     ChannelDatabase,
+    check_channel_name,
     derive_channel_secret,
     normalize_channel_name,
     normalize_channel_secret,
@@ -188,7 +190,7 @@ class MeshcoreClient(MeshcoreService):
         self._repeater_sessions: dict[str, RepeaterLoginState] = {}
         # Load persisted state
         self._messages: list[Message] = self._message_store.get_all()
-        self._channels: dict[str, Channel] = self._channel_store.get_all()
+        self._channels: dict[str, Channel] = self._load_channels()
         self._peers: dict[str, Peer] = self._peer_store.get_all()
         self._sync_channel_secrets_to_ui()
         self._settings = self._settings_store.load()
@@ -216,6 +218,23 @@ class MeshcoreClient(MeshcoreService):
             self._openhop_available = True
 
         self._radio_error_handler = install_radio_error_handler(self._on_radio_error)
+
+    def _load_channels(self) -> dict[str, Channel]:
+        """The stored channels whose kind matches their id's namespace.
+
+        A group stored under a DM thread's id ("dm:bob", before such names were
+        refused) would capture that thread, so it is left out (and kept in the
+        database).
+        """
+        channels = {}
+        for channel_id, channel in self._channel_store.get_all().items():
+            if (channel.kind == "dm") == is_dm_channel_id(channel_id):
+                channels[channel_id] = channel
+            else:
+                logger.warning(
+                    "Ignoring stored %s channel %r: id of the other kind", channel.kind, channel_id
+                )
+        return channels
 
     def _sync_channel_secrets_to_ui(self) -> None:
         """Ensure every channel secret has a corresponding UI channel entry."""
@@ -406,6 +425,8 @@ class MeshcoreClient(MeshcoreService):
         if channel_id in self._channels:
             return self._channels[channel_id]
         if channel_id.startswith(DM_PREFIX):
+            if display_name is not None and display_name.startswith("#"):
+                check_channel_name(display_name)  # a group name in the DM namespace
             return self.ensure_dm_channel(display_name or channel_id[len(DM_PREFIX) :])
         is_group = (
             channel_id == "public"
@@ -444,14 +465,7 @@ class MeshcoreClient(MeshcoreService):
             # The Public channel's shared secret is fixed by the MeshCore spec;
             # overwriting it would silently split the network for this node.
             raise ValueError("The Public channel secret cannot be replaced")
-        existing = self._channels.get(name)
-        if existing is not None and existing.kind == "dm":
-            # A private channel and a DM would share one conversation ID, and
-            # replies would silently follow the older channel's kind — a
-            # private reply could then broadcast to the group (or vice versa).
-            raise ValueError(
-                f"A direct message named '{name}' already exists; choose a different channel name"
-            )
+        check_channel_name(name)  # before anything is written
         # The secrets table's primary key is case-sensitive while lookups are
         # not, so re-importing a channel stored under a different casing (e.g.
         # 'Emergency' via the CLI) must update that row instead of inserting a
@@ -534,8 +548,9 @@ class MeshcoreClient(MeshcoreService):
         # ``peer_id`` is a channel id ("public", "ops", "dm:bob"); a bare peer
         # name means that peer's DM thread, never a group that shares the name.
         channel = self._channels.get(peer_id) or self.ensure_channel(peer_id)
-        is_group = channel.kind == "group"
         channel_id = channel.channel_id
+        # The id decides, not the stored kind: a DM thread's id never broadcasts.
+        is_group = not is_dm_channel_id(channel_id)
 
         if is_group:
             # Ensure a secret exists and resolve the name openhop_core knows the
@@ -1131,6 +1146,10 @@ class MeshcoreClient(MeshcoreService):
             or not data.get("channel_name")
         )
         channel_name = dm_channel_id(sender_name) if is_direct else data["channel_name"].lower()
+        if not is_direct and is_dm_channel_id(channel_name):
+            # Only a secret stored before such names were refused can name one.
+            logger.warning("Dropping a group message for reserved channel %r", channel_name)
+            return
         # Preserve the original-case sender name so we can resolve contacts later.
         peer_display_name = sender_name if is_direct else None
 

@@ -227,3 +227,51 @@ def test_a_busy_channel_does_not_push_out_dms(tmp_path, monkeypatch) -> None:
     assert len(client.list_messages_for_channel("public", limit=100)) == 5
     rows = dict(client._db.execute("SELECT channel_id, COUNT(*) FROM messages GROUP BY channel_id"))
     assert rows == {"dm:bob": 1, "public": 5}
+
+
+SECRET = "00112233445566778899aabbccddeeff"
+
+
+def test_no_group_can_take_a_dm_threads_id(tmp_path, monkeypatch) -> None:
+    import pytest
+
+    from meshcore_console.mock.client import MockMeshcoreClient
+
+    client, sent = _client(tmp_path, monkeypatch)
+    for name in ("dm:bob", "#DM:Bob", " dm:bob "):
+        with pytest.raises(ValueError, match="direct messages"):
+            client.import_channel(name, name, SECRET)
+        with pytest.raises(ValueError, match="direct messages"):
+            client._channel_secrets.add_channel(name, SECRET)  # radio_cli's way in
+    with pytest.raises(ValueError, match="direct messages"):
+        client.ensure_channel("dm:bob", "#dm:bob")  # "+ Add Channel" without a key
+    with pytest.raises(ValueError, match="direct messages"):
+        MockMeshcoreClient().import_channel("dm:bob", "#dm:bob", SECRET)
+    assert client._channel_secrets.resolve_name("dm:bob") is None
+    assert "dm:bob" not in client._channels
+
+    client.send_message(client.ensure_dm_channel("Bob").channel_id, "private")
+    assert sent == [("dm", "Bob")]
+
+
+def test_a_group_stored_under_a_dm_id_is_ignored(tmp_path, monkeypatch) -> None:
+    # stored before such names were refused
+    conn = open_db(str(tmp_path / "test.db"))
+    conn.execute("INSERT INTO channel_secrets (name, secret) VALUES ('dm:bob', ?)", (SECRET,))
+    conn.execute(
+        "INSERT INTO channels (channel_id, display_name, unread_count, kind) "
+        "VALUES ('dm:bob', '#dm:bob', 0, 'group')"
+    )
+    conn.commit()
+    conn.close()
+
+    client, sent = _client(tmp_path, monkeypatch)
+    assert "dm:bob" not in client._channels
+    assert "dm:bob" not in [c["name"] for c in client._channel_secrets.get_channels()]
+    group_post = {"sender_name": "Eve", "channel_name": "dm:bob", "message_text": "x"}
+    client._process_message_event(dict(group_post, message_id="g1"), "")
+    assert client.list_messages_for_channel("dm:bob") == []
+
+    thread = client.ensure_dm_channel("Bob")
+    client.send_message(thread.channel_id, "private")
+    assert thread.kind == "dm" and sent == [("dm", "Bob")]

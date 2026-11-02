@@ -306,12 +306,11 @@ def _import_channel(name: str, secret: str) -> int:
     conn = open_db()
     channel_db = ChannelDatabase(conn)
     try:
-        clean_secret = normalize_channel_secret(secret)
-    except ValueError as exc:
+        channel_db.add_channel(name, normalize_channel_secret(secret))
+    except ValueError as exc:  # a bad secret, or a name kept for DMs
         print(json.dumps({"status": "error", "error": str(exc)}))
         conn.close()
         return 1
-    channel_db.add_channel(name, clean_secret)
     # Also create the UI channel entry so it appears in the channel list
     channel_id = name.lower()
     channel_store = UIChannelStore(conn)
