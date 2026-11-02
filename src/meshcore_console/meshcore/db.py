@@ -115,6 +115,9 @@ MIGRATIONS: list[tuple[str, ...]] = [
     # _bind_repeater_passwords_to_keys() so it stays idempotent when
     # schema_version is behind the actual schema.
     (),
+    # v10 -> v11: DM threads are keyed by the peer's public key ("dm:<key>")
+    # instead of its name; the move happens in _key_dm_threads().
+    (),
 ]
 
 
@@ -216,6 +219,49 @@ def _bind_repeater_passwords_to_keys(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE repeater_passwords_by_key RENAME TO repeater_passwords")
 
 
+def _key_dm_threads(conn: sqlite3.Connection) -> None:
+    """Move DM threads from name ids ("dm:bob") to key ids ("dm:<public key>").
+
+    A name id split a renamed peer's conversation in two and gave "Bob" and
+    "bob" one thread.  A thread moves to the key of the one peer with its
+    peer_name; threads that land on one key (a renamed peer's old and new
+    thread) are merged.  A thread of no single known key keeps its name id.
+    Idempotent: a thread already on its key is left alone.
+    """
+    keys: dict[str, set[str]] = {}
+    for name, key in conn.execute(
+        "SELECT display_name, LOWER(public_key) FROM peers "
+        "WHERE public_key IS NOT NULL AND public_key != ''"
+    ):
+        keys.setdefault(name, set()).add(key)
+    threads = conn.execute(
+        "SELECT channel_id, unread_count, peer_name FROM channels WHERE kind = 'dm'"
+    ).fetchall()
+    for channel_id, unread, peer_name in threads:
+        found = keys.get(peer_name or "", set())
+        if len(found) != 1:
+            continue
+        new_id = "dm:" + next(iter(found))
+        if new_id == channel_id:
+            continue
+        conn.execute(
+            "UPDATE messages SET channel_id = ? WHERE channel_id = ?", (new_id, channel_id)
+        )
+        merged = conn.execute(
+            "SELECT unread_count FROM channels WHERE channel_id = ?", (new_id,)
+        ).fetchone()
+        if merged is None:
+            conn.execute(
+                "UPDATE channels SET channel_id = ? WHERE channel_id = ?", (new_id, channel_id)
+            )
+        else:
+            conn.execute(
+                "UPDATE channels SET unread_count = ? WHERE channel_id = ?",
+                (merged[0] + unread, new_id),
+            )
+            conn.execute("DELETE FROM channels WHERE channel_id = ?", (channel_id,))
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Run any outstanding migrations."""
     current = _get_version(conn)
@@ -241,6 +287,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
             _add_region_scope_column(conn)
         if current < 10:
             _bind_repeater_passwords_to_keys(conn)
+        if current < 11:
+            _key_dm_threads(conn)
         conn.execute("UPDATE schema_version SET version = ?", (target,))
     except BaseException:
         conn.rollback()

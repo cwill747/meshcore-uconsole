@@ -9,9 +9,14 @@ from datetime import UTC, datetime
 DM_PREFIX = "dm:"
 
 
-def dm_channel_id(peer_name: str) -> str:
-    """The channel id of the DM thread with ``peer_name``."""
-    return DM_PREFIX + peer_name.lower()
+def dm_channel_id(peer_name: str, public_key: str | None = None) -> str:
+    """The channel id of the DM thread with a peer.
+
+    Keyed by the peer's public key, which stays with the peer through renames
+    and is never shared (names were: "Bob" and "bob" had one thread); by the
+    name only for a peer whose key is not known.
+    """
+    return DM_PREFIX + (public_key or peer_name).lower()
 
 
 def is_dm_channel_id(channel_id: str) -> bool:
