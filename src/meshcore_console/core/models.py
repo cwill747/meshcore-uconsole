@@ -14,6 +14,11 @@ def dm_channel_id(peer_name: str) -> str:
     return DM_PREFIX + peer_name.lower()
 
 
+def is_dm_channel_id(channel_id: str) -> bool:
+    """True for an id in the DM thread namespace; no group channel has one."""
+    return channel_id.startswith(DM_PREFIX)
+
+
 @dataclass(slots=True)
 class DeviceStatus:
     node_id: str

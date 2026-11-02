@@ -19,6 +19,7 @@ from meshcore_console.core.models import (
     dm_channel_id,
 )
 from meshcore_console.core.services import MeshcoreService
+from meshcore_console.meshcore.channel_db import check_channel_name
 from meshcore_console.meshcore.config import runtime_config_from_settings
 from meshcore_console.meshcore.region import normalize_region_scope
 from meshcore_console.meshcore.settings import MeshcoreSettings
@@ -111,6 +112,8 @@ class MockMeshcoreClient(MeshcoreService):
         if channel_id in self._channels:
             return self._channels[channel_id]
         if channel_id.startswith(DM_PREFIX):
+            if display_name is not None and display_name.startswith("#"):
+                check_channel_name(display_name)
             return self.ensure_dm_channel(display_name or channel_id[len(DM_PREFIX) :])
         is_group = (
             channel_id == "public"
@@ -141,11 +144,7 @@ class MockMeshcoreClient(MeshcoreService):
             raise ValueError("Channel name is required")
         if name == "public":
             raise ValueError("The Public channel secret cannot be replaced")
-        existing = self._channels.get(name)
-        if existing is not None and existing.kind == "dm":
-            raise ValueError(
-                f"A direct message named '{name}' already exists; choose a different channel name"
-            )
+        check_channel_name(name)
         self._channel_secrets[name] = clean_secret
         channel = Channel(
             channel_id=name,

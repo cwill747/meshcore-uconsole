@@ -894,20 +894,20 @@ class MessagesView(Gtk.Box):
         channel_id = raw.lower()
         display_name = f"#{channel_id}"
         secret = secret_entry.get_text().strip()
-        if secret:
-            # Private channel: store the supplied PSK verbatim (issue #101).
-            try:
+        try:
+            if secret:
+                # Private channel: store the supplied PSK verbatim (issue #101).
                 self._service.import_channel(channel_id, display_name, secret)
-            except ValueError as exc:
-                logger.warning("Invalid channel secret: %s", exc)
-                error = build_alert_dialog(self.get_root(), "Invalid channel secret", str(exc))
-                error.add_response("ok", "OK")
-                error.set_default_response("ok")
-                error.set_close_response("ok")
-                present_dialog(error, self.get_root())
-                return
-        else:
-            self._service.ensure_channel(channel_id, display_name)
+            else:
+                self._service.ensure_channel(channel_id, display_name)
+        except ValueError as exc:  # a bad secret, or a name kept for DMs
+            logger.warning("Could not add channel: %s", exc)
+            error = build_alert_dialog(self.get_root(), "Could not add channel", str(exc))
+            error.add_response("ok", "OK")
+            error.set_default_response("ok")
+            error.set_close_response("ok")
+            present_dialog(error, self.get_root())
+            return
         self._selected_channel_id = channel_id
         self._reload_channels()
 
