@@ -143,3 +143,46 @@ def test_routes_are_not_restored_from_stored_advert_paths(tmp_path, monkeypatch)
     client._seed_contact_book()  # what connect() does
 
     assert book.get_by_name("Bergblick").out_path_len == -1
+
+
+def _advert(name: str, key: str, ts: int) -> dict:
+    event = verified(name, ts)
+    event["data"]["public_key"] = key
+    return event
+
+
+def test_a_saved_password_stays_with_its_key_not_its_name(tmp_path, monkeypatch) -> None:
+    """Eviction frees a name, and a new key may take it; the repeater's saved
+    password must not be offered to that key."""
+    from meshcore_console.meshcore import client as client_mod
+
+    monkeypatch.setattr(client_mod, "MAX_PEERS", 2)
+    client = _client(tmp_path, monkeypatch)
+    hill, thief = "aa" * 32, "ee" * 32
+    client._process_event_for_peers(_advert("Hill repeater", hill, 1))
+    client._repeater_password_store.save_password(hill, "s3cret")
+    client._process_event_for_peers(_advert("Other", "bb" * 32, 2))
+    client._process_event_for_peers(_advert("Third", "cc" * 32, 3))  # evicts Hill
+    client._process_event_for_peers(_advert("Hill repeater", thief, 4))
+
+    owners = {p.display_name: p.public_key for p in client.list_peers()}
+    assert owners["Hill repeater"] == thief
+    assert client.get_saved_repeater_password("Hill repeater") is None
+
+    client._process_event_for_peers(_advert("Hill repeater", hill, 5))  # the real one is back
+    assert client.get_saved_repeater_password("Hill repeater (aaaaaa)") == "s3cret"
+
+
+def test_a_password_is_saved_for_the_repeaters_key(tmp_path, monkeypatch) -> None:
+    client = _client(tmp_path, monkeypatch)
+    client._process_event_for_peers(verified("Bergblick", 1))
+    client._connected = True
+
+    async def login(peer_name, password):
+        return {"success": True, "is_admin": True}
+
+    monkeypatch.setattr(client._session, "send_repeater_login", login, raising=False)
+    client.login_to_repeater("Bergblick", "pw", save_password=True)
+    assert client._repeater_password_store.list_saved() == [KEY]
+    client.delete_saved_repeater_password("Bergblick")
+    assert client.get_saved_repeater_password("Bergblick") is None
