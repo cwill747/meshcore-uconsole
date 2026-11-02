@@ -739,8 +739,8 @@ class MeshcoreClient(MeshcoreService):
 
     def _rename_peer(self, old: str, new: str) -> None:
         """Move a peer and everything keyed by its name (contact, login session,
-        DM thread, saved password) to a new name; the peer_id, and so the DB
-        row, favourite and history, stay the same."""
+        DM thread) to a new name; the peer_id, and so the DB row, favourite and
+        history, stay the same, and a saved password is bound to the key."""
         peer = self._peers.pop(old)
         peer.display_name = new
         self._peers[new] = peer
@@ -757,10 +757,6 @@ class MeshcoreClient(MeshcoreService):
                 if channel.display_name == old:
                     channel.display_name = new
                 self._channel_store.add_or_update(channel)
-        password = self._repeater_password_store.get_password(old)
-        if password is not None:
-            self._repeater_password_store.save_password(new, password)
-            self._repeater_password_store.delete_password(old)
 
     def poll_events(self, limit: int = 50) -> list[MeshEventDict]:
         events: list[MeshEventDict] = []
@@ -1378,8 +1374,9 @@ class MeshcoreClient(MeshcoreService):
                 firmware_ver_level=result.get("firmware_ver_level"),
             )
             self._repeater_sessions[peer_name] = state
-            if save_password:
-                self._repeater_password_store.save_password(peer_name, password)
+            key = self._repeater_key(peer_name)
+            if save_password and key:
+                self._repeater_password_store.save_password(key, password)
         self._append_event(
             {
                 "type": EventType.REPEATER_LOGIN,
@@ -1430,11 +1427,21 @@ class MeshcoreClient(MeshcoreService):
     def list_logged_in_repeaters(self) -> list[str]:
         return list(self._repeater_sessions.keys())
 
+    def _repeater_key(self, peer_name: str) -> str:
+        """The key of the peer holding ``peer_name`` now ("" if none).  Saved
+        passwords are looked up by it, so a password never follows a name to
+        another key."""
+        peer = self._peers.get(peer_name)
+        return (peer.public_key or "") if peer else ""
+
     def get_saved_repeater_password(self, peer_name: str) -> str | None:
-        return self._repeater_password_store.get_password(peer_name)
+        key = self._repeater_key(peer_name)
+        return self._repeater_password_store.get_password(key) if key else None
 
     def delete_saved_repeater_password(self, peer_name: str) -> None:
-        self._repeater_password_store.delete_password(peer_name)
+        key = self._repeater_key(peer_name)
+        if key:
+            self._repeater_password_store.delete_password(key)
 
     def _get_local_telemetry(self) -> dict:
         """Provide local telemetry data for inbound requests.

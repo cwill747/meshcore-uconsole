@@ -110,6 +110,11 @@ MIGRATIONS: list[tuple[str, ...]] = [
         "UPDATE channels SET channel_id = 'dm:' || channel_id "
         "WHERE kind = 'dm' AND channel_id NOT LIKE 'dm:%'",
     ),
+    # v9 -> v10: saved repeater passwords are bound to the repeater's public
+    # key instead of its name.  The table is rebuilt in
+    # _bind_repeater_passwords_to_keys() so it stays idempotent when
+    # schema_version is behind the actual schema.
+    (),
 ]
 
 
@@ -178,6 +183,39 @@ def _add_region_scope_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE channel_secrets ADD COLUMN region_scope TEXT")
 
 
+def _bind_repeater_passwords_to_keys(conn: sqlite3.Connection) -> None:
+    """Key repeater_passwords by public key instead of peer name.
+
+    A name is advertised by whoever holds a key, so a password saved under a
+    name was offered to any key that later took the name.  Each password moves
+    to the key of the one peer of its name; one whose name no peer (or more
+    than one) has is dropped, as there is no telling whose it was.
+    """
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(repeater_passwords)")]
+    if "peer_name" not in columns:
+        return
+    conn.execute(
+        """CREATE TABLE repeater_passwords_by_key (
+            public_key TEXT PRIMARY KEY,
+            password TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )"""
+    )
+    conn.execute(
+        """INSERT OR IGNORE INTO repeater_passwords_by_key (public_key, password, created_at)
+           SELECT LOWER(p.public_key), r.password, r.created_at
+           FROM repeater_passwords r JOIN peers p ON p.display_name = r.peer_name
+           WHERE p.public_key IS NOT NULL AND p.public_key != ''
+             AND (SELECT COUNT(*) FROM peers q WHERE q.display_name = r.peer_name) = 1"""
+    )
+    (before,) = conn.execute("SELECT COUNT(*) FROM repeater_passwords").fetchone()
+    (after,) = conn.execute("SELECT COUNT(*) FROM repeater_passwords_by_key").fetchone()
+    if dropped := before - after:
+        logger.info("Dropped %d saved repeater password(s) of no single known key", dropped)
+    conn.execute("DROP TABLE repeater_passwords")
+    conn.execute("ALTER TABLE repeater_passwords_by_key RENAME TO repeater_passwords")
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Run any outstanding migrations."""
     current = _get_version(conn)
@@ -201,6 +239,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
             _backfill_channel_secrets(conn)
         if current < 8:
             _add_region_scope_column(conn)
+        if current < 10:
+            _bind_repeater_passwords_to_keys(conn)
         conn.execute("UPDATE schema_version SET version = ?", (target,))
     except BaseException:
         conn.rollback()

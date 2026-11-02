@@ -183,7 +183,7 @@ def advert_event(name: str, key: str = KEY) -> dict:
 def test_advert_renames_discovered_placeholder(tmp_path, monkeypatch) -> None:
     client = _client(tmp_path, monkeypatch)
     client._process_event_for_peers(discovered_event("Repeater 13ab5c7e"))
-    client._repeater_password_store.save_password("Repeater 13ab5c7e", "pw")
+    client._repeater_password_store.save_password(KEY, "pw")
     client.set_favorite(KEY[:16], True)
 
     client._process_event_for_peers(advert_event("Bergblick"))
@@ -202,7 +202,7 @@ def test_a_renamed_node_stays_one_peer(tmp_path, monkeypatch) -> None:
     client = _client(tmp_path, monkeypatch)
     client._process_event_for_peers(advert_event("Bergblick"))
     client.set_favorite(KEY[:16], True)
-    client._repeater_password_store.save_password("Bergblick", "pw")
+    client._repeater_password_store.save_password(KEY, "pw")
 
     client._process_event_for_peers(advert_event("Talblick"))
 
