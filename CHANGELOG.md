@@ -5,6 +5,93 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.13.0 (2026-11-13)
+
+### Feat
+
+- **map**: add a switch to stop downloading map tiles
+- discover nearby repeaters and ask them for their names
+- support private channel keys when adding channels (#101) (#103)
+
+### Fix
+
+- **messages**: key DM threads by the peer's public key
+- **peers**: give a name collision a name nobody else holds
+- **admin**: bind a saved repeater password to the repeater's key
+- **channels**: keep group channels out of the DM thread ids
+- **messages**: keep a message's details within the screen
+- **messages**: scroll to a new message after the layout, not during it
+- **messages**: keep the newest message in view as messages arrive
+- **ui**: draw a path from this device outwards, not backwards
+- **map**: open where the map was left, or at this device, not on the USA
+- **map**: show this device's fixed position on the map even when not shared
+- **ui**: stop network paths drawing over the public key
+- **admin**: replace the "telemetry" quick command, which repeaters don't have
+- **requests**: don't answer replayed requests or transit copies
+- **requests**: skip a contact with an unusable key instead of dropping the request
+- **cli**: end `listen --duration` on time even when nothing is received
+- **client**: record app-generated events once in the event history
+- **cli**: let `send` reach the peers the app knows
+- **routing**: don't restore routes from stored advert paths at startup
+- **analyzer**: store each received packet once
+- **client**: close the database connection of a replaced session
+- **cli**: let import-channel take the key without the command line
+- **gps**: don't power the GPS rail off when the serial fallback stops
+- **gps**: report a gpsd position only while there is a current fix
+- **map**: update markers when peers move or are renamed
+- **admin**: open the console after an admin login
+- **admin**: let Up/Down leave the command line when there is no history
+- **admin**: say "still waiting" instead of ignoring requests while busy
+- **ui**: make node badges usable from the keyboard
+- **ui**: stop leaking a popover per channel right-click
+- **ui**: reach channel actions from the keyboard
+- **peers**: keep details, focus and selection when the peer list refreshes
+- **channels**: remove a private channel's key with the channel, after warning
+- **messages**: keep message history per channel
+- **messages**: show late CLI replies in Admin and credit room-post authors
+- **ui**: URL-encode the node name in the contact QR code
+- **settings**: fall back to the default for an unreadable settings row
+- **presets**: power the AIOv2 LoRa module from GPIO 16, not the GPS rail
+- **radio**: pass MeshCore's sync word to the radio explicitly
+- **radio**: add the EU/UK Narrow preset and use MeshCore 1.16 preamble lengths
+- **security**: bound the peer list
+- **messages**: show the real hop count instead of "255 hops"
+- **messages**: pair each decoded message with its own packet
+- **messages**: stop dropping a repeated DM sent minutes later
+- **messages**: send without freezing the UI, retry DMs, and report delivery
+- give DM threads their own channel ids
+- **routing**: flood DMs until a route is known, and stop taking routes from adverts
+- **security**: never let another key take over a contact's name
+- **security**: build peers only from adverts openhop_core has verified
+- **admin**: ask before rebooting a repeater
+- **admin**: enable the command line only for admin logins
+- **admin**: show the logged-out state after a disconnect
+- **cli**: use the saved settings for listen, send and advert
+- **client**: keep processing a batch of events when one of them fails
+- **db**: run schema upgrades in one transaction
+- **client**: serialise connect/disconnect and clean up a failed connect
+- **client**: never leave a radio call waiting forever
+- deliver bursts of events to the UI without dropping the oldest
+- **analyzer**: keep collecting packets while paused, and stop inventing signal values
+- **settings**: allow a fixed position to be cleared or set to 0
+- **ui**: keep the open channel and unread counts updating
+- **ui**: keep the main window within a 1024x576 screen
+- **ui**: close Add Channel and Region Scope dialogs when Enter confirms them
+- **ui**: make Export Logs work on GTK 4.8
+- **ui**: show toast text literally on libadwaita 1.2
+- **privacy**: rate-limit discovery answers and honour the node-type filter
+- **privacy**: leave anonymous requests to openhop_core's handler
+- **privacy**: send the position in telemetry replies only when it is shared
+- **logging**: keep message text, positions and control characters out of logs
+- **security**: keep the identity seed, database and logs owner-only
+- **logging**: keep the log in the state directory that XDG_STATE_HOME names
+- **ui**: rebuild the admin repeater list whenever its repeaters change
+- use the Ed25519 identity key as the node's own public key
+- **repeater**: make logout local instead of sending a CLI "logout"
+- **repeater**: use the openhop_core 1.1 handler API for login, CLI and telemetry
+- **ui**: wrap channel list in a ScrolledWindow so the window fits the screen (#102)
+- normalise routing_path from bytes to list[int] for PacketBuilder compatibility (#99)
+
 ## v1.12.0 (2026-09-11)
 
 ### Feat
