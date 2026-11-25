@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+
+
+DEFAULT_RENDER_CACHE_MIB = 8096
 
 
 @dataclass(slots=True)
@@ -13,9 +16,10 @@ class MeshcoreSettings:
     allow_telemetry: bool = True  # Allow telemetry requests from other nodes
     telemetry_favorites_only: bool = False
     autoconnect: bool = False  # Automatically connect to radio on app startup
-    # Fetch OpenStreetMap tiles; off keeps the map from telling the tile
-    # server your IP address and the area you look at.
+    # Permit explicit Protomaps area downloads and refreshes.
     online_map_tiles: bool = True
+    render_cache_mib: int = DEFAULT_RENDER_CACHE_MIB
+    protomaps_api_key: str = field(default="", repr=False)
     gps_device: str = ""  # GPS serial port path; empty = auto-detect (#82)
     suppress_service_dialog: bool = False  # Don't prompt to stop conflicting services
     log_level: str = "INFO"  # stderr log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)

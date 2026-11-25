@@ -534,7 +534,8 @@ row:focus-visible {
   border-radius: 4px;
 }
 
-.map-control-button {
+button.map-control-button,
+menubutton.map-control-button > button {
   background: alpha(@mc_surface, 0.9);
   border: 1px solid @mc_border;
   border-radius: 8px;
@@ -543,17 +544,20 @@ row:focus-visible {
   min-height: 36px;
 }
 
-.map-control-button:hover {
+button.map-control-button:hover,
+menubutton.map-control-button > button:hover {
   background: alpha(@mc_surface_alt, 0.95);
 }
 
-.map-control-active {
+button.map-control-active,
+button.map-control-button:checked {
   background: alpha(@mc_accent, 0.25);
   border-color: @mc_accent;
   color: @mc_accent;
 }
 
-.map-control-active:hover {
+button.map-control-active:hover,
+button.map-control-button:checked:hover {
   background: alpha(@mc_accent, 0.35);
 }
 

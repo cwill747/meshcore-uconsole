@@ -1,9 +1,9 @@
-"""Map view showing peer locations on OpenStreetMap tiles."""
+"""Map view showing peer locations on saved Protomaps areas."""
 
 from __future__ import annotations
 
 import logging
-import math
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -11,7 +11,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gio, GLib, Gtk, Pango
+from gi.repository import GLib, Gtk, Pango
 
 if TYPE_CHECKING:
     pass
@@ -27,7 +27,7 @@ except (ValueError, ImportError):
     SHUMATE_AVAILABLE = False
     print("[MapView] libshumate not available", file=sys.stderr)
 
-from meshcore_console.core.map_view import DEVICE_ZOOM, initial_view
+from meshcore_console.core.map_view import DEVICE_ZOOM, MAX_ZOOM, initial_view
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
@@ -35,16 +35,9 @@ from meshcore_console.ui_gtk.helpers import clear_children, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
-from meshcore_console.platform.mbtiles import MBTilesReader, find_mbtiles_files
+from meshcore_console.platform.offline_area import ArchiveCollection, tiles_directory
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
 from meshcore_console.ui_gtk.compat import new_toast
-
-
-def viewport_extents(width, height, scale, rotation):
-    """Half-width and half-height in map pixels after rotating the viewport."""
-    cos = abs(math.cos(rotation))
-    sin = abs(math.sin(rotation))
-    return (width * cos + height * sin) / (2 * scale), (width * sin + height * cos) / (2 * scale)
 
 
 def marker_state(peers: list[Peer]) -> tuple:
@@ -59,7 +52,12 @@ def marker_state(peers: list[Peer]) -> tuple:
 
 
 if SHUMATE_AVAILABLE:
+    from meshcore_console.ui_gtk.views.saved_areas import SavedAreasView
+    from meshcore_console.platform.browsed_tiles import RenderedTiles
+    from meshcore_console.platform.saved_maps import saved_areas
+    from meshcore_console.platform.protomaps import HostedTiles, ProtomapsReader
     from meshcore_console.ui_gtk.tile_source import TileSource
+    from meshcore_console.ui_gtk.area_download import select_area
 
 
 class MapView(Gtk.Box):
@@ -122,7 +120,11 @@ class MapView(Gtk.Box):
         overlay = Gtk.Overlay.new()
         overlay.set_hexpand(True)
         overlay.set_vexpand(True)
-        self.append(overlay)
+        self._pages = Gtk.Stack(hexpand=True, vexpand=True)
+        self.append(self._pages)
+        main = Gtk.Box()
+        self._pages.add_named(main, "map")
+        main.append(overlay)
 
         # Create Shumate map
         self._map = Shumate.SimpleMap.new()
@@ -138,10 +140,14 @@ class MapView(Gtk.Box):
         map_widget = self._map.get_map()
         self._viewport = map_widget.get_viewport()
 
-        self._archive, self._archive_credit = self._load_mbtiles()
-        self._online_tiles = self._service.get_settings().online_map_tiles
-        self._tiles = TileSource(self._archive, self._online_tiles)
-        self._refresh_cancel = None
+        self._archive = self._load_archives()
+        settings = self._service.get_settings()
+        RenderedTiles.configure(settings.render_cache_mib)
+        self._online_tiles = settings.online_map_tiles
+        self._tiles = TileSource(self._archive)
+        self._hosted = None
+        self._api_key = self._configured_key()
+        self._selected_area = None
         self._install_renderer()
 
         # Open where the user left the map; on a first start at this device,
@@ -184,7 +190,7 @@ class MapView(Gtk.Box):
         self._details_panel.add_css_class("map-details-panel")
         self._details_panel.set_size_request(self._layout.map_details_width, -1)
         self._details_panel.set_visible(False)
-        self.append(self._details_panel)
+        main.append(self._details_panel)
 
         self._details_title = Gtk.Label(label="")
         self._details_title.add_css_class("panel-title")
@@ -198,71 +204,21 @@ class MapView(Gtk.Box):
         self._refresh_markers()
 
     def _install_renderer(self):
-        credit = "© OpenStreetMap contributors"
-        if self._archive_credit:
-            credit += " · " + self._archive_credit
-        self._map.set_map_source(
-            Shumate.RasterRenderer.new_full(
-                "meshcore-tiles",
-                "Map tiles",
-                credit,
-                "https://www.openstreetmap.org/copyright",
-                0,
-                22 if self._archive else 19,
-                256,
-                Shumate.MapProjection.MERCATOR,
-                self._tiles,
-            )
+        self._map.set_map_source(self._make_renderer(self._tiles))
+
+    @staticmethod
+    def _make_renderer(tiles):
+        return Shumate.RasterRenderer.new_full(
+            "meshcore-tiles",
+            "Map tiles",
+            "Protomaps · © OpenStreetMap contributors",
+            "https://www.openstreetmap.org/copyright",
+            0,
+            int(MAX_ZOOM),
+            256,
+            Shumate.MapProjection.MERCATOR,
+            tiles,
         )
-
-    def _refresh_tiles(self, _button):
-        if not self._online_tiles or self._refresh_cancel:
-            return
-        widget = self._map.get_map()
-        source = self._map.get_map_source()
-        level = self._viewport.get_zoom_level()
-        zoom = math.floor(level)
-        if zoom > 19:
-            self._show_toast("Zoom out to refresh OpenStreetMap tiles")
-            return
-        scale = 2 ** (level - zoom)
-        cx = source.get_x(zoom, self._viewport.get_longitude())
-        cy = source.get_y(zoom, self._viewport.get_latitude())
-        dx, dy = viewport_extents(
-            widget.get_width(), widget.get_height(), scale, self._viewport.get_rotation()
-        )
-        n = 1 << zoom
-        coords = {
-            (x % n, y)
-            for x in range(math.floor((cx - dx) / 256), math.ceil((cx + dx) / 256))
-            for y in range(max(0, math.floor((cy - dy) / 256)), min(n, math.ceil((cy + dy) / 256)))
-        }
-        if not coords:
-            return
-        pending = len(coords)
-        failures = 0
-        cancel = self._refresh_cancel = Gio.Cancellable()
-        self._refresh_btn.set_sensitive(False)
-
-        def finished(_tile, error):
-            nonlocal pending, failures
-            if cancel.is_cancelled():
-                return
-            pending -= 1
-            failures += int(error is not None)
-            if pending == 0:
-                self._refresh_cancel = None
-                self._refresh_btn.set_sensitive(True)
-                if failures < len(coords):
-                    self._install_renderer()
-                self._show_toast(
-                    "Map refreshed"
-                    if not failures
-                    else f"{failures} tiles could not refresh. Cached tiles kept."
-                )
-
-        for x, y in coords:
-            self._tiles.refresh(x, y, zoom, cancel, finished)
 
     def _add_map_controls(self, overlay: Gtk.Overlay) -> None:
         """Add zoom and location controls as overlay."""
@@ -285,15 +241,31 @@ class MapView(Gtk.Box):
         zoom_out.connect("clicked", self._on_zoom_out)
         zoom_box.append(zoom_out)
 
-        self._refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
-        self._refresh_btn.add_css_class("map-control-button")
-        self._refresh_btn.set_tooltip_text("Refresh visible map tiles")
-        self._refresh_btn.update_property(
-            [Gtk.AccessibleProperty.LABEL], ["Refresh visible map tiles"]
-        )
-        self._refresh_btn.set_sensitive(self._online_tiles)
-        self._refresh_btn.connect("clicked", self._refresh_tiles)
-        zoom_box.append(self._refresh_btn)
+        self._map_hint = Gtk.Label(halign=Gtk.Align.CENTER, valign=Gtk.Align.START)
+        self._map_hint.set_margin_top(12)
+        self._map_hint.add_css_class("card")
+        overlay.add_overlay(self._map_hint)
+        self._online_btn = Gtk.ToggleButton(label="Online map")
+        self._online_btn.add_css_class("map-control-button")
+        self._online_btn.set_sensitive(self._online_tiles)
+        self._online_btn.connect("toggled", self._toggle_online)
+        zoom_box.append(self._online_btn)
+        self._update_hint()
+
+        self._area_btn = Gtk.Button(label="Download area")
+        self._area_btn.add_css_class("map-control-button")
+        self._area_btn.set_sensitive(self._online_tiles)
+
+        def begin_selection(_button):
+            self._area_btn.set_sensitive(False)
+            select_area(self, overlay)
+
+        self._area_btn.connect("clicked", begin_selection)
+        zoom_box.append(self._area_btn)
+        self._saved_btn = Gtk.Button(label="Saved areas")
+        self._saved_btn.add_css_class("map-control-button")
+        zoom_box.append(self._saved_btn)
+        self._saved_btn.connect("clicked", self._open_saved_areas)
 
         overlay.add_overlay(zoom_box)
 
@@ -338,7 +310,7 @@ class MapView(Gtk.Box):
         self._await_fix = False
         self._programmatic_move = True
         current = self._viewport.get_zoom_level()
-        self._viewport.set_zoom_level(min(current + 1, 19))
+        self._viewport.set_zoom_level(min(current + 1, MAX_ZOOM))
         self._programmatic_move = False
 
     def _on_zoom_out(self, _button: Gtk.Button) -> None:
@@ -423,31 +395,135 @@ class MapView(Gtk.Box):
         self._service.cycle_mock_gps()
         return True  # Continue timeout
 
-    def _load_mbtiles(self):
-        for path in find_mbtiles_files():
-            reader = MBTilesReader(path)
-            if not reader.open():
+    def _load_archives(self):
+        try:
+            readers = saved_areas(tiles_directory())
+        except Exception:
+            logger.warning("Could not open saved map database", exc_info=True)
+            readers = []
+        shared_names = {reader.path.stem for reader in readers}
+        for path in sorted(tiles_directory().glob("*.pmtiles")):
+            if path.stem in shared_names:
                 continue
-            metadata = reader.get_metadata()
-            if metadata.get("format", "png").lower() not in {"png", "jpg", "jpeg", "webp"}:
-                reader.close()
-                continue
-            return reader, metadata.get("attribution", "")
-        return None, ""
+            try:
+                readers.append(ProtomapsReader(path))
+            except Exception:
+                logger.warning("Could not open PMTiles archive %s", path, exc_info=True)
+        return ArchiveCollection(readers) if readers else None
+
+    def _open_saved_areas(self, *_):
+        page = SavedAreasView(self)
+        self._pages.add_named(page, "areas")
+        self._pages.set_visible_child(page)
+
+    def _close_saved_areas(self, page):
+        self._pages.set_visible_child_name("map")
+        self._pages.remove(page)
+
+    def _area_deleted(self):
+        selected = self._selected_area
+        self._archive = self._load_archives()
+        readers = self._archive.readers if self._archive else []
+        self._selected_area = next(
+            (r for r in readers if selected and r.path == selected.path), None
+        )
+        self._set_tile_readers()
+
+    def _update_hint(self):
+        self._map_hint.set_label(
+            "No saved maps. Choose Online map or Download area."
+            if self._online_tiles
+            else "No saved maps. Enable Downloads in Settings."
+        )
+        self._map_hint.set_visible(not self._archive and not self._hosted)
+
+    def _set_tile_readers(self):
+        readers = list(self._archive.readers) if self._archive else []
+        if self._selected_area in readers:
+            readers.remove(self._selected_area)
+            readers.insert(0, self._selected_area)
+        if self._hosted:
+            readers.append(self._hosted)
+        self._tiles.reader = ArchiveCollection(
+            readers, offline_preview=bool(self._selected_area and not self._hosted)
+        )
+        self._install_renderer()
+        self._update_hint()
+
+    def _online_error(self, source, message):
+        if self._hosted is source:
+            self._online_btn.set_active(False)
+            self._show_toast(message + " Online map switched off.")
+        return False
+
+    def _configured_key(self):
+        return (
+            self._service.get_settings().protomaps_api_key
+            or os.getenv("MESHCORE_PROTOMAPS_API_KEY", "").strip()
+        )
+
+    def _toggle_online(self, button):
+        if not button.get_active():
+            if self._hosted:
+                self._hosted.stop()
+            self._hosted = None
+        elif self._configured_key():
+            self._api_key = self._configured_key()
+            self._hosted = HostedTiles(
+                self._api_key, lambda src, msg: GLib.idle_add(self._online_error, src, msg)
+            )
+        else:
+            button.set_active(False)
+            self._show_toast("Save your Protomaps API key in Settings, then choose Online map.")
+            return
+        self._set_tile_readers()
+
+    def _visit_area(self, reader, center, zoom):
+        # Overlapping archives can contain different imagery for the same tile.
+        self._selected_area = reader
+        self._set_tile_readers()
+        self._viewport.set_location(center[1], center[0])
+        self._viewport.set_zoom_level(zoom)
+
+    def _area_saved(self, path, center, zoom):
+        self._archive = self._load_archives()
+        reader = (
+            next((r for r in self._archive.readers if r.path == path), None)
+            if self._archive
+            else None
+        )
+        if reader is None:
+            self._show_toast("Area saved but could not be opened")
+            return
+        self._visit_area(reader, center, zoom)
+        page = self._pages.get_child_by_name("areas")
+        if page is not None:
+            page.reload_selection(reader)
+        self._show_toast(f"Saved {path.stem}")
 
     def _apply_tile_setting(self) -> None:
-        online = self._service.get_settings().online_map_tiles
+        settings = self._service.get_settings()
+        online = settings.online_map_tiles
+        key = self._configured_key()
+        if self._api_key != key:
+            self._api_key = key
+            if self._hosted:
+                self._hosted.stop()
+                if key and online:
+                    self._toggle_online(self._online_btn)
+                else:
+                    self._online_btn.set_active(False)
         if online == self._online_tiles:
             return
         self._online_tiles = online
-        self._tiles.online = online
+        self._area_btn.set_sensitive(online)
+        self._online_btn.set_sensitive(online)
         if not online:
-            self._tiles.session.abort()
-        if self._refresh_cancel:
-            self._refresh_cancel.cancel()
-            self._refresh_cancel = None
-        self._refresh_btn.set_sensitive(online)
-        self._install_renderer()
+            self._online_btn.set_active(False)
+        self._update_hint()
+        page = self._pages.get_child_by_name("areas")
+        if page is not None:
+            page.update_refresh_button()
 
     def _on_events_available(self, _store: object) -> None:
         """Handle events-available signal — refresh peer markers."""

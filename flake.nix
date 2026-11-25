@@ -20,10 +20,10 @@
         ]);
 
         runtimeLibs = [
+          pkgs.stdenv.cc.cc.lib
           pkgs.gtk4
           pkgs.libadwaita
           pkgs.libshumate
-          pkgs.libsoup_3
           pkgs.glib-networking
           pkgs.pango
           pkgs.gdk-pixbuf
@@ -44,7 +44,6 @@
           pkgs.gtk4
           pkgs.libadwaita
           pkgs.libshumate
-          pkgs.libsoup_3
           pkgs.gdk-pixbuf
           pkgs.pango
           pkgs.glib

@@ -111,6 +111,12 @@ jobs:
         run: |
           apt-get install -y ./build/*.deb
           meshcore-console --version
+          /opt/venvs/meshcore-uconsole/bin/python - <<'PYTHON'
+          from meshcore_console.ui_gtk.views.map import TileSource
+          from meshcore_console.platform.protomaps import ProtomapsReader
+          TileSource(None)
+          PYTHON
+          /opt/venvs/meshcore-uconsole/bin/python tests/integration/test_offline_tiles.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

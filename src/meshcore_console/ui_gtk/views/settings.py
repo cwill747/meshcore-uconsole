@@ -95,6 +95,7 @@ class SettingsView(Gtk.Box):
 
         # Right column: Hardware (advanced) + Logging
         right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        right_col.append(self._build_map_panel())
         right_col.append(self._build_hardware_panel())
         right_col.append(self._build_logging_panel())
         columns.append(right_col)
@@ -187,16 +188,52 @@ class SettingsView(Gtk.Box):
         )
         grid.attach(gps_entry, 1, 8, 2, 1)
 
-        # Row 9: Online map tiles
-        grid.attach(self._grid_label("Download Map Tiles"), 0, 9, 1, 1)
-        tiles_switch = self._grid_switch("online_map_tiles")
-        tiles_switch.set_tooltip_text(
-            "Download missing tiles from OpenStreetMap or refresh the visible map. The tile server sees your IP address "
-            "and the area you look at, e.g. around your own position."
-        )
-        grid.attach(tiles_switch, 1, 9, 1, 1)
-
         panel.append(grid)
+        return panel
+
+    def _build_map_panel(self) -> Gtk.Box:
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        panel.add_css_class("panel-card")
+        title = Gtk.Label(label="Maps", xalign=0)
+        title.add_css_class("panel-title")
+        panel.append(title)
+
+        grid = Gtk.Grid(row_spacing=8, column_spacing=8)
+        panel.append(grid)
+        grid.attach(self._grid_label("Downloads"), 0, 0, 1, 1)
+        downloads = self._grid_switch("online_map_tiles")
+        downloads.set_tooltip_text(
+            "Allow online browsing and area downloads. Protomaps receives your IP address "
+            "and the locations you request."
+        )
+        grid.attach(downloads, 1, 0, 1, 1)
+
+        label = self._grid_label("Protomaps key")
+        grid.attach(label, 0, 1, 1, 1)
+        key = self._grid_entry("protomaps_api_key", 22)
+        key.set_visibility(False)
+        key.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        key.set_placeholder_text("Enter your API key")
+        key.update_property([Gtk.AccessibleProperty.LABEL], [label.get_text()])
+        grid.attach(key, 1, 1, 1, 1)
+
+        help_text = Gtk.Label(
+            label="Online map uses this key to load missing tiles. "
+            "You can download and view saved areas without a key.",
+            xalign=0,
+            wrap=True,
+        )
+        grid.attach(help_text, 0, 2, 2, 1)
+        label = self._grid_label("Cache (MiB)")
+        grid.attach(label, 0, 3, 1, 1)
+        self._cache_size = Gtk.SpinButton.new_with_range(0, 2**31 - 1, 1)
+        self._cache_size.set_numeric(True)
+        self._cache_size.set_halign(Gtk.Align.START)
+        self._cache_size.update_property([Gtk.AccessibleProperty.LABEL], [label.get_text()])
+        self._cache_size.set_tooltip_text(
+            "Maximum disk space for rendered map tiles. Set to 0 to disable."
+        )
+        grid.attach(self._cache_size, 1, 3, 1, 1)
         return panel
 
     def _build_radio_panel(self) -> Gtk.Box:
@@ -613,6 +650,10 @@ class SettingsView(Gtk.Box):
             self._status_label.set_text(f"Save failed: {exc}")
             return
 
+        from meshcore_console.platform.browsed_tiles import RenderedTiles
+
+        if RenderedTiles.limit_bytes != settings.render_cache_mib << 20:
+            RenderedTiles.configure(settings.render_cache_mib)
         logger.debug("UI: settings saved successfully")
         if self._service.get_status().connected:
             self._status_label.set_text("Saved. Restart the app to apply radio changes.")
@@ -629,6 +670,8 @@ class SettingsView(Gtk.Box):
         self._set_switch("share_position", settings.share_position)
         self._set_switch("allow_telemetry", settings.allow_telemetry)
         self._set_switch("online_map_tiles", settings.online_map_tiles)
+        self._cache_size.set_value(settings.render_cache_mib)
+        self._set_entry("protomaps_api_key", settings.protomaps_api_key)
         self._set_switch("telemetry_favorites_only", settings.telemetry_favorites_only)
         self._set_switch("autoconnect", settings.autoconnect)
         self._set_entry("gps_device", settings.gps_device)
@@ -684,6 +727,9 @@ class SettingsView(Gtk.Box):
         out.longitude = self._parse_coordinate("longitude", 180.0, allow_partial, current.longitude)
         out.share_position = self._switches["share_position"].get_active()
         out.allow_telemetry = self._switches["allow_telemetry"].get_active()
+        self._cache_size.update()
+        out.render_cache_mib = self._cache_size.get_value_as_int()
+        out.protomaps_api_key = self._entries["protomaps_api_key"].get_text().strip()
         out.online_map_tiles = self._switches["online_map_tiles"].get_active()
         out.telemetry_favorites_only = self._switches["telemetry_favorites_only"].get_active()
         out.autoconnect = self._switches["autoconnect"].get_active()

@@ -82,3 +82,29 @@ def test_map_tile_downloads_default_on_and_persist(tmp_path) -> None:
     store = SettingsStore(open_db(str(tmp_path / "t.db")))
     store.save(MeshcoreSettings(online_map_tiles=False))
     assert store.load().online_map_tiles is False
+
+
+def test_protomaps_key_can_be_saved_and_cleared(tmp_path) -> None:
+    conn = open_db(str(tmp_path / "settings.db"))
+    store = SettingsStore(conn)
+    settings = store.load()
+    assert settings.protomaps_api_key == ""
+    settings.protomaps_api_key = "example-secret"
+    assert "example-secret" not in repr(settings)
+    store.save(settings)
+    assert store.load().protomaps_api_key == "example-secret"
+    settings.protomaps_api_key = ""
+    store.save(settings)
+    assert store.load().protomaps_api_key == ""
+    conn.close()
+
+
+def test_rendered_cache_size_default_and_persistence(tmp_path):
+    conn = open_db(str(tmp_path / "settings.db"))
+    store = SettingsStore(conn)
+    settings = store.load()
+    assert settings.render_cache_mib == 8096
+    settings.render_cache_mib = 128
+    store.save(settings)
+    assert store.load().render_cache_mib == 128
+    conn.close()
