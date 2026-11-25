@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import tempfile
 from typing import Any
 
 from meshcore_console.core.types import (
@@ -104,9 +105,22 @@ def create_mesh_node(
         tmp = local_identity_type()
         seed = tmp.get_signing_key_bytes()
         key_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(seed)
+        with tempfile.NamedTemporaryFile(dir=key_path.parent, delete=False) as staging:
+            try:
+                staging.write(seed)
+                staging.flush()
+                os.fsync(staging.fileno())
+                try:
+                    os.link(staging.name, key_path)
+                except FileExistsError:
+                    seed = key_path.read_bytes()
+                directory = os.open(key_path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            finally:
+                os.unlink(staging.name)
     identity = local_identity_type(seed)
     config_payload = {"node": {"name": node_name}}
     if node_config:

@@ -276,6 +276,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # columns that the next start's ALTER rejected as duplicates, forever.
     conn.execute("BEGIN IMMEDIATE")
     try:
+        # Another opener may have finished the upgrade while we waited for the lock.
+        current = _get_version(conn)
+        if current >= target:
+            conn.rollback()
+            return
         for version_index in range(current, target):
             for stmt in MIGRATIONS[version_index]:
                 conn.execute(stmt)
