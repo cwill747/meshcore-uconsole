@@ -28,7 +28,7 @@ except (ValueError, ImportError):
     SHUMATE_AVAILABLE = False
     print("[MapView] libshumate not available", file=sys.stderr)
 
-from meshcore_console.core.map_view import DEVICE_ZOOM, initial_view
+from meshcore_console.core.map_view import DEVICE_ZOOM, MAX_ZOOM, initial_view
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
@@ -203,7 +203,7 @@ class MapView(Gtk.Box):
                 "Protomaps · © OpenStreetMap contributors",
                 "https://www.openstreetmap.org/copyright",
                 0,
-                15,
+                int(MAX_ZOOM),
                 256,
                 Shumate.MapProjection.MERCATOR,
                 self._tiles,
@@ -245,12 +245,14 @@ class MapView(Gtk.Box):
         self._map_hint.add_css_class("card")
         overlay.add_overlay(self._map_hint)
         self._online_btn = Gtk.ToggleButton(label="Online map")
+        self._online_btn.add_css_class("map-control-button")
         self._online_btn.set_sensitive(self._online_tiles)
         self._online_btn.connect("toggled", self._toggle_online)
         zoom_box.append(self._online_btn)
         self._update_hint()
 
         self._area_btn = Gtk.Button(label="Download area")
+        self._area_btn.add_css_class("map-control-button")
         self._area_btn.set_sensitive(self._online_tiles)
 
         def begin_selection(_button):
@@ -260,6 +262,7 @@ class MapView(Gtk.Box):
         self._area_btn.connect("clicked", begin_selection)
         zoom_box.append(self._area_btn)
         self._saved_btn = Gtk.MenuButton(label="Saved areas")
+        self._saved_btn.add_css_class("map-control-button")
         zoom_box.append(self._saved_btn)
         self._update_saved_menu()
 
@@ -316,7 +319,7 @@ class MapView(Gtk.Box):
         self._await_fix = False
         self._programmatic_move = True
         current = self._viewport.get_zoom_level()
-        self._viewport.set_zoom_level(min(current + 1, 19))
+        self._viewport.set_zoom_level(min(current + 1, MAX_ZOOM))
         self._programmatic_move = False
 
     def _on_zoom_out(self, _button: Gtk.Button) -> None:

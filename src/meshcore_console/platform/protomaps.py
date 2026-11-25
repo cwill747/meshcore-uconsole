@@ -147,6 +147,7 @@ class ProtomapsReader:
             Compression.NONE,
         ):
             raise ValueError("Unsupported PMTiles archive")
+        self.max_zoom = self.header["max_zoom"]
         self.meta = self.reader.metadata()
         self.meta.setdefault("name", path.stem)
         self.meta.setdefault("attribution", ATTRIBUTION)
@@ -281,6 +282,8 @@ def render_tile(data):
 
 class HostedTiles:
     """Fetch visible v4 MVT tiles on demand, retaining rendered images in memory."""
+
+    max_zoom = 15
 
     def __init__(self, key, on_error):
         from threading import Event
