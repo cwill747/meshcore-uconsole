@@ -1,6 +1,8 @@
 """Bounds and filenames for saved map areas."""
 
 import math
+import os
+from pathlib import Path
 
 
 def tile_ranges(bounds, zoom):
@@ -18,3 +20,23 @@ def archive_path(directory, name):
     if not name or "/" in name or "\\" in name or name.startswith(".") or len(name.encode()) > 220:
         raise ValueError("Choose a short area name without path separators or a leading dot.")
     return directory / (name + ".pmtiles")
+
+
+def tiles_directory() -> Path:
+    return (
+        Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+        / "meshcore-console"
+        / "tiles"
+    )
+
+
+class ArchiveCollection:
+    def __init__(self, readers):
+        self.readers = readers
+
+    def get_tile(self, zoom, x, y):
+        for reader in self.readers:
+            data = reader.get_tile(zoom, x, y)
+            if data is not None:
+                return data
+        return None

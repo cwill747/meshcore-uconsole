@@ -71,3 +71,16 @@ def test_extract_rejects_full_planet_response_before_reading(monkeypatch):
     monkeypatch.setattr(protomaps, "urlopen", server)
     with pytest.raises(ValueError, match="byte range"):
         protomaps.remote_reader("https://example.org/planet.pmtiles", lambda: False).header()
+
+
+def test_cancelled_refresh_preserves_previous_area(tmp_path):
+    path = archive_path(tmp_path, "Camp")
+    bounds = (0, 0, 1, 1)
+    extract(path, bounds, 0, (0, 0), VectorSource(), lambda: False, lambda _: None)
+    original = path.read_bytes()
+    with pytest.raises(InterruptedError):
+        extract(path, bounds, 1, (0, 0), VectorSource(), lambda: True, lambda _: None, replace=True)
+    assert path.read_bytes() == original
+    extract(path, bounds, 1, (0, 0), VectorSource(), lambda: False, lambda _: None, replace=True)
+    assert ProtomapsReader(path).meta["selection"] == list(bounds)
+    assert ProtomapsReader(path).header["max_zoom"] == 1

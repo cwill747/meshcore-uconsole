@@ -1,4 +1,4 @@
-"""Map view showing peer locations on OpenStreetMap tiles."""
+"""Map view showing peer locations on saved Protomaps areas."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import Gio, GLib, Gtk, Pango
+from gi.repository import GLib, Gtk, Pango
 
 if TYPE_CHECKING:
     pass
@@ -35,16 +35,9 @@ from meshcore_console.ui_gtk.helpers import clear_children, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
-from meshcore_console.platform.mbtiles import ArchiveCollection, MBTilesReader, find_mbtiles_files
+from meshcore_console.platform.offline_area import ArchiveCollection, tiles_directory
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
 from meshcore_console.ui_gtk.compat import new_toast
-
-
-def viewport_extents(width, height, scale, rotation):
-    """Half-width and half-height in map pixels after rotating the viewport."""
-    cos = abs(math.cos(rotation))
-    sin = abs(math.sin(rotation))
-    return (width * cos + height * sin) / (2 * scale), (width * sin + height * cos) / (2 * scale)
 
 
 def marker_state(peers: list[Peer]) -> tuple:
@@ -61,7 +54,7 @@ def marker_state(peers: list[Peer]) -> tuple:
 if SHUMATE_AVAILABLE:
     from meshcore_console.platform.protomaps import ProtomapsReader
     from meshcore_console.ui_gtk.tile_source import TileSource
-    from meshcore_console.ui_gtk.area_download import select_area
+    from meshcore_console.ui_gtk.area_download import download_dialog, select_area
 
 
 class MapView(Gtk.Box):
@@ -140,10 +133,10 @@ class MapView(Gtk.Box):
         map_widget = self._map.get_map()
         self._viewport = map_widget.get_viewport()
 
-        self._archive, self._archive_credit = self._load_mbtiles()
+        self._archive = self._load_archives()
         self._online_tiles = self._service.get_settings().online_map_tiles
-        self._tiles = TileSource(self._archive, False)
-        self._refresh_cancel = None
+        self._tiles = TileSource(self._archive)
+        self._selected_area = None
         self._install_renderer()
 
         # Open where the user left the map; on a first start at this device,
@@ -200,17 +193,14 @@ class MapView(Gtk.Box):
         self._refresh_markers()
 
     def _install_renderer(self):
-        credit = "© OpenStreetMap contributors"
-        if self._archive_credit:
-            credit += " · " + self._archive_credit
         self._map.set_map_source(
             Shumate.RasterRenderer.new_full(
                 "meshcore-tiles",
                 "Map tiles",
-                credit,
+                "Protomaps · © OpenStreetMap contributors",
                 "https://www.openstreetmap.org/copyright",
                 0,
-                22 if self._archive else 19,
+                15,
                 256,
                 Shumate.MapProjection.MERCATOR,
                 self._tiles,
@@ -218,53 +208,13 @@ class MapView(Gtk.Box):
         )
 
     def _refresh_tiles(self, _button):
-        if not self._online_tiles or self._refresh_cancel:
-            return
-        widget = self._map.get_map()
-        source = self._map.get_map_source()
-        level = self._viewport.get_zoom_level()
-        zoom = math.floor(level)
-        if zoom > 19:
-            self._show_toast("Zoom out to refresh OpenStreetMap tiles")
-            return
-        scale = 2 ** (level - zoom)
-        cx = source.get_x(zoom, self._viewport.get_longitude())
-        cy = source.get_y(zoom, self._viewport.get_latitude())
-        dx, dy = viewport_extents(
-            widget.get_width(), widget.get_height(), scale, self._viewport.get_rotation()
-        )
-        n = 1 << zoom
-        coords = {
-            (x % n, y)
-            for x in range(math.floor((cx - dx) / 256), math.ceil((cx + dx) / 256))
-            for y in range(max(0, math.floor((cy - dy) / 256)), min(n, math.ceil((cy + dy) / 256)))
-        }
-        if not coords:
-            return
-        pending = len(coords)
-        failures = 0
-        cancel = self._refresh_cancel = Gio.Cancellable()
-        self._refresh_btn.set_sensitive(False)
-
-        def finished(_tile, error):
-            nonlocal pending, failures
-            if cancel.is_cancelled():
-                return
-            pending -= 1
-            failures += int(error is not None)
-            if pending == 0:
-                self._refresh_cancel = None
-                self._refresh_btn.set_sensitive(True)
-                if failures < len(coords):
-                    self._install_renderer()
-                self._show_toast(
-                    "Map refreshed"
-                    if not failures
-                    else f"{failures} tiles could not refresh. Cached tiles kept."
-                )
-
-        for x, y in coords:
-            self._tiles.refresh(x, y, zoom, cancel, finished)
+        area = self._selected_area
+        if self._online_tiles and area and area.meta.get("selection"):
+            h = area.header
+            center = h["center_lon_e7"] / 1e7, h["center_lat_e7"] / 1e7
+            download_dialog(
+                self, area.meta["selection"], center, h["center_zoom"], refresh_path=area.path
+            )
 
     def _add_map_controls(self, overlay: Gtk.Overlay) -> None:
         """Add zoom and location controls as overlay."""
@@ -302,13 +252,11 @@ class MapView(Gtk.Box):
 
         self._refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
         self._refresh_btn.add_css_class("map-control-button")
-        self._refresh_btn.set_tooltip_text("Refresh visible map tiles")
+        self._refresh_btn.set_tooltip_text("Refresh selected Protomaps area")
         self._refresh_btn.update_property(
-            [Gtk.AccessibleProperty.LABEL], ["Refresh visible map tiles"]
+            [Gtk.AccessibleProperty.LABEL], ["Refresh selected Protomaps area"]
         )
-        self._refresh_btn.set_sensitive(self._online_tiles and self._tiles.session is not None)
-        if self._tiles.session is None:
-            self._refresh_btn.set_tooltip_text("Install gir1.2-soup-3.0 to refresh online tiles")
+        self._refresh_btn.set_sensitive(False)
         self._refresh_btn.connect("clicked", self._refresh_tiles)
         zoom_box.append(self._refresh_btn)
 
@@ -440,31 +388,14 @@ class MapView(Gtk.Box):
         self._service.cycle_mock_gps()
         return True  # Continue timeout
 
-    def _load_mbtiles(self):
+    def _load_archives(self):
         readers = []
-        credits = []
-        for path in find_mbtiles_files():
-            if path.suffix == ".pmtiles":
-                try:
-                    readers.append(ProtomapsReader(path))
-                except Exception:
-                    logger.warning("Could not open PMTiles archive %s", path, exc_info=True)
-                else:
-                    if "Protomaps" not in credits:
-                        credits.append("Protomaps")
-                continue
-            reader = MBTilesReader(path)
-            if not reader.open():
-                continue
-            metadata = reader.get_metadata()
-            if metadata.get("format", "png").lower() not in {"png", "jpg", "jpeg", "webp"}:
-                reader.close()
-                continue
-            readers.append(reader)
-            credit = metadata.get("attribution")
-            if credit and credit not in credits:
-                credits.append(credit)
-        return ArchiveCollection(readers) if readers else None, " · ".join(credits)
+        for path in sorted(tiles_directory().glob("*.pmtiles")):
+            try:
+                readers.append(ProtomapsReader(path))
+            except Exception:
+                logger.warning("Could not open PMTiles archive %s", path, exc_info=True)
+        return ArchiveCollection(readers) if readers else None
 
     def _update_saved_menu(self):
         popover = Gtk.Popover()
@@ -492,13 +423,15 @@ class MapView(Gtk.Box):
     def _visit_area(self, reader, center, zoom):
         # Overlapping archives can contain different imagery for the same tile.
         readers = (reader, *(r for r in self._archive.readers if r is not reader))
+        self._selected_area = reader
+        self._refresh_btn.set_sensitive(self._online_tiles and bool(reader.meta.get("selection")))
         self._tiles.reader = ArchiveCollection(readers)
         self._install_renderer()
         self._viewport.set_location(center[1], center[0])
         self._viewport.set_zoom_level(zoom)
 
     def _area_saved(self, path, center, zoom):
-        self._archive, self._archive_credit = self._load_mbtiles()
+        self._archive = self._load_archives()
         self._update_saved_menu()
         reader = (
             next((r for r in self._archive.readers if r.path == path), None)
@@ -517,13 +450,9 @@ class MapView(Gtk.Box):
             return
         self._online_tiles = online
         self._area_btn.set_sensitive(online)
-        if not online and self._tiles.session is not None:
-            self._tiles.session.abort()
-        if self._refresh_cancel:
-            self._refresh_cancel.cancel()
-            self._refresh_cancel = None
-        self._refresh_btn.set_sensitive(online and self._tiles.session is not None)
-        self._install_renderer()
+        self._refresh_btn.set_sensitive(
+            online and bool(self._selected_area and self._selected_area.meta.get("selection"))
+        )
 
     def _on_events_available(self, _store: object) -> None:
         """Handle events-available signal — refresh peer markers."""

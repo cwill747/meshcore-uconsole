@@ -112,12 +112,9 @@ jobs:
           apt-get install -y ./build/*.deb
           meshcore-console --version
           /opt/venvs/meshcore-uconsole/bin/python - <<'PYTHON'
-          import gi
-          gi.require_version("Soup", "3.0")
-          from gi.repository import Soup
-          from meshcore_console.ui_gtk.tile_source import TileSource
+          from meshcore_console.ui_gtk.views.map import TileSource
           from meshcore_console.platform.protomaps import ProtomapsReader
-          assert isinstance(TileSource(None, False).session, Soup.Session)
+          TileSource(None)
           PYTHON
 
       - name: Upload artifact

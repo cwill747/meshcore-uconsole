@@ -5,7 +5,7 @@ import threading
 
 from gi.repository import Gio, GLib, Gtk
 
-from meshcore_console.platform.mbtiles import tiles_directory
+from meshcore_console.platform.offline_area import tiles_directory
 from meshcore_console.platform.offline_area import (
     archive_path,
     tile_ranges,
@@ -82,8 +82,12 @@ def select_area(view, overlay):
     drag.connect("drag-end", end)
 
 
-def download_dialog(view, bounds, center, level):
-    window = Gtk.Window(title="Download map area", transient_for=view.get_root(), modal=True)
+def download_dialog(view, bounds, center, level, refresh_path=None):
+    window = Gtk.Window(
+        title="Refresh saved area" if refresh_path else "Download map area",
+        transient_for=view.get_root(),
+        modal=True,
+    )
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     for side in ("top", "bottom", "start", "end"):
         getattr(box, f"set_margin_{side}")(12)
@@ -91,6 +95,10 @@ def download_dialog(view, bounds, center, level):
     name = Gtk.Entry()
     zoom = Gtk.SpinButton.new_with_range(0, 15, 1)
     zoom.set_value(level)
+    if refresh_path:
+        name.set_text(refresh_path.stem)
+        name.set_editable(False)
+        zoom.set_sensitive(False)
     for title, field in (("Area name", name), ("Maximum zoom", zoom)):
         label = Gtk.Label(label=title, xalign=0)
         label.set_mnemonic_widget(field)
@@ -98,7 +106,7 @@ def download_dialog(view, bounds, center, level):
         box.append(field)
     status = Gtk.Label(xalign=0, wrap=True)
     box.append(status)
-    button = Gtk.Button(label="Download")
+    button = Gtk.Button(label="Refresh" if refresh_path else "Download")
     box.append(button)
     cancel = Gio.Cancellable()
 
@@ -121,7 +129,7 @@ def download_dialog(view, bounds, center, level):
             return
         try:
             path = archive_path(tiles_directory(), name.get_text())
-            if path.exists():
+            if path.exists() and path != refresh_path:
                 raise ValueError("An area with that name already exists.")
         except ValueError as exc:
             status.set_text(str(exc))
@@ -147,7 +155,7 @@ def download_dialog(view, bounds, center, level):
             if error:
                 status.set_text(error)
                 for field in (name, zoom, button):
-                    field.set_sensitive(True)
+                    field.set_sensitive(field is not zoom or refresh_path is None)
             else:
                 window.close()
                 view._area_saved(path, center, z)
@@ -160,7 +168,16 @@ def download_dialog(view, bounds, center, level):
 
             try:
                 source = remote_reader(latest_build(), cancel.is_cancelled)
-                extract(path, bounds, z, center, source, cancel.is_cancelled, progress)
+                extract(
+                    path,
+                    bounds,
+                    z,
+                    center,
+                    source,
+                    cancel.is_cancelled,
+                    progress,
+                    replace=refresh_path is not None,
+                )
             except Exception as exc:
                 GLib.idle_add(finish, str(exc))
             else:

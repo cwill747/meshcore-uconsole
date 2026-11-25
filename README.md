@@ -171,8 +171,7 @@ zoom (0–15). Confirm to download the selected region from a Protomaps daily
 basemap. The archive includes lower zoom levels. Close the dialog to cancel.
 Saved areas use local vector data, styling, and labels after restart.
 
-Open **Saved areas** to return to a region. Named `.pmtiles` files and imported
-raster MBTiles live in `${XDG_DATA_HOME:-~/.local/share}/meshcore-console/tiles/`.
-**Refresh** requests the visible OSM raster tiles. **Settings → Allow Map
+Open **Saved areas** to return to a region. Named `.pmtiles` files live in `${XDG_DATA_HOME:-~/.local/share}/meshcore-console/tiles/`.
+**Refresh** downloads a fresh Protomaps extract for the selected saved area. **Settings → Allow Map
 Downloads** controls both network actions. Map data © OpenStreetMap contributors.
 See the [Protomaps basemap documentation](https://docs.protomaps.com/basemaps/downloads).

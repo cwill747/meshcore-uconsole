@@ -67,7 +67,7 @@ def remote_reader(url, cancelled):
     return Reader(read)
 
 
-def extract(path, bounds, maxzoom, center, source, cancelled, progress):
+def extract(path, bounds, maxzoom, center, source, cancelled, progress, *, replace=False):
     header = source.header()
     if header["tile_type"] != TileType.MVT or header["tile_compression"] not in (
         Compression.NONE,
@@ -117,6 +117,7 @@ def extract(path, bounds, maxzoom, center, source, cancelled, progress):
                     header,
                     {
                         "name": path.stem,
+                        "selection": list(bounds),
                         "attribution": ATTRIBUTION,
                         "center": f"{center[0]},{center[1]},{maxzoom}",
                     },
@@ -127,7 +128,10 @@ def extract(path, bounds, maxzoom, center, source, cancelled, progress):
                 writer.tile_f.close()
         if cancelled():
             raise InterruptedError("Download cancelled.")
-        os.link(staging, path)
+        if replace:
+            os.replace(staging, path)
+        else:
+            os.link(staging, path)
     finally:
         Path(staging).unlink(missing_ok=True)
 

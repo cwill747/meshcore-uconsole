@@ -14,4 +14,8 @@ override_dh_virtualenv:
 
 # Pillow's repaired ARM wheels have an ELF section layout dwz cannot rewrite.
 override_dh_dwz:
-	dh_dwz -X/site-packages/PIL/ -X/site-packages/pillow.libs/
+	dh_dwz -X/site-packages/
+
+# Preserve the ELF segment alignment of the native libraries bundled in wheels.
+override_dh_strip:
+	dh_strip -X/site-packages/

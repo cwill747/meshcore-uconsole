@@ -191,8 +191,8 @@ class SettingsView(Gtk.Box):
         grid.attach(self._grid_label("Allow Map Downloads"), 0, 9, 1, 1)
         tiles_switch = self._grid_switch("online_map_tiles")
         tiles_switch.set_tooltip_text(
-            "Enable the Download area and Refresh buttons. The tile server sees your IP address "
-            "and the area you look at, e.g. around your own position."
+            "Download or refresh a saved Protomaps area. The provider sees your IP address "
+            "and the area you choose to download."
         )
         grid.attach(tiles_switch, 1, 9, 1, 1)
 
