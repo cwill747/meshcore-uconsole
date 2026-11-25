@@ -40,3 +40,33 @@ def test_failed_upgrade_rolls_back_and_the_next_open_succeeds(tmp_path, monkeypa
         db_mod.MIGRATIONS
     )
     conn.close()
+
+
+def test_two_openers_can_upgrade_same_database(tmp_path, monkeypatch) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    path = tmp_path / "meshcore.db"
+    v1_database(path)
+    before_lock = Barrier(2)
+    read_version = db_mod._get_version
+
+    def synchronize_first_reads(conn):
+        version = read_version(conn)
+        if not conn.in_transaction:
+            before_lock.wait(timeout=5)
+        return version
+
+    monkeypatch.setattr(db_mod, "_get_version", synchronize_first_reads)
+
+    def upgrade():
+        conn = sqlite3.connect(path)
+        try:
+            db_mod._migrate(conn)
+            return read_version(conn)
+        finally:
+            conn.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(upgrade) for _ in range(2)]
+        assert [f.result() for f in futures] == [len(db_mod.MIGRATIONS)] * 2

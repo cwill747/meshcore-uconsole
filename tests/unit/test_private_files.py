@@ -56,3 +56,27 @@ def test_log_export_is_owner_only(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "app.log").write_text("line\n")
     dest = logging_setup.export_logs_to_path(tmp_path / "export.txt")
     assert dest.read_text() == "line\n" and mode(dest) == 0o600
+
+
+def test_interrupted_seed_creation_can_retry(monkeypatch) -> None:
+    import pytest
+
+    def fail_sync(_fd):
+        raise OSError("storage unavailable")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "fsync", fail_sync)
+        with pytest.raises(OSError, match="storage unavailable"):
+            create_mesh_node(
+                make_node, LocalIdentity, radio=None, event_service=None, node_name="n"
+            )
+
+    key = paths.identity_key_path()
+    assert not key.exists()
+    first, _ = create_mesh_node(
+        make_node, LocalIdentity, radio=None, event_service=None, node_name="n"
+    )
+    second, _ = create_mesh_node(
+        make_node, LocalIdentity, radio=None, event_service=None, node_name="n"
+    )
+    assert first.get_public_key() == second.get_public_key()
