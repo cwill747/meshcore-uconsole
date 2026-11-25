@@ -86,7 +86,8 @@ def test_cancelled_refresh_preserves_previous_area(tmp_path):
     assert ProtomapsReader(path).header["max_zoom"] == 1
 
 
-def test_hosted_tiles_use_key_once_and_stop_offline(monkeypatch):
+def test_hosted_tiles_use_key_once_and_stop_offline(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     import io
     from urllib.parse import parse_qs, urlsplit
     from meshcore_console.platform import protomaps
@@ -125,7 +126,8 @@ def test_saved_zoom_19_uses_native_parent_offline(tmp_path):
     assert ArchiveCollection([reader]).get_tile(19, 0, 0).startswith(b"\x89PNG")
 
 
-def test_shared_areas_reuse_tiles_and_refresh_atomically(tmp_path):
+def test_shared_areas_reuse_tiles_and_refresh_atomically(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     from meshcore_console.platform.saved_maps import save_area, saved_areas, DATABASE
     import sqlite3
 
@@ -170,3 +172,56 @@ def test_shared_areas_reuse_tiles_and_refresh_atomically(tmp_path):
     source.calls.clear()
     save("west", west, replace=True)
     assert source.calls == [(0, 0, 0), (1, 0, 0)]
+
+
+def test_download_reuses_browsed_vector_after_restart(tmp_path, monkeypatch):
+    from meshcore_console.platform import protomaps
+    from meshcore_console.platform.saved_maps import save_area, saved_areas
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setattr(
+        protomaps, "urlopen", lambda *_a, **_kw: io.BytesIO(VectorSource().get(0, 0, 0))
+    )
+    hosted = protomaps.HostedTiles("test", lambda *_: pytest.fail("online error"))
+    tile = hosted.get_tile(0, 0, 0)
+    assert tile
+    hosted.stop()
+    monkeypatch.setattr(protomaps, "urlopen", lambda *_a, **_kw: pytest.fail("network used"))
+    assert (
+        protomaps.HostedTiles("test", lambda *_: pytest.fail("cache error")).get_tile(0, 0, 0)
+        == tile
+    )
+
+    def offline_source():
+        raise ConnectionError("source offline")
+
+    def save(replace=False):
+        save_area(
+            tmp_path / "Camp.area",
+            (0, 0, 1, 1),
+            0,
+            (0, 0),
+            offline_source,
+            lambda: False,
+            lambda _: None,
+            replace=replace,
+        )
+
+    save()
+    with pytest.raises(ConnectionError):
+        save(replace=True)
+    protomaps.BrowsedTiles().path.unlink()
+    assert saved_areas(tmp_path)[0].get_tile(0, 0, 0) == tile
+
+
+def test_online_cache_evicts_oldest_fetch(tmp_path, monkeypatch):
+    from meshcore_console.platform import browsed_tiles
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr(browsed_tiles, "MAX_TILES", 2)
+    cache = browsed_tiles.BrowsedTiles()
+    for x in range(3):
+        cache.put(2, x, 0, bytes([x]))
+    assert cache.get(2, 0, 0) is None
+    assert cache.get(2, 1, 0) == bytes([1])
+    assert cache.get(2, 2, 0) == bytes([2])

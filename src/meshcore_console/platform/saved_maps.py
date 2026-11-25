@@ -10,6 +10,7 @@ from threading import Lock
 
 from pmtiles.tile import Compression, TileType, zxy_to_tileid
 
+from .browsed_tiles import BrowsedTiles
 from .offline_area import tile_ranges
 from .protomaps import ATTRIBUTION, BASEMAP_MAX_ZOOM, ProtomapsReader, render_tile
 
@@ -72,6 +73,7 @@ def saved_areas(directory):
 
 
 def _tile_loader(directory, open_source, replace):
+    browsed = BrowsedTiles()
     legacy = []
     if not replace:
         for archive in directory.glob("*.pmtiles"):
@@ -85,6 +87,10 @@ def _tile_loader(directory, open_source, replace):
 
     def load(z, x, y):
         nonlocal source, header
+        if not replace:
+            cached = browsed.get(z, x, y)
+            if cached is not None:
+                return cached
         data = None
         for archive in legacy:
             data = archive.reader.get(z, x, y)

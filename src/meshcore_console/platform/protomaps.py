@@ -18,6 +18,7 @@ from pmtiles.reader import MmapSource, Reader
 from pmtiles.tile import Compression, TileType, zxy_to_tileid
 from pmtiles.writer import Writer
 
+from .browsed_tiles import BrowsedTiles
 from .offline_area import tile_ranges
 
 BASEMAP_MAX_ZOOM = 15
@@ -289,6 +290,7 @@ class HostedTiles:
     def __init__(self, key, on_error):
         from threading import Event
 
+        self._disk_cache = BrowsedTiles()
         self._key = key
         self._stopped = Event()
         self._lock = Lock()
@@ -320,6 +322,10 @@ class HostedTiles:
         from urllib.parse import urlencode
         from urllib.error import HTTPError
 
+        data = self._disk_cache.get(zoom, x, y)
+        if data is not None:
+            return render_tile(gzip.decompress(data))
+
         query = urlencode({"key": self._key})
         request = Request(
             f"https://api.protomaps.com/tiles/v4/{zoom}/{x}/{y}.mvt?{query}",
@@ -332,6 +338,7 @@ class HostedTiles:
             if exc.code == 404:
                 return None
             raise
-        if data.startswith(b"\x1f\x8b"):
-            data = gzip.decompress(data)
-        return render_tile(data)
+        compressed = data if data.startswith(b"\x1f\x8b") else gzip.compress(data)
+        rendered = render_tile(gzip.decompress(compressed))
+        self._disk_cache.put(zoom, x, y, compressed)
+        return rendered
