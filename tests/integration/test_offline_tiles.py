@@ -57,7 +57,9 @@ def test_offline_source_returns_local_tile(tmp_path, monkeypatch):
 
 def test_cache_first_download_and_refresh(tmp_path):
     import base64
+    import os
     import threading
+    import time
     from http.server import BaseHTTPRequestHandler, HTTPServer
 
     pytest.importorskip("gi")
@@ -71,17 +73,22 @@ def test_cache_first_download_and_refresh(tmp_path):
     png = base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
     )
+    updated_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNg+M8AAAICAQB7CYF4AAAAAElFTkSuQmCC"
+    )
     requests = []
+    payload = png
     status = 200
+    etag = '"first"'
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             requests.append(self.headers.get("If-None-Match"))
             self.send_response(status)
-            self.send_header("ETag", '"first"')
+            self.send_header("ETag", etag)
             self.end_headers()
             if status == 200:
-                self.wfile.write(png)
+                self.wfile.write(payload)
 
     with HTTPServer(("127.0.0.1", 0), Handler) as server:
         worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -127,9 +134,39 @@ def test_cache_first_download_and_refresh(tmp_path):
             assert requests[-1] == '"first"'
             status = 503
             assert refresh()[1] is not None
-            source = TileSource(None, False, url, str(tmp_path))
+            (cache_file,) = tmp_path.rglob("0.png")
+
+            def expire():
+                old = time.time() - 8 * 24 * 60 * 60
+                os.utime(cache_file, (old, old))
+
+            # A regular map read revalidates stale entries without discarding
+            # them if the server fails.
+            expire()
             assert read() == png
-            assert len(requests) == 3
+            assert requests[3:] == ['"first"']
+
+            # 304 renews freshness without replacing the stored bytes.
+            status = 304
+            assert read() == png
+            assert read() == png
+            assert requests[3:] == ['"first"'] * 2
+
+            # 200 replaces the cached response and remembers its new validator.
+            expire()
+            status = 200
+            etag = '"second"'
+            payload = updated_png
+            assert read() == updated_png
+            expire()
+            status = 304
+            assert read() == updated_png
+            assert requests[3:] == ['"first"'] * 3 + ['"second"']
+
+            expire()
+            source = TileSource(None, False, url, str(tmp_path))
+            assert read() == updated_png
+            assert len(requests) == 7
         finally:
             server.shutdown()
             worker.join()

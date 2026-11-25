@@ -10,6 +10,8 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Shumate, Soup
 
 OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+# FileCache stores the ETag and last validation time, not HTTP expiry headers.
+_CACHE_MAX_AGE = 7 * GLib.TIME_SPAN_DAY
 
 
 class TileSource(Shumate.DataSource):
@@ -60,13 +62,26 @@ class TileSource(Shumate.DataSource):
 
         def cached(cache, result):
             try:
-                tile, _, _ = cache.get_tile_finish(result)
+                tile, etag, cached_at = cache.get_tile_finish(result)
             except GLib.Error:
-                tile = None
+                tile = etag = cached_at = None
             if task.return_error_if_cancelled():
                 return
             if tile is not None:
-                task.return_value(tile)
+                fresh = (
+                    cached_at is not None
+                    and GLib.DateTime.new_now_utc().difference(cached_at) < _CACHE_MAX_AGE
+                )
+                if not self.online or zoom > 19 or fresh:
+                    task.return_value(tile)
+                    return
+
+                def revalidated(updated, _error):
+                    if not task.return_error_if_cancelled():
+                        # A 304 or failed refresh leaves the cached tile usable.
+                        task.return_value(updated if updated is not None else tile)
+
+                self.download(x, y, zoom, cancellable, etag, revalidated)
             elif self.reader is not None:
 
                 def archive_read(_source, result):
