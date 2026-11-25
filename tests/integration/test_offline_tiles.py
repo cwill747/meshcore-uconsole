@@ -1,7 +1,6 @@
-import pytest
-
-
 def test_archive_source_delivers_local_tiles():
+    import pytest
+
     pytest.importorskip("gi")
     from gi.repository import GLib
     from meshcore_console.ui_gtk.views.map import SHUMATE_AVAILABLE
@@ -44,3 +43,58 @@ def test_archive_source_delivers_local_tiles():
                 assert request.props.data.get_data() == b"local tile"
             else:
                 assert request.props.error is not None
+
+
+def test_native_renderer_paints_offline_tile():
+    import pytest
+
+    pytest.importorskip("gi")
+    from meshcore_console.ui_gtk.views.map import SHUMATE_AVAILABLE
+
+    if not SHUMATE_AVAILABLE:
+        pytest.skip("libshumate unavailable")
+    _paint_offline_tile()
+
+
+def _paint_offline_tile():
+    import io
+    import gi
+    from PIL import Image
+
+    gi.require_version("Shumate", "1.0")
+    from gi.repository import Gio, GLib, Shumate
+    from meshcore_console.ui_gtk.tile_source import TileSource
+
+    png = io.BytesIO()
+    Image.new("RGB", (256, 256), "green").save(png, format="PNG")
+
+    class Reader:
+        def get_tile(self, zoom, x, y):
+            return png.getvalue() if (zoom, x, y) == (15, 1, 1) else None
+
+    source = TileSource(Reader())
+    renderer = Shumate.RasterRenderer.new_full(
+        "offline", "Offline", "", "", 0, 19, 256, Shumate.MapProjection.MERCATOR, source
+    )
+    tile = Shumate.Tile.new_full(1, 1, 256, 15)
+    loop = GLib.MainLoop()
+    result = []
+
+    def finished(source, res, *_):
+        try:
+            result.append(source.fill_tile_finish(res))
+        finally:
+            loop.quit()
+
+    renderer.fill_tile_async(tile, Gio.Cancellable(), finished, None)
+    timeout = GLib.timeout_source_new_seconds(5)
+    timeout.set_callback(lambda *_: loop.quit())
+    timeout.attach(None)
+    loop.run()
+    timeout.destroy()
+    assert result == [True]
+    assert tile.get_paintable() is not None
+
+
+if __name__ == "__main__":
+    _paint_offline_tile()

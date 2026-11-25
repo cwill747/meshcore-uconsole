@@ -12,9 +12,19 @@ class TileSource(Shumate.DataSource):
         self.reader = reader
 
     def do_get_tile_data_async(self, x, y, zoom, cancellable, callback, user_data):
-        task = Gio.Task.new(
-            self, cancellable, lambda src, res, _: callback(src, res, user_data), None
-        )
+        # Older PyGObject binds the closure data inside the native callback.
+        # Newer versions expose it as a separate argument.
+        def complete(src, result):
+            # Shumate 1.0 paints on received-data; completion removes the tile
+            # from its pending list. Emit on the UI thread before completing it.
+            if not hasattr(Shumate.DataSource, "do_start_request") and not result.had_error():
+                self.emit("received-data", x, y, zoom, result.tile_bytes)
+            if gi.version_info < (3, 50, 0):
+                callback(src, result)
+            else:
+                callback(src, result, user_data)
+
+        task = Gio.Task.new(self, cancellable, complete)
 
         def read_archive(task, _source, _data, _cancel):
             try:
@@ -37,12 +47,14 @@ class TileSource(Shumate.DataSource):
                     )
                 )
             else:
-                task.return_value(GLib.Bytes.new(tile))
+                task.tile_bytes = GLib.Bytes.new(tile)
+                task.return_boolean(True)
 
         task.run_in_thread(read_archive)
 
     def do_get_tile_data_finish(self, result):
-        return result.propagate_value()[1]
+        result.propagate_boolean()
+        return result.tile_bytes
 
     if hasattr(Shumate.DataSource, "do_start_request"):
 
