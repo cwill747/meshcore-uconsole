@@ -40,6 +40,13 @@ from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
 from meshcore_console.ui_gtk.compat import new_toast
 
 
+def viewport_extents(width, height, scale, rotation):
+    """Half-width and half-height in map pixels after rotating the viewport."""
+    cos = abs(math.cos(rotation))
+    sin = abs(math.sin(rotation))
+    return (width * cos + height * sin) / (2 * scale), (width * sin + height * cos) / (2 * scale)
+
+
 def marker_state(peers: list[Peer]) -> tuple:
     """What the peer markers show: name, position, repeater flag."""
     return tuple(
@@ -221,7 +228,9 @@ class MapView(Gtk.Box):
         scale = 2 ** (level - zoom)
         cx = source.get_x(zoom, self._viewport.get_longitude())
         cy = source.get_y(zoom, self._viewport.get_latitude())
-        dx, dy = widget.get_width() / (2 * scale), widget.get_height() / (2 * scale)
+        dx, dy = viewport_extents(
+            widget.get_width(), widget.get_height(), scale, self._viewport.get_rotation()
+        )
         n = 1 << zoom
         coords = {
             (x % n, y)

@@ -50,7 +50,9 @@ class TileSource(Shumate.DataSource):
                 zoom,
                 cancellable,
                 None,
-                lambda tile, error: task.return_error(error) if error else task.return_value(tile),
+                lambda tile, error: (
+                    task.return_value(tile) if tile is not None else task.return_error(error)
+                ),
             )
 
         def read_archive(task, _source, _data, _cancel):
@@ -159,7 +161,7 @@ class TileSource(Shumate.DataSource):
                 try:
                     cache.store_tile_finish(result)
                 except GLib.Error as error:
-                    done(None, error)
+                    done(tile, error)
                 else:
                     done(tile, None)
 
