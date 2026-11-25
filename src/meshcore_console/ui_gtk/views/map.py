@@ -53,6 +53,7 @@ def marker_state(peers: list[Peer]) -> tuple:
 
 
 if SHUMATE_AVAILABLE:
+    from meshcore_console.platform.saved_maps import saved_areas
     from meshcore_console.platform.protomaps import HostedTiles, ProtomapsReader
     from meshcore_console.ui_gtk.tile_source import TileSource
     from meshcore_console.ui_gtk.area_download import download_dialog, select_area
@@ -405,8 +406,15 @@ class MapView(Gtk.Box):
         return True  # Continue timeout
 
     def _load_archives(self):
-        readers = []
+        try:
+            readers = saved_areas(tiles_directory())
+        except Exception:
+            logger.warning("Could not open saved map database", exc_info=True)
+            readers = []
+        shared_names = {reader.path.stem for reader in readers}
         for path in sorted(tiles_directory().glob("*.pmtiles")):
+            if path.stem in shared_names:
+                continue
             try:
                 readers.append(ProtomapsReader(path))
             except Exception:

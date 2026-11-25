@@ -14,10 +14,10 @@ from meshcore_console.platform.offline_area import (
 
 from meshcore_console.platform.protomaps import (
     BASEMAP_MAX_ZOOM,
-    extract,
     latest_build,
     remote_reader,
 )
+from meshcore_console.platform.saved_maps import save_area
 
 
 def select_area(view, overlay):
@@ -138,7 +138,7 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
             return
         try:
             path = archive_path(tiles_directory(), name.get_text())
-            if path.exists() and path != refresh_path:
+            if path.exists() and refresh_path is None:
                 raise ValueError("An area with that name already exists.")
         except ValueError as exc:
             status.set_text(str(exc))
@@ -152,7 +152,7 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
         def tick():
             if cancel.is_cancelled():
                 return False
-            status.set_text(f"Downloading {completed:,} of {total:,} tiles")
+            status.set_text(f"Saving {completed:,} of {total:,} tiles")
             return True
 
         timer = GLib.timeout_add(250, tick)
@@ -167,7 +167,7 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
                     field.set_sensitive(field is not zoom or refresh_path is None)
             else:
                 window.close()
-                view._area_saved(path, center, z)
+                view._area_saved(path.with_suffix(".area"), center, z)
             return False
 
         def run():
@@ -176,13 +176,12 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
                 completed = n
 
             try:
-                source = remote_reader(latest_build(), cancel.is_cancelled)
-                extract(
+                save_area(
                     path,
                     bounds,
                     z,
                     center,
-                    source,
+                    lambda: remote_reader(latest_build(), cancel.is_cancelled),
                     cancel.is_cancelled,
                     progress,
                     replace=refresh_path is not None,

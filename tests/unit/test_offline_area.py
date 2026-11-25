@@ -123,3 +123,50 @@ def test_saved_zoom_19_uses_native_parent_offline(tmp_path):
     assert reader.max_zoom == 15
     assert reader.header["center_zoom"] == 19
     assert ArchiveCollection([reader]).get_tile(19, 0, 0).startswith(b"\x89PNG")
+
+
+def test_shared_areas_reuse_tiles_and_refresh_atomically(tmp_path):
+    from meshcore_console.platform.saved_maps import save_area, saved_areas, DATABASE
+    import sqlite3
+
+    class Source(VectorSource):
+        calls = []
+
+        def get(self, z, x, y):
+            self.calls.append((z, x, y))
+            return super().get(z, x, y)
+
+    source = Source()
+
+    def save(name, bounds, factory=lambda: source, **kwargs):
+        save_area(
+            tmp_path / (name + ".area"),
+            bounds,
+            1,
+            (0, 0),
+            factory,
+            kwargs.pop("cancelled", lambda: False),
+            lambda _: None,
+            **kwargs,
+        )
+
+    west = (0, 0, 0.5, 0.5)
+    both = (0, 0, 1, 0.5)
+    save("west", west)
+    save("both", both)
+    assert source.calls == [(0, 0, 0), (1, 0, 0), (1, 1, 0)]
+    save("copy", west, lambda: pytest.fail("fully cached area used network"))
+    west_area = next(a for a in saved_areas(tmp_path) if a.path.stem == "west")
+    assert west_area.get_tile(1, 0, 0)
+    assert west_area.get_tile(1, 1, 0) is None
+    with sqlite3.connect(tmp_path / DATABASE) as db:
+        assert db.execute("SELECT count(*) FROM tiles").fetchone() == (3,)
+    source.calls.clear()
+    with pytest.raises(InterruptedError):
+        save("west", west, replace=True, cancelled=lambda: bool(source.calls))
+    assert len(saved_areas(tmp_path)) == 3
+    with pytest.raises(ValueError, match="already exists"):
+        save("west", west)
+    source.calls.clear()
+    save("west", west, replace=True)
+    assert source.calls == [(0, 0, 0), (1, 0, 0)]

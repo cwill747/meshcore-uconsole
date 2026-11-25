@@ -177,7 +177,7 @@ zoom (0–19). Levels 16–19 magnify the downloaded level-15 tiles. Confirm to 
 basemap. The archive includes lower zoom levels. Close the dialog to cancel.
 Saved areas use local vector data, styling, and labels after restart.
 
-Open **Saved areas** to return to a region. Named `.pmtiles` files live in `${XDG_DATA_HOME:-~/.local/share}/meshcore-console/tiles/`.
+Open **Saved areas** to return to a region. New areas share downloaded tiles in `saved-maps.sqlite3`. Saving overlapping areas fetches only missing tiles. Refresh updates shared tiles for all areas that use them. Standalone `.pmtiles` archives also work. Map files live in `${XDG_DATA_HOME:-~/.local/share}/meshcore-console/tiles/`.
 **Refresh** downloads a fresh Protomaps extract for the selected saved area. **Settings → Allow Map
 Downloads** controls online browsing, downloads, and refreshes. Map data © OpenStreetMap contributors.
 See the [Protomaps basemap documentation](https://docs.protomaps.com/basemaps/downloads).
