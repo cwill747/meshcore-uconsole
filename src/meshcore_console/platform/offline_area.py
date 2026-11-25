@@ -31,29 +31,45 @@ def tiles_directory() -> Path:
 
 
 class ArchiveCollection:
-    def __init__(self, readers):
+    def __init__(self, readers, *, offline_preview=False):
         self.readers = readers
+        self.offline_preview = offline_preview
 
     def get_tile(self, zoom, x, y):
-        for reader in self.readers:
-            levels = max(0, zoom - reader.max_zoom)
-            data = reader.get_tile(zoom - levels, x >> levels, y >> levels)
-            if levels and data is not None:
-                from io import BytesIO
-                from PIL import Image
-
-                scale = 1 << levels
-                with Image.open(BytesIO(data)) as parent:
-                    size = parent.width / scale
-                    left, top = (x % scale) * size, (y % scale) * size
-                    child = parent.resize(
-                        parent.size,
-                        Image.Resampling.BILINEAR,
-                        box=(left, top, left + size, top + size),
-                    )
-                    output = BytesIO()
-                    child.save(output, format="PNG")
-                    return output.getvalue()
-            if data is not None:
-                return data
+        if self.offline_preview:
+            # Search each available level across all archives before magnifying.
+            # A region's maximum recorded zoom can be sparse at the clicked location.
+            for level in range(zoom, -1, -1):
+                levels = zoom - level
+                for reader in self.readers:
+                    if level <= reader.max_zoom:
+                        data = reader.get_tile(level, x >> levels, y >> levels)
+                        if data is not None:
+                            return _magnify(data, levels, x, y)
+        else:
+            for reader in self.readers:
+                levels = max(0, zoom - reader.max_zoom)
+                data = reader.get_tile(zoom - levels, x >> levels, y >> levels)
+                if data is not None:
+                    return _magnify(data, levels, x, y)
         return None
+
+
+def _magnify(data, levels, x, y):
+    if not levels:
+        return data
+    from io import BytesIO
+    from PIL import Image
+
+    scale = 1 << levels
+    with Image.open(BytesIO(data)) as parent:
+        size = parent.width / scale
+        left, top = (x % scale) * size, (y % scale) * size
+        child = parent.resize(
+            parent.size,
+            Image.Resampling.BILINEAR,
+            box=(left, top, left + size, top + size),
+        )
+        output = BytesIO()
+        child.save(output, format="PNG")
+        return output.getvalue()

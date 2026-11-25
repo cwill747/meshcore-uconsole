@@ -467,7 +467,9 @@ class MapView(Gtk.Box):
             readers.insert(0, self._selected_area)
         if self._hosted:
             readers.append(self._hosted)
-        self._tiles.reader = ArchiveCollection(readers)
+        self._tiles.reader = ArchiveCollection(
+            readers, offline_preview=bool(self._selected_area and not self._hosted)
+        )
         self._install_renderer()
         self._update_hint()
 

@@ -41,7 +41,7 @@ class SavedAreasView(Gtk.Box):
         overlay = Gtk.Overlay(hexpand=True, vexpand=True)
         body.append(overlay)
         self.map = Shumate.SimpleMap.new()
-        self.map.set_map_source(owner._map.get_map_source())
+        self._install_offline_source()
         overlay.set_child(self.map)
         self.viewport = self.map.get_map().get_viewport()
         self.canvas = Gtk.DrawingArea(hexpand=True, vexpand=True, can_target=False)
@@ -73,6 +73,14 @@ class SavedAreasView(Gtk.Box):
         self.items.set_placeholder(self.empty)
         self._reload()
         self.add_tick_callback(self._initial_fit)
+
+    def _install_offline_source(self, selected=None):
+        readers = list(self.owner._archive.readers) if self.owner._archive else []
+        if selected in readers:
+            readers.remove(selected)
+            readers.insert(0, selected)
+        self._tiles = TileSource(ArchiveCollection(readers, offline_preview=True))
+        self.map.set_map_source(self.owner._make_renderer(self._tiles))
 
     def _initial_fit(self, *_):
         if self.canvas.get_width() < 2:
@@ -169,10 +177,7 @@ class SavedAreasView(Gtk.Box):
         self.delete_btn.set_sensitive(bool(row))
         if row:
             reader = row.reader
-            readers = [reader, *(other for other in self.regions if other is not reader)]
-            self.map.set_map_source(
-                self.owner._make_renderer(TileSource(ArchiveCollection(readers)))
-            )
+            self._install_offline_source(reader)
             self.viewport.set_location(
                 reader.header["center_lat_e7"] / 1e7, reader.header["center_lon_e7"] / 1e7
             )
@@ -208,7 +213,7 @@ class SavedAreasView(Gtk.Box):
                 self.owner._show_toast(f"Could not delete area: {exc}")
                 return
             self.owner._area_deleted()
-            self.map.set_map_source(self.owner._map.get_map_source())
+            self._install_offline_source()
             self._reload()
             self._fit(list(self.regions.values()))
 

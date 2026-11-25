@@ -252,3 +252,27 @@ def test_delete_releases_only_unshared_tiles(tmp_path, monkeypatch):
     assert not saved_areas(tmp_path)
     with sqlite3.connect(tmp_path / DATABASE) as db:
         assert db.execute("SELECT count(*) FROM tiles").fetchone() == (0,)
+
+
+def test_offline_preview_draws_missing_child_from_best_available_parent():
+    from meshcore_console.platform.offline_area import ArchiveCollection
+
+    def tile_data(color):
+        buf = io.BytesIO()
+        Image.new("RGB", (256, 256), color).save(buf, format="PNG")
+        return buf.getvalue()
+
+    class SparseArea:
+        max_zoom = 4
+
+        def __init__(self, tiles):
+            self.tiles = tiles
+
+        def get_tile(self, z, x, y):
+            return self.tiles.get((z, x, y))
+
+    coarse = SparseArea({(1, 1, 0): tile_data("red")})
+    fine = SparseArea({(3, 4, 0): tile_data("blue")})
+    source = ArchiveCollection([coarse, fine], offline_preview=True)
+    assert Image.open(io.BytesIO(source.get_tile(4, 9, 1))).getpixel((120, 120)) == (0, 0, 255)
+    assert source.get_tile(4, 0, 15) is None
