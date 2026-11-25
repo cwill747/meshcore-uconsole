@@ -276,3 +276,27 @@ def test_offline_preview_draws_missing_child_from_best_available_parent():
     source = ArchiveCollection([coarse, fine], offline_preview=True)
     assert Image.open(io.BytesIO(source.get_tile(4, 9, 1))).getpixel((120, 120)) == (0, 0, 255)
     assert source.get_tile(4, 0, 15) is None
+
+
+def test_saved_center_png_is_warm_and_changed_vectors_redraw(tmp_path, monkeypatch):
+    from meshcore_console.platform import protomaps
+    from meshcore_console.platform.saved_maps import save_area, saved_areas
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    calls = []
+    draw = protomaps._draw_tile
+
+    def record(data):
+        calls.append(data)
+        return draw(data)
+
+    monkeypatch.setattr(protomaps, "_draw_tile", record)
+    save_area(
+        tmp_path / "Warm.area", (0, 0, 1, 1), 0, (0, 0), VectorSource, lambda: False, lambda _: None
+    )
+    assert len(calls) == 1
+    assert saved_areas(tmp_path)[0].get_tile(0, 0, 0)
+    assert len(calls) == 1
+    new_data = mapbox_vector_tile.encode({"name": "water", "features": []})
+    assert protomaps.render_tile(new_data) == protomaps.render_tile(new_data)
+    assert len(calls) == 2

@@ -56,7 +56,7 @@ if SHUMATE_AVAILABLE:
     from meshcore_console.platform.saved_maps import saved_areas
     from meshcore_console.platform.protomaps import HostedTiles, ProtomapsReader
     from meshcore_console.ui_gtk.tile_source import TileSource
-    from meshcore_console.ui_gtk.area_download import download_dialog, select_area
+    from meshcore_console.ui_gtk.area_download import select_area
 
 
 class MapView(Gtk.Box):
@@ -217,15 +217,6 @@ class MapView(Gtk.Box):
             tiles,
         )
 
-    def _refresh_tiles(self, _button):
-        area = self._selected_area
-        if self._online_tiles and area and area.meta.get("selection"):
-            h = area.header
-            center = h["center_lon_e7"] / 1e7, h["center_lat_e7"] / 1e7
-            download_dialog(
-                self, area.meta["selection"], center, h["center_zoom"], refresh_path=area.path
-            )
-
     def _add_map_controls(self, overlay: Gtk.Overlay) -> None:
         """Add zoom and location controls as overlay."""
         # Zoom controls in bottom-right
@@ -272,16 +263,6 @@ class MapView(Gtk.Box):
         self._saved_btn.add_css_class("map-control-button")
         zoom_box.append(self._saved_btn)
         self._saved_btn.connect("clicked", self._open_saved_areas)
-
-        self._refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
-        self._refresh_btn.add_css_class("map-control-button")
-        self._refresh_btn.set_tooltip_text("Refresh selected Protomaps area")
-        self._refresh_btn.update_property(
-            [Gtk.AccessibleProperty.LABEL], ["Refresh selected Protomaps area"]
-        )
-        self._refresh_btn.set_sensitive(False)
-        self._refresh_btn.connect("clicked", self._refresh_tiles)
-        zoom_box.append(self._refresh_btn)
 
         overlay.add_overlay(zoom_box)
 
@@ -443,13 +424,6 @@ class MapView(Gtk.Box):
         self._selected_area = next(
             (r for r in readers if selected and r.path == selected.path), None
         )
-        self._refresh_btn.set_sensitive(
-            bool(
-                self._online_tiles
-                and self._selected_area
-                and self._selected_area.meta.get("selection")
-            )
-        )
         self._set_tile_readers()
 
     def _update_hint(self):
@@ -504,7 +478,6 @@ class MapView(Gtk.Box):
     def _visit_area(self, reader, center, zoom):
         # Overlapping archives can contain different imagery for the same tile.
         self._selected_area = reader
-        self._refresh_btn.set_sensitive(self._online_tiles and bool(reader.meta.get("selection")))
         self._set_tile_readers()
         self._viewport.set_location(center[1], center[0])
         self._viewport.set_zoom_level(zoom)
@@ -520,6 +493,9 @@ class MapView(Gtk.Box):
             self._show_toast("Area saved but could not be opened")
             return
         self._visit_area(reader, center, zoom)
+        page = self._pages.get_child_by_name("areas")
+        if page is not None:
+            page.reload_selection(reader)
         self._show_toast(f"Saved {path.stem}")
 
     def _apply_tile_setting(self) -> None:
@@ -541,9 +517,9 @@ class MapView(Gtk.Box):
         if not online:
             self._online_btn.set_active(False)
         self._update_hint()
-        self._refresh_btn.set_sensitive(
-            online and bool(self._selected_area and self._selected_area.meta.get("selection"))
-        )
+        page = self._pages.get_child_by_name("areas")
+        if page is not None:
+            page.update_refresh_button()
 
     def _on_events_available(self, _store: object) -> None:
         """Handle events-available signal — refresh peer markers."""

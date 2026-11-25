@@ -144,6 +144,10 @@ def save_area(path, bounds, zoom, center, open_source, cancelled, progress, *, r
         db.execute("DELETE FROM coverage WHERE area=?", (name,))
         load = _tile_loader(directory, open_source, replace)
         native_zoom = -1
+        top_level = min(zoom, BASEMAP_MAX_ZOOM)
+        world = 1 << top_level
+        center_x = int((bounds[0] + bounds[2]) / 2 * world) % world
+        center_y = int((bounds[1] + bounds[3]) / 2 * world)
         for done, (z, x, y) in enumerate(_coordinates(bounds, zoom), 1):
             if cancelled():
                 raise InterruptedError("Download cancelled.")
@@ -161,6 +165,15 @@ def save_area(path, bounds, zoom, center, open_source, cancelled, progress, *, r
                 present = cached[0]
             if present:
                 native_zoom = z
+                # Warm the initial viewport on the download worker, including
+                # tiles already shared with a previously downloaded area.
+                dx = abs(x - center_x)
+                if z == top_level and min(dx, world - dx) <= 1 and abs(y - center_y) <= 1:
+                    if cached is not None:
+                        data = db.execute("SELECT data FROM tiles WHERE id=?", (tile,)).fetchone()[
+                            0
+                        ]
+                    render_tile(gzip.decompress(data))
             db.execute("INSERT INTO coverage VALUES (?,?)", (name, tile))
             progress(done)
         if cancelled():

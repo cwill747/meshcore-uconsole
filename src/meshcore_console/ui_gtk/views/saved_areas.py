@@ -7,6 +7,7 @@ from gi.repository import Adw, Gtk, Pango, Shumate
 
 from meshcore_console.core.map_view import MAX_ZOOM
 from meshcore_console.platform.offline_area import ArchiveCollection
+from meshcore_console.ui_gtk.area_download import download_dialog
 from meshcore_console.ui_gtk.tile_source import TileSource
 from meshcore_console.platform.saved_maps import delete_area
 from meshcore_console.ui_gtk.compat import build_alert_dialog, present_dialog
@@ -68,6 +69,9 @@ class SavedAreasView(Gtk.Box):
         self.delete_btn = Gtk.Button(label="Delete area")
         self.delete_btn.connect("clicked", self._confirm_delete)
         side.append(self.open_btn)
+        self.refresh_btn = Gtk.Button(label="Refresh area")
+        self.refresh_btn.connect("clicked", self._refresh)
+        side.append(self.refresh_btn)
         side.append(self.delete_btn)
         self.empty = Gtk.Label(label="No saved areas")
         self.items.set_placeholder(self.empty)
@@ -90,6 +94,7 @@ class SavedAreasView(Gtk.Box):
 
     def _reload(self):
         self.selected = None
+        self.update_refresh_button()
         self.open_btn.set_sensitive(False)
         self.delete_btn.set_sensitive(False)
         while row := self.items.get_row_at_index(0):
@@ -173,6 +178,7 @@ class SavedAreasView(Gtk.Box):
 
     def _select(self, _list, row):
         self.selected = row.reader if row else None
+        self.update_refresh_button()
         self.open_btn.set_sensitive(bool(row))
         self.delete_btn.set_sensitive(bool(row))
         if row:
@@ -183,6 +189,24 @@ class SavedAreasView(Gtk.Box):
             )
             self.viewport.set_zoom_level(reader.max_zoom)
         self.canvas.queue_draw()
+
+    def update_refresh_button(self):
+        self.refresh_btn.set_sensitive(
+            bool(self.selected and self.owner._online_tiles and self.selected.meta.get("selection"))
+        )
+
+    def reload_selection(self, reader):
+        self._reload()
+        index = list(self.regions).index(reader)
+        self.items.select_row(self.items.get_row_at_index(index))
+
+    def _refresh(self, *_):
+        area = self.selected
+        h = area.header
+        center = h["center_lon_e7"] / 1e7, h["center_lat_e7"] / 1e7
+        download_dialog(
+            self.owner, area.meta["selection"], center, h["center_zoom"], refresh_path=area.path
+        )
 
     def _open(self, *_):
         reader = self.selected
