@@ -44,6 +44,7 @@
           pkgs.gtk4
           pkgs.libadwaita
           pkgs.libshumate
+          pkgs.libsoup_3
           pkgs.gdk-pixbuf
           pkgs.pango
           pkgs.glib

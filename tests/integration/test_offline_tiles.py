@@ -55,7 +55,7 @@ def test_offline_source_returns_local_tile(tmp_path, monkeypatch):
                 assert request.props.error is not None
 
 
-def test_cache_first_download_and_refresh(tmp_path):
+def test_cache_first_download_and_refresh(tmp_path, monkeypatch):
     import base64
     import os
     import threading
@@ -167,6 +167,25 @@ def test_cache_first_download_and_refresh(tmp_path):
             source = TileSource(None, False, url, str(tmp_path))
             assert read() == updated_png
             assert len(requests) == 7
+
+            source = TileSource(None, True, url, str(tmp_path / "full"))
+
+            def storage_full(_result):
+                raise GLib.Error("disk full")
+
+            monkeypatch.setattr(source.cache, "store_tile_finish", storage_full)
+            status = 200
+            assert read() == updated_png
+            assert refresh()[1] is not None
         finally:
             server.shutdown()
             worker.join()
+
+
+def test_rotated_landscape_refresh_bounds():
+    import math
+
+    pytest.importorskip("gi")
+    from meshcore_console.ui_gtk.views.map import viewport_extents
+
+    assert viewport_extents(1024, 512, 2, math.pi / 2) == pytest.approx((128, 256))
