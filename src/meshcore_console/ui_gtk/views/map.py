@@ -53,6 +53,7 @@ def marker_state(peers: list[Peer]) -> tuple:
 
 if SHUMATE_AVAILABLE:
     from meshcore_console.ui_gtk.views.saved_areas import SavedAreasView
+    from meshcore_console.platform.browsed_tiles import RenderedTiles
     from meshcore_console.platform.saved_maps import saved_areas
     from meshcore_console.platform.protomaps import HostedTiles, ProtomapsReader
     from meshcore_console.ui_gtk.tile_source import TileSource
@@ -140,7 +141,9 @@ class MapView(Gtk.Box):
         self._viewport = map_widget.get_viewport()
 
         self._archive = self._load_archives()
-        self._online_tiles = self._service.get_settings().online_map_tiles
+        settings = self._service.get_settings()
+        RenderedTiles.configure(settings.render_cache_mib)
+        self._online_tiles = settings.online_map_tiles
         self._tiles = TileSource(self._archive)
         self._hosted = None
         self._api_key = self._configured_key()
@@ -499,7 +502,8 @@ class MapView(Gtk.Box):
         self._show_toast(f"Saved {path.stem}")
 
     def _apply_tile_setting(self) -> None:
-        online = self._service.get_settings().online_map_tiles
+        settings = self._service.get_settings()
+        online = settings.online_map_tiles
         key = self._configured_key()
         if self._api_key != key:
             self._api_key = key

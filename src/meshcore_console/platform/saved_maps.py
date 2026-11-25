@@ -10,7 +10,7 @@ from threading import Lock
 
 from pmtiles.tile import Compression, TileType, zxy_to_tileid
 
-from .browsed_tiles import BrowsedTiles
+from .browsed_tiles import BrowsedTiles, RenderedTiles
 from .offline_area import tile_ranges
 from .protomaps import ATTRIBUTION, BASEMAP_MAX_ZOOM, ProtomapsReader, render_tile
 
@@ -168,7 +168,12 @@ def save_area(path, bounds, zoom, center, open_source, cancelled, progress, *, r
                 # Warm the initial viewport on the download worker, including
                 # tiles already shared with a previously downloaded area.
                 dx = abs(x - center_x)
-                if z == top_level and min(dx, world - dx) <= 1 and abs(y - center_y) <= 1:
+                if (
+                    RenderedTiles.limit_bytes
+                    and z == top_level
+                    and min(dx, world - dx) <= 1
+                    and abs(y - center_y) <= 1
+                ):
                     if cached is not None:
                         data = db.execute("SELECT data FROM tiles WHERE id=?", (tile,)).fetchone()[
                             0

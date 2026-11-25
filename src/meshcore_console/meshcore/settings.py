@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 
+DEFAULT_RENDER_CACHE_MIB = 8096
+
+
 @dataclass(slots=True)
 class MeshcoreSettings:
     # Public Info
@@ -15,6 +18,7 @@ class MeshcoreSettings:
     autoconnect: bool = False  # Automatically connect to radio on app startup
     # Permit explicit Protomaps area downloads and refreshes.
     online_map_tiles: bool = True
+    render_cache_mib: int = DEFAULT_RENDER_CACHE_MIB
     protomaps_api_key: str = field(default="", repr=False)
     gps_device: str = ""  # GPS serial port path; empty = auto-detect (#82)
     suppress_service_dialog: bool = False  # Don't prompt to stop conflicting services

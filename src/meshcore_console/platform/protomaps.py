@@ -19,7 +19,7 @@ from pmtiles.reader import MmapSource, Reader
 from pmtiles.tile import Compression, TileType, zxy_to_tileid
 from pmtiles.writer import Writer
 
-from .browsed_tiles import BrowsedTiles, TileCache
+from .browsed_tiles import BrowsedTiles, RenderedTiles
 from .offline_area import tile_ranges
 
 BASEMAP_MAX_ZOOM = 15
@@ -185,7 +185,7 @@ class ProtomapsReader:
 def render_tile(data):
     # Bump the filename version when changing the raster style. Hashing the MVT
     # also shares identical tiles across areas and invalidates changed geometry.
-    cache = TileCache("protomaps-rendered-v1.sqlite3", 2048)
+    cache = RenderedTiles()
     key = hashlib.sha256(data).digest()
     png = cache.get(key)
     if png is None:

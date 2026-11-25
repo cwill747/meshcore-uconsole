@@ -97,3 +97,14 @@ def test_protomaps_key_can_be_saved_and_cleared(tmp_path) -> None:
     store.save(settings)
     assert store.load().protomaps_api_key == ""
     conn.close()
+
+
+def test_rendered_cache_size_default_and_persistence(tmp_path):
+    conn = open_db(str(tmp_path / "settings.db"))
+    store = SettingsStore(conn)
+    settings = store.load()
+    assert settings.render_cache_mib == 8096
+    settings.render_cache_mib = 128
+    store.save(settings)
+    assert store.load().render_cache_mib == 128
+    conn.close()

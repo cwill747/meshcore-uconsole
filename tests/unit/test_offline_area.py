@@ -300,3 +300,27 @@ def test_saved_center_png_is_warm_and_changed_vectors_redraw(tmp_path, monkeypat
     new_data = mapbox_vector_tile.encode({"name": "water", "features": []})
     assert protomaps.render_tile(new_data) == protomaps.render_tile(new_data)
     assert len(calls) == 2
+
+
+def test_render_cache_byte_budget_migrates_and_releases_space(tmp_path, monkeypatch):
+    import sqlite3
+    from meshcore_console.platform.browsed_tiles import RenderedTiles
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr(RenderedTiles, "limit_bytes", 1 << 20)
+    cache = RenderedTiles()
+    cache.path.parent.mkdir()
+    payload = bytes(400_000)
+    with sqlite3.connect(cache.path) as db:
+        db.execute("CREATE TABLE tiles(tile INTEGER UNIQUE, data BLOB NOT NULL)")
+        db.executemany("INSERT INTO tiles VALUES (?,?)", [(key, payload) for key in range(4)])
+    cache._update()
+    assert cache.path.stat().st_size <= 1 << 20
+    assert cache.get(0) is None and cache.get(3) == payload
+    cache.put(4, payload)
+    assert cache.path.stat().st_size <= 1 << 20
+    assert cache.get(2) is None and cache.get(4) == payload
+    RenderedTiles.limit_bytes = 0
+    cache._update()
+    cache.put(5, payload)
+    assert cache.get(5) is None and not cache.path.exists()
