@@ -5,9 +5,14 @@ import re
 import gi
 
 gi.require_version("Shumate", "1.0")
-gi.require_version("Soup", "3.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Shumate, Soup
+from gi.repository import Gdk, Gio, GLib, Shumate
+
+try:
+    gi.require_version("Soup", "3.0")
+    from gi.repository import Soup
+except (ImportError, ValueError):
+    Soup = None
 
 OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 # FileCache stores the ETag and last validation time, not HTTP expiry headers.
@@ -24,10 +29,12 @@ class TileSource(Shumate.DataSource):
         self.cache = Shumate.FileCache.new_full(
             100_000_000, re.sub(r"[^A-Za-z0-9]", "_", url), cache_dir
         )
-        self.session = Soup.Session(
-            timeout=8,
-            user_agent="meshcore-uconsole (+https://github.com/cwill747/meshcore-uconsole)",
-        )
+        self.session = None
+        if Soup is not None:
+            self.session = Soup.Session(
+                timeout=8,
+                user_agent="meshcore-uconsole (+https://github.com/cwill747/meshcore-uconsole)",
+            )
 
     def do_get_tile_data_async(self, x, y, zoom, cancellable, callback, user_data):
         task = Gio.Task.new(
@@ -149,6 +156,16 @@ class TileSource(Shumate.DataSource):
         self.cache.get_tile_async(x, y, zoom, cancellable, cached)
 
     def download(self, x, y, zoom, cancellable, etag, done):
+        if self.session is None:
+            done(
+                None,
+                GLib.Error.new_literal(
+                    Gio.io_error_quark(),
+                    "Install gir1.2-soup-3.0 to refresh online tiles.",
+                    Gio.IOErrorEnum.NOT_SUPPORTED,
+                ),
+            )
+            return
         message = Soup.Message.new("GET", self.url.format(x=x, y=y, z=zoom))
         if etag:
             message.get_request_headers().append("If-None-Match", etag)

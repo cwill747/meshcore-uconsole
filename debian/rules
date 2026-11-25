@@ -11,3 +11,7 @@ override_dh_virtualenv:
 	              --preinstall pip \
 	              --preinstall setuptools \
 	              --preinstall wheel
+
+# Pillow's repaired ARM wheels have an ELF section layout dwz cannot rewrite.
+override_dh_dwz:
+	dh_dwz -X/site-packages/PIL/ -X/site-packages/pillow.libs/

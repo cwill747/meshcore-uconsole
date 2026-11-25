@@ -306,7 +306,9 @@ class MapView(Gtk.Box):
         self._refresh_btn.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Refresh visible map tiles"]
         )
-        self._refresh_btn.set_sensitive(self._online_tiles)
+        self._refresh_btn.set_sensitive(self._online_tiles and self._tiles.session is not None)
+        if self._tiles.session is None:
+            self._refresh_btn.set_tooltip_text("Install gir1.2-soup-3.0 to refresh online tiles")
         self._refresh_btn.connect("clicked", self._refresh_tiles)
         zoom_box.append(self._refresh_btn)
 
@@ -515,12 +517,12 @@ class MapView(Gtk.Box):
             return
         self._online_tiles = online
         self._area_btn.set_sensitive(online)
-        if not online:
+        if not online and self._tiles.session is not None:
             self._tiles.session.abort()
         if self._refresh_cancel:
             self._refresh_cancel.cancel()
             self._refresh_cancel = None
-        self._refresh_btn.set_sensitive(online)
+        self._refresh_btn.set_sensitive(online and self._tiles.session is not None)
         self._install_renderer()
 
     def _on_events_available(self, _store: object) -> None:
