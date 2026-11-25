@@ -191,7 +191,7 @@ class SettingsView(Gtk.Box):
         grid.attach(self._grid_label("Download Map Tiles"), 0, 9, 1, 1)
         tiles_switch = self._grid_switch("online_map_tiles")
         tiles_switch.set_tooltip_text(
-            "Fetch map tiles from OpenStreetMap. The tile server sees your IP address "
+            "Download missing tiles from OpenStreetMap or refresh the visible map. The tile server sees your IP address "
             "and the area you look at, e.g. around your own position."
         )
         grid.attach(tiles_switch, 1, 9, 1, 1)

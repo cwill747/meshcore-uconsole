@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 from pathlib import Path
+from threading import Lock
 
 
 class MBTilesReader:
@@ -16,6 +18,7 @@ class MBTilesReader:
 
     def __init__(self, path: Path) -> None:
         self._path = path
+        self._read_lock = Lock()
         self._conn: sqlite3.Connection | None = None
 
     def open(self) -> bool:
@@ -25,21 +28,15 @@ class MBTilesReader:
             return False
 
         try:
-            self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
-            # Verify it has the tiles table
-            cursor = self._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='tiles'"
+            self._conn = sqlite3.connect(
+                self._path.resolve().as_uri() + "?mode=ro", uri=True, check_same_thread=False
             )
-            if cursor.fetchone() is None:
-                print(
-                    f"[MBTiles] Invalid MBTiles file (no tiles table): {self._path}",
-                    file=sys.stderr,
-                )
-                self._conn.close()
-                self._conn = None
-                return False
+            self._conn.execute(
+                "SELECT zoom_level, tile_column, tile_row, tile_data FROM tiles LIMIT 0"
+            )
             return True
         except Exception as e:
+            self.close()
             print(f"[MBTiles] Open error: {e}", file=sys.stderr)
             return False
 
@@ -62,12 +59,13 @@ class MBTilesReader:
         tms_y = (1 << zoom) - 1 - y
 
         try:
-            cursor = self._conn.execute(
-                "SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?",
-                (zoom, x, tms_y),
-            )
-            row = cursor.fetchone()
-            if row is not None:
+            with self._read_lock:
+                cursor = self._conn.execute(
+                    "SELECT tile_data FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?",
+                    (zoom, x, tms_y),
+                )
+                row = cursor.fetchone()
+            if row is not None and isinstance(row[0], bytes):
                 return row[0]
         except Exception as e:
             print(f"[MBTiles] Get tile error: {e}", file=sys.stderr)
@@ -81,7 +79,7 @@ class MBTilesReader:
 
         try:
             cursor = self._conn.execute("SELECT name, value FROM metadata")
-            return dict(cursor.fetchall())
+            return {name: value for name, value in cursor if isinstance(value, str)}
         except Exception as e:
             print(f"[MBTiles] Metadata error: {e}", file=sys.stderr)
             return {}
@@ -93,7 +91,11 @@ class MBTilesReader:
 
 def find_mbtiles_files() -> list[Path]:
     """Find MBTiles files in the standard location."""
-    tiles_dir = Path.home() / ".local" / "share" / "meshcore-console" / "tiles"
+    tiles_dir = (
+        Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
+        / "meshcore-console"
+        / "tiles"
+    )
     if not tiles_dir.exists():
         return []
 

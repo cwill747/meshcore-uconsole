@@ -78,7 +78,7 @@ def test_map_tile_downloads_default_on_and_persist(tmp_path) -> None:
     from meshcore_console.meshcore.settings import MeshcoreSettings
     from meshcore_console.meshcore.settings_store import SettingsStore
 
-    assert MeshcoreSettings().online_map_tiles is True  # unchanged default behaviour
+    assert MeshcoreSettings().online_map_tiles is True
     store = SettingsStore(open_db(str(tmp_path / "t.db")))
     store.save(MeshcoreSettings(online_map_tiles=False))
     assert store.load().online_map_tiles is False

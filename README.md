@@ -159,3 +159,18 @@ command line. Notable radio bring-up flags:
 - `MESHCORE_USE_GPIOD_BACKEND=1` — poll for IRQ edges instead of asking the
   kernel for edge interrupts. Try this if the radio connects but receives
   nothing, which happens on kernels that reject the edge request.
+
+### Operating offline
+
+Bootstrap the Pi while connected. Subsequent launches with
+`./scripts/run-gtk-pi.sh` use the installed environment. Map downloads are enabled by default.
+The map uses previously downloaded tiles first, then a local MBTiles
+archive, and contacts OpenStreetMap only for missing tiles. Use the map’s
+refresh button to update the visible area. Failed refreshes keep the
+previous tiles. Turn off **Settings → Download Map Tiles** for strictly
+offline use. Downloaded tiles and MBTiles still work with downloads off.
+
+For offline coverage of a region, copy a raster MBTiles archive (PNG, JPEG
+or WebP) into `~/.local/share/meshcore-console/tiles/` before launch.
+If `XDG_DATA_HOME` is set, use its `meshcore-console/tiles/` directory.
+The first readable supported archive in filename order supplies local tiles.
