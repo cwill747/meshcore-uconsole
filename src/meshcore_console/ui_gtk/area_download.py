@@ -5,13 +5,19 @@ import threading
 
 from gi.repository import Gio, GLib, Gtk
 
+from meshcore_console.core.map_view import MAX_ZOOM
 from meshcore_console.platform.offline_area import tiles_directory
 from meshcore_console.platform.offline_area import (
     archive_path,
     tile_ranges,
 )
 
-from meshcore_console.platform.protomaps import extract, latest_build, remote_reader
+from meshcore_console.platform.protomaps import (
+    BASEMAP_MAX_ZOOM,
+    extract,
+    latest_build,
+    remote_reader,
+)
 
 
 def select_area(view, overlay):
@@ -93,7 +99,7 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
         getattr(box, f"set_margin_{side}")(12)
     window.set_child(box)
     name = Gtk.Entry()
-    zoom = Gtk.SpinButton.new_with_range(0, 15, 1)
+    zoom = Gtk.SpinButton.new_with_range(0, MAX_ZOOM, 1)
     zoom.set_value(level)
     if refresh_path:
         name.set_text(refresh_path.stem)
@@ -113,10 +119,13 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
     def count(*_):
         total = sum(
             len(xs) * len(ys)
-            for z in range(zoom.get_value_as_int() + 1)
+            for z in range(min(zoom.get_value_as_int(), BASEMAP_MAX_ZOOM) + 1)
             for xs, ys in [tile_ranges(bounds, z)]
         )
-        status.set_text(f"Protomaps · up to {total:,} tiles")
+        message = f"Protomaps · up to {total:,} tiles"
+        if zoom.get_value_as_int() > BASEMAP_MAX_ZOOM:
+            message += f" · Above zoom {BASEMAP_MAX_ZOOM}, the map magnifies downloaded tiles."
+        status.set_text(message)
         return total
 
     zoom.connect("value-changed", count)

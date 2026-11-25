@@ -173,7 +173,7 @@ It is stored in the private local settings database. Alternatively set
 header, configure the key’s allowed origin as `*`.
 
 Choose **Download area**, drag a rectangle, enter a name, and select a maximum
-zoom (0–15). Confirm to download the selected region from a Protomaps daily
+zoom (0–19). Levels 16–19 magnify the downloaded level-15 tiles. Confirm to download the selected region from a Protomaps daily
 basemap. The archive includes lower zoom levels. Close the dialog to cancel.
 Saved areas use local vector data, styling, and labels after restart.
 

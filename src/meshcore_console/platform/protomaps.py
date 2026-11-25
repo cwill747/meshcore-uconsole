@@ -20,6 +20,7 @@ from pmtiles.writer import Writer
 
 from .offline_area import tile_ranges
 
+BASEMAP_MAX_ZOOM = 15
 BUILDS = "https://build-metadata.protomaps.dev/builds.json"
 ATTRIBUTION = "Protomaps · © OpenStreetMap contributors"
 
@@ -81,7 +82,7 @@ def extract(path, bounds, maxzoom, center, source, cancelled, progress, *, repla
             writer = Writer(output)
             done = 0
             try:
-                for z in range(maxzoom + 1):
+                for z in range(min(maxzoom, header["max_zoom"], BASEMAP_MAX_ZOOM) + 1):
                     xs, ys = tile_ranges(bounds, z)
                     for y in ys:
                         for x in xs:
@@ -283,7 +284,7 @@ def render_tile(data):
 class HostedTiles:
     """Fetch visible v4 MVT tiles on demand, retaining rendered images in memory."""
 
-    max_zoom = 15
+    max_zoom = BASEMAP_MAX_ZOOM
 
     def __init__(self, key, on_error):
         from threading import Event
