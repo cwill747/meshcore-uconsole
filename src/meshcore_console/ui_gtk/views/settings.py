@@ -200,7 +200,7 @@ class SettingsView(Gtk.Box):
 
         grid = Gtk.Grid(row_spacing=8, column_spacing=8)
         panel.append(grid)
-        grid.attach(self._grid_label("Allow Map Downloads"), 0, 0, 1, 1)
+        grid.attach(self._grid_label("Downloads"), 0, 0, 1, 1)
         downloads = self._grid_switch("online_map_tiles")
         downloads.set_tooltip_text(
             "Allow online browsing and area downloads. Protomaps receives your IP address "
@@ -208,9 +208,7 @@ class SettingsView(Gtk.Box):
         )
         grid.attach(downloads, 1, 0, 1, 1)
 
-        label = self._grid_label("Protomaps API key for online maps")
-        label.set_wrap(True)
-        label.set_max_width_chars(20)
+        label = self._grid_label("Protomaps key")
         grid.attach(label, 0, 1, 1, 1)
         key = self._grid_entry("protomaps_api_key", 22)
         key.set_visibility(False)
@@ -226,7 +224,7 @@ class SettingsView(Gtk.Box):
             wrap=True,
         )
         grid.attach(help_text, 0, 2, 2, 1)
-        label = self._grid_label("Rendered tile cache (MiB)")
+        label = self._grid_label("Cache (MiB)")
         grid.attach(label, 0, 3, 1, 1)
         self._cache_size = Gtk.SpinButton.new_with_range(0, 2**31 - 1, 1)
         self._cache_size.set_numeric(True)

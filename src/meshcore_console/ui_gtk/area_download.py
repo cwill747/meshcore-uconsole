@@ -149,7 +149,7 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
     def start(*_):
         nonlocal running
         if not view._online_tiles:
-            status.set_text("Enable Allow Map Downloads in Settings.")
+            status.set_text("Enable Downloads in Settings.")
             return
         try:
             path = archive_path(tiles_directory(), name.get_text())

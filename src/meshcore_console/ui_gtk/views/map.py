@@ -433,7 +433,7 @@ class MapView(Gtk.Box):
         self._map_hint.set_label(
             "No saved maps. Choose Online map or Download area."
             if self._online_tiles
-            else "No saved maps. Enable Allow Map Downloads in Settings."
+            else "No saved maps. Enable Downloads in Settings."
         )
         self._map_hint.set_visible(not self._archive and not self._hosted)
 

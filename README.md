@@ -167,7 +167,7 @@ Bootstrap the Pi while connected. Subsequent launches with
 The map starts offline. With no saved areas, choose **Online map** to browse
 or **Download area** to save a region. Saved areas work without an API key.
 Online browsing uses the [Protomaps hosted API](https://protomaps.com/api)
-for tiles missing from saved areas. Enter your key in **Settings → Maps → Protomaps API key for online maps** and press **Save Settings**.
+for tiles missing from saved areas. Enter your key in **Settings → Maps → Protomaps key** and press **Save Settings**.
 It is stored in the private local settings database. Alternatively set
 `MESHCORE_PROTOMAPS_API_KEY` before launch. For native requests without an Origin
 header, configure the key’s allowed origin as `*`.
@@ -178,6 +178,5 @@ basemap. The archive includes lower zoom levels. Use **Cancel** to stop a downlo
 Saved areas use local vector data, styling, and labels after restart.
 
 Open **Saved areas** to see coverage rectangles on the map. Click a rectangle or select an area name to see its highest saved native zoom. Where rectangles overlap, clicking shows the most detailed area. Use **Open on map** to keep that location on the main map. Deleting an area keeps tiles used by other areas. New areas share downloaded tiles in `saved-maps.sqlite3`. Online browsing caches the most recent 1,024 fetched tiles on disk. Saving an area reuses available tiles from browsing and other saved areas, even after a restart, and fetches only missing tiles. Refresh updates shared tiles for all areas that use them. Standalone `.pmtiles` archives also work. Map files live in `${XDG_DATA_HOME:-~/.local/share}/meshcore-console/tiles/`.
-In **Saved areas**, select a region and choose **Refresh area** to download a fresh Protomaps extract. Downloads prepare PNGs around the region center. Set **Settings → Maps → Rendered tile cache (MiB)** to limit disk usage for rendered PNGs. The default is 8,096 MiB. The cache grows as needed and evicts the oldest entries first. Set it to 0 to disable the disk cache. **Settings → Allow Map
-Downloads** controls online browsing, downloads, and refreshes. Map data © OpenStreetMap contributors.
+In **Saved areas**, select a region and choose **Refresh area** to download a fresh Protomaps extract. Downloads prepare PNGs around the region center. Set **Settings → Maps → Cache (MiB)** to limit disk usage for rendered PNGs. The default is 8,096 MiB. The cache grows as needed and evicts the oldest entries first. Set it to 0 to disable the disk cache. **Settings → Maps → Downloads** controls online browsing, downloads, and refreshes. Map data © OpenStreetMap contributors.
 See the [Protomaps basemap documentation](https://docs.protomaps.com/basemaps/downloads).
