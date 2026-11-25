@@ -95,6 +95,7 @@ class SettingsView(Gtk.Box):
 
         # Right column: Hardware (advanced) + Logging
         right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        right_col.append(self._build_map_panel())
         right_col.append(self._build_hardware_panel())
         right_col.append(self._build_logging_panel())
         columns.append(right_col)
@@ -187,23 +188,42 @@ class SettingsView(Gtk.Box):
         )
         grid.attach(gps_entry, 1, 8, 2, 1)
 
-        # Row 9: Online map tiles
-        grid.attach(self._grid_label("Allow Map Downloads"), 0, 9, 1, 1)
-        tiles_switch = self._grid_switch("online_map_tiles")
-        tiles_switch.set_tooltip_text(
-            "Download or refresh a saved Protomaps area. The provider sees your IP address "
-            "and the area you choose to download."
-        )
-        grid.attach(tiles_switch, 1, 9, 1, 1)
+        panel.append(grid)
+        return panel
 
-        grid.attach(self._grid_label("Protomaps API key"), 0, 10, 1, 1)
+    def _build_map_panel(self) -> Gtk.Box:
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        panel.add_css_class("panel-card")
+        title = Gtk.Label(label="Maps", xalign=0)
+        title.add_css_class("panel-title")
+        panel.append(title)
+
+        row = Gtk.Box(spacing=8)
+        row.append(self._grid_label("Allow Map Downloads"))
+        downloads = self._grid_switch("online_map_tiles")
+        downloads.set_tooltip_text(
+            "Allow online browsing and area downloads. Protomaps receives your IP address "
+            "and the locations you request."
+        )
+        row.append(downloads)
+        panel.append(row)
+
+        label = self._grid_label("Protomaps API key for online maps")
+        panel.append(label)
         key = self._grid_entry("protomaps_api_key", 22)
         key.set_visibility(False)
         key.set_input_purpose(Gtk.InputPurpose.PASSWORD)
-        key.set_placeholder_text("For online browsing")
-        grid.attach(key, 1, 10, 2, 1)
+        key.set_placeholder_text("Enter your API key")
+        key.update_property([Gtk.AccessibleProperty.LABEL], [label.get_text()])
+        panel.append(key)
 
-        panel.append(grid)
+        help_text = Gtk.Label(
+            label="Online map uses this key to load missing tiles. "
+            "You can download and view saved areas without a key.",
+            xalign=0,
+            wrap=True,
+        )
+        panel.append(help_text)
         return panel
 
     def _build_radio_panel(self) -> Gtk.Box:

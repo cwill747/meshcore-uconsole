@@ -167,7 +167,7 @@ Bootstrap the Pi while connected. Subsequent launches with
 The map starts offline. With no saved areas, choose **Online map** to browse
 or **Download area** to save a region. Saved areas work without an API key.
 Online browsing uses the [Protomaps hosted API](https://protomaps.com/api)
-for tiles missing from saved areas. Enter your key in **Settings → Protomaps API key** and press **Save Settings**.
+for tiles missing from saved areas. Enter your key in **Settings → Maps → Protomaps API key for online maps** and press **Save Settings**.
 It is stored in the private local settings database. Alternatively set
 `MESHCORE_PROTOMAPS_API_KEY` before launch. For native requests without an Origin
 header, configure the key’s allowed origin as `*`.
