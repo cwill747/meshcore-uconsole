@@ -17,19 +17,19 @@ class MBTilesReader:
     """
 
     def __init__(self, path: Path) -> None:
-        self._path = path
+        self.path = path
         self._read_lock = Lock()
         self._conn: sqlite3.Connection | None = None
 
     def open(self) -> bool:
         """Open the MBTiles database."""
-        if not self._path.exists():
-            print(f"[MBTiles] File not found: {self._path}", file=sys.stderr)
+        if not self.path.exists():
+            print(f"[MBTiles] File not found: {self.path}", file=sys.stderr)
             return False
 
         try:
             self._conn = sqlite3.connect(
-                self._path.resolve().as_uri() + "?mode=ro", uri=True, check_same_thread=False
+                self.path.resolve().as_uri() + "?mode=ro", uri=True, check_same_thread=False
             )
             self._conn.execute(
                 "SELECT zoom_level, tile_column, tile_row, tile_data FROM tiles LIMIT 0"
@@ -89,14 +89,29 @@ class MBTilesReader:
         return self._conn is not None
 
 
-def find_mbtiles_files() -> list[Path]:
-    """Find MBTiles files in the standard location."""
-    tiles_dir = (
+def tiles_directory() -> Path:
+    return (
         Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
         / "meshcore-console"
         / "tiles"
     )
+
+
+def find_mbtiles_files() -> list[Path]:
+    tiles_dir = tiles_directory()
     if not tiles_dir.exists():
         return []
 
-    return sorted(tiles_dir.glob("*.mbtiles"))
+    return sorted(tiles_dir.glob("*.pmtiles")) + sorted(tiles_dir.glob("*.mbtiles"))
+
+
+class ArchiveCollection:
+    def __init__(self, readers):
+        self.readers = readers
+
+    def get_tile(self, zoom, x, y):
+        for reader in self.readers:
+            data = reader.get_tile(zoom, x, y)
+            if data is not None:
+                return data
+        return None

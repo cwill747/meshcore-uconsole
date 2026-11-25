@@ -163,14 +163,16 @@ command line. Notable radio bring-up flags:
 ### Operating offline
 
 Bootstrap the Pi while connected. Subsequent launches with
-`./scripts/run-gtk-pi.sh` use the installed environment. Map downloads are enabled by default.
-The map uses previously downloaded tiles first, then a local MBTiles
-archive, and contacts OpenStreetMap only for missing tiles. Use the map’s
-refresh button to update the visible area. Failed refreshes keep the
-previous tiles. Turn off **Settings → Download Map Tiles** for strictly
-offline use. Downloaded tiles and MBTiles still work with downloads off.
+`./scripts/run-gtk-pi.sh` use the installed environment.
+Opening the map, panning, and zooming use local tiles only.
 
-For offline coverage of a region, copy a raster MBTiles archive (PNG, JPEG
-or WebP) into `~/.local/share/meshcore-console/tiles/` before launch.
-If `XDG_DATA_HOME` is set, use its `meshcore-console/tiles/` directory.
-The first readable supported archive in filename order supplies local tiles.
+Choose **Download area**, drag a rectangle, enter a name, and select a maximum
+zoom (0–15). Confirm to download the selected region from a Protomaps daily
+basemap. The archive includes lower zoom levels. Close the dialog to cancel.
+Saved areas use local vector data, styling, and labels after restart.
+
+Open **Saved areas** to return to a region. Named `.pmtiles` files and imported
+raster MBTiles live in `${XDG_DATA_HOME:-~/.local/share}/meshcore-console/tiles/`.
+**Refresh** requests the visible OSM raster tiles. **Settings → Allow Map
+Downloads** controls both network actions. Map data © OpenStreetMap contributors.
+See the [Protomaps basemap documentation](https://docs.protomaps.com/basemaps/downloads).

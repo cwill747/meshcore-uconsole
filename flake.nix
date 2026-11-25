@@ -20,6 +20,7 @@
         ]);
 
         runtimeLibs = [
+          pkgs.stdenv.cc.cc.lib
           pkgs.gtk4
           pkgs.libadwaita
           pkgs.libshumate

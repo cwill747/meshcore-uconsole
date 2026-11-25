@@ -35,7 +35,7 @@ from meshcore_console.ui_gtk.helpers import clear_children, navigate
 from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
-from meshcore_console.platform.mbtiles import MBTilesReader, find_mbtiles_files
+from meshcore_console.platform.mbtiles import ArchiveCollection, MBTilesReader, find_mbtiles_files
 from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
 from meshcore_console.ui_gtk.compat import new_toast
 
@@ -59,7 +59,9 @@ def marker_state(peers: list[Peer]) -> tuple:
 
 
 if SHUMATE_AVAILABLE:
+    from meshcore_console.platform.protomaps import ProtomapsReader
     from meshcore_console.ui_gtk.tile_source import TileSource
+    from meshcore_console.ui_gtk.area_download import select_area
 
 
 class MapView(Gtk.Box):
@@ -140,7 +142,7 @@ class MapView(Gtk.Box):
 
         self._archive, self._archive_credit = self._load_mbtiles()
         self._online_tiles = self._service.get_settings().online_map_tiles
-        self._tiles = TileSource(self._archive, self._online_tiles)
+        self._tiles = TileSource(self._archive, False)
         self._refresh_cancel = None
         self._install_renderer()
 
@@ -285,6 +287,19 @@ class MapView(Gtk.Box):
         zoom_out.connect("clicked", self._on_zoom_out)
         zoom_box.append(zoom_out)
 
+        self._area_btn = Gtk.Button(label="Download area")
+        self._area_btn.set_sensitive(self._online_tiles)
+
+        def begin_selection(_button):
+            self._area_btn.set_sensitive(False)
+            select_area(self, overlay)
+
+        self._area_btn.connect("clicked", begin_selection)
+        zoom_box.append(self._area_btn)
+        self._saved_btn = Gtk.MenuButton(label="Saved areas")
+        zoom_box.append(self._saved_btn)
+        self._update_saved_menu()
+
         self._refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
         self._refresh_btn.add_css_class("map-control-button")
         self._refresh_btn.set_tooltip_text("Refresh visible map tiles")
@@ -424,7 +439,18 @@ class MapView(Gtk.Box):
         return True  # Continue timeout
 
     def _load_mbtiles(self):
+        readers = []
+        credits = []
         for path in find_mbtiles_files():
+            if path.suffix == ".pmtiles":
+                try:
+                    readers.append(ProtomapsReader(path))
+                except Exception:
+                    logger.warning("Could not open PMTiles archive %s", path, exc_info=True)
+                else:
+                    if "Protomaps" not in credits:
+                        credits.append("Protomaps")
+                continue
             reader = MBTilesReader(path)
             if not reader.open():
                 continue
@@ -432,15 +458,63 @@ class MapView(Gtk.Box):
             if metadata.get("format", "png").lower() not in {"png", "jpg", "jpeg", "webp"}:
                 reader.close()
                 continue
-            return reader, metadata.get("attribution", "")
-        return None, ""
+            readers.append(reader)
+            credit = metadata.get("attribution")
+            if credit and credit not in credits:
+                credits.append(credit)
+        return ArchiveCollection(readers) if readers else None, " · ".join(credits)
+
+    def _update_saved_menu(self):
+        popover = Gtk.Popover()
+        items = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        popover.set_child(items)
+        for reader in self._archive.readers if self._archive else []:
+            meta = reader.get_metadata()
+            try:
+                lon, lat, zoom = map(float, meta["center"].split(","))
+            except (KeyError, ValueError):
+                continue
+            if not all(math.isfinite(v) for v in (lon, lat, zoom)):
+                continue
+            button = Gtk.Button(label=meta.get("name", "Map area"))
+
+            def visit(_button, reader=reader, lon=lon, lat=lat, zoom=zoom):
+                popover.popdown()
+                self._visit_area(reader, (lon, lat), zoom)
+
+            button.connect("clicked", visit)
+            items.append(button)
+        self._saved_btn.set_popover(popover)
+        self._saved_btn.set_sensitive(items.get_first_child() is not None)
+
+    def _visit_area(self, reader, center, zoom):
+        # Overlapping archives can contain different imagery for the same tile.
+        readers = (reader, *(r for r in self._archive.readers if r is not reader))
+        self._tiles.reader = ArchiveCollection(readers)
+        self._install_renderer()
+        self._viewport.set_location(center[1], center[0])
+        self._viewport.set_zoom_level(zoom)
+
+    def _area_saved(self, path, center, zoom):
+        self._archive, self._archive_credit = self._load_mbtiles()
+        self._update_saved_menu()
+        reader = (
+            next((r for r in self._archive.readers if r.path == path), None)
+            if self._archive
+            else None
+        )
+        if reader is None:
+            self._show_toast("Area saved but could not be opened")
+            return
+        self._visit_area(reader, center, zoom)
+        self._show_toast(f"Saved {path.stem}")
 
     def _apply_tile_setting(self) -> None:
         online = self._service.get_settings().online_map_tiles
         if online == self._online_tiles:
             return
         self._online_tiles = online
-        self._tiles.online = online
+        self._area_btn.set_sensitive(online)
         if not online:
             self._tiles.session.abort()
         if self._refresh_cancel:

@@ -56,7 +56,17 @@ class TileSource(Shumate.DataSource):
             )
 
         def read_archive(task, _source, _data, _cancel):
-            tile = self.reader.get_tile(zoom, x, y)
+            try:
+                tile = self.reader.get_tile(zoom, x, y)
+            except Exception as exc:
+                task.return_error(
+                    GLib.Error.new_literal(
+                        Gio.io_error_quark(),
+                        f"Cannot read offline tile: {exc}",
+                        Gio.IOErrorEnum.INVALID_DATA,
+                    )
+                )
+                return
             if tile is None:
                 task.return_value(None)
             else:
@@ -69,7 +79,11 @@ class TileSource(Shumate.DataSource):
                 tile = etag = cached_at = None
             if task.return_error_if_cancelled():
                 return
-            if tile is not None:
+
+            def use_cache():
+                if tile is None:
+                    fetch()
+                    return
                 fresh = (
                     cached_at is not None
                     and GLib.DateTime.new_now_utc().difference(cached_at) < _CACHE_MAX_AGE
@@ -84,23 +98,24 @@ class TileSource(Shumate.DataSource):
                         task.return_value(updated if updated is not None else tile)
 
                 self.download(x, y, zoom, cancellable, etag, revalidated)
-            elif self.reader is not None:
+
+            if self.reader is not None and (tile is None or not self.online):
 
                 def archive_read(_source, result):
                     try:
-                        _, tile = result.propagate_value()
+                        _, archive_tile = result.propagate_value()
                     except GLib.Error as error:
                         task.return_error(error)
                         return
-                    if tile:
-                        task.return_value(tile)
+                    if archive_tile:
+                        task.return_value(archive_tile)
                     else:
-                        fetch()
+                        use_cache()
 
                 archive_task = Gio.Task.new(self, cancellable, archive_read)
                 archive_task.run_in_thread(read_archive)
             else:
-                fetch()
+                use_cache()
 
         self.cache.get_tile_async(x, y, zoom, cancellable, cached)
 

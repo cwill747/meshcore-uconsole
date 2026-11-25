@@ -188,10 +188,10 @@ class SettingsView(Gtk.Box):
         grid.attach(gps_entry, 1, 8, 2, 1)
 
         # Row 9: Online map tiles
-        grid.attach(self._grid_label("Download Map Tiles"), 0, 9, 1, 1)
+        grid.attach(self._grid_label("Allow Map Downloads"), 0, 9, 1, 1)
         tiles_switch = self._grid_switch("online_map_tiles")
         tiles_switch.set_tooltip_text(
-            "Download missing tiles from OpenStreetMap or refresh the visible map. The tile server sees your IP address "
+            "Enable the Download area and Refresh buttons. The tile server sees your IP address "
             "and the area you look at, e.g. around your own position."
         )
         grid.attach(tiles_switch, 1, 9, 1, 1)
