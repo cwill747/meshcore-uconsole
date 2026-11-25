@@ -198,24 +198,26 @@ class SettingsView(Gtk.Box):
         title.add_css_class("panel-title")
         panel.append(title)
 
-        row = Gtk.Box(spacing=8)
-        row.append(self._grid_label("Allow Map Downloads"))
+        grid = Gtk.Grid(row_spacing=8, column_spacing=8)
+        panel.append(grid)
+        grid.attach(self._grid_label("Allow Map Downloads"), 0, 0, 1, 1)
         downloads = self._grid_switch("online_map_tiles")
         downloads.set_tooltip_text(
             "Allow online browsing and area downloads. Protomaps receives your IP address "
             "and the locations you request."
         )
-        row.append(downloads)
-        panel.append(row)
+        grid.attach(downloads, 1, 0, 1, 1)
 
         label = self._grid_label("Protomaps API key for online maps")
-        panel.append(label)
+        label.set_wrap(True)
+        label.set_max_width_chars(20)
+        grid.attach(label, 0, 1, 1, 1)
         key = self._grid_entry("protomaps_api_key", 22)
         key.set_visibility(False)
         key.set_input_purpose(Gtk.InputPurpose.PASSWORD)
         key.set_placeholder_text("Enter your API key")
         key.update_property([Gtk.AccessibleProperty.LABEL], [label.get_text()])
-        panel.append(key)
+        grid.attach(key, 1, 1, 1, 1)
 
         help_text = Gtk.Label(
             label="Online map uses this key to load missing tiles. "
@@ -223,9 +225,9 @@ class SettingsView(Gtk.Box):
             xalign=0,
             wrap=True,
         )
-        panel.append(help_text)
+        grid.attach(help_text, 0, 2, 2, 1)
         label = self._grid_label("Rendered tile cache (MiB)")
-        panel.append(label)
+        grid.attach(label, 0, 3, 1, 1)
         self._cache_size = Gtk.SpinButton.new_with_range(0, 2**31 - 1, 1)
         self._cache_size.set_numeric(True)
         self._cache_size.set_halign(Gtk.Align.START)
@@ -233,7 +235,7 @@ class SettingsView(Gtk.Box):
         self._cache_size.set_tooltip_text(
             "Maximum disk space for rendered map tiles. Set to 0 to disable."
         )
-        panel.append(self._cache_size)
+        grid.attach(self._cache_size, 1, 3, 1, 1)
         return panel
 
     def _build_radio_panel(self) -> Gtk.Box:
