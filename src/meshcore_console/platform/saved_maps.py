@@ -171,3 +171,23 @@ def save_area(path, bounds, zoom, center, open_source, cancelled, progress, *, r
             "INSERT OR REPLACE INTO areas VALUES (?,?,?,?,?,?)",
             (name, json.dumps(bounds), *center, zoom, native_zoom),
         )
+
+
+def delete_area(path):
+    if path.suffix == ".pmtiles":
+        path.unlink()
+        return
+    if path.suffix != ".area":
+        raise ValueError("Unknown saved area format.")
+    database = (path.parent / DATABASE).as_uri() + "?mode=rw"
+    with closing(sqlite3.connect(database, uri=True)) as db, db:
+        db.execute("BEGIN IMMEDIATE")
+        if not db.execute("DELETE FROM areas WHERE name=?", (path.stem,)).rowcount:
+            raise ValueError("This area has already been removed.")
+        db.execute("CREATE INDEX IF NOT EXISTS coverage_by_tile ON coverage(tile)")
+        db.execute(
+            "DELETE FROM tiles WHERE id IN (SELECT tile FROM coverage WHERE area=?) "
+            "AND NOT EXISTS (SELECT 1 FROM coverage WHERE tile=tiles.id AND area<>?)",
+            (path.stem, path.stem),
+        )
+        db.execute("DELETE FROM coverage WHERE area=?", (path.stem,))

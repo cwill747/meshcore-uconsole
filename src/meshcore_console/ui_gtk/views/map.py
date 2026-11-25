@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import os
 import sys
 from typing import TYPE_CHECKING
@@ -53,6 +52,7 @@ def marker_state(peers: list[Peer]) -> tuple:
 
 
 if SHUMATE_AVAILABLE:
+    from meshcore_console.ui_gtk.views.saved_areas import SavedAreasView
     from meshcore_console.platform.saved_maps import saved_areas
     from meshcore_console.platform.protomaps import HostedTiles, ProtomapsReader
     from meshcore_console.ui_gtk.tile_source import TileSource
@@ -119,7 +119,11 @@ class MapView(Gtk.Box):
         overlay = Gtk.Overlay.new()
         overlay.set_hexpand(True)
         overlay.set_vexpand(True)
-        self.append(overlay)
+        self._pages = Gtk.Stack(hexpand=True, vexpand=True)
+        self.append(self._pages)
+        main = Gtk.Box()
+        self._pages.add_named(main, "map")
+        main.append(overlay)
 
         # Create Shumate map
         self._map = Shumate.SimpleMap.new()
@@ -183,7 +187,7 @@ class MapView(Gtk.Box):
         self._details_panel.add_css_class("map-details-panel")
         self._details_panel.set_size_request(self._layout.map_details_width, -1)
         self._details_panel.set_visible(False)
-        self.append(self._details_panel)
+        main.append(self._details_panel)
 
         self._details_title = Gtk.Label(label="")
         self._details_title.add_css_class("panel-title")
@@ -262,10 +266,10 @@ class MapView(Gtk.Box):
 
         self._area_btn.connect("clicked", begin_selection)
         zoom_box.append(self._area_btn)
-        self._saved_btn = Gtk.MenuButton(label="Saved areas")
+        self._saved_btn = Gtk.Button(label="Saved areas")
         self._saved_btn.add_css_class("map-control-button")
         zoom_box.append(self._saved_btn)
-        self._update_saved_menu()
+        self._saved_btn.connect("clicked", self._open_saved_areas)
 
         self._refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
         self._refresh_btn.add_css_class("map-control-button")
@@ -421,28 +425,30 @@ class MapView(Gtk.Box):
                 logger.warning("Could not open PMTiles archive %s", path, exc_info=True)
         return ArchiveCollection(readers) if readers else None
 
-    def _update_saved_menu(self):
-        popover = Gtk.Popover()
-        items = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        popover.set_child(items)
-        for reader in self._archive.readers if self._archive else []:
-            meta = reader.get_metadata()
-            try:
-                lon, lat, zoom = map(float, meta["center"].split(","))
-            except (KeyError, ValueError):
-                continue
-            if not all(math.isfinite(v) for v in (lon, lat, zoom)):
-                continue
-            button = Gtk.Button(label=meta.get("name", "Map area"))
+    def _open_saved_areas(self, *_):
+        page = SavedAreasView(self)
+        self._pages.add_named(page, "areas")
+        self._pages.set_visible_child(page)
 
-            def visit(_button, reader=reader, lon=lon, lat=lat, zoom=zoom):
-                popover.popdown()
-                self._visit_area(reader, (lon, lat), zoom)
+    def _close_saved_areas(self, page):
+        self._pages.set_visible_child_name("map")
+        self._pages.remove(page)
 
-            button.connect("clicked", visit)
-            items.append(button)
-        self._saved_btn.set_popover(popover)
-        self._saved_btn.set_sensitive(items.get_first_child() is not None)
+    def _area_deleted(self):
+        selected = self._selected_area
+        self._archive = self._load_archives()
+        readers = self._archive.readers if self._archive else []
+        self._selected_area = next(
+            (r for r in readers if selected and r.path == selected.path), None
+        )
+        self._refresh_btn.set_sensitive(
+            bool(
+                self._online_tiles
+                and self._selected_area
+                and self._selected_area.meta.get("selection")
+            )
+        )
+        self._set_tile_readers()
 
     def _update_hint(self):
         self._map_hint.set_label(
@@ -501,7 +507,6 @@ class MapView(Gtk.Box):
 
     def _area_saved(self, path, center, zoom):
         self._archive = self._load_archives()
-        self._update_saved_menu()
         reader = (
             next((r for r in self._archive.readers if r.path == path), None)
             if self._archive

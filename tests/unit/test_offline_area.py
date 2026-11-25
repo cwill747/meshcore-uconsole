@@ -225,3 +225,30 @@ def test_online_cache_evicts_oldest_fetch(tmp_path, monkeypatch):
     assert cache.get(2, 0, 0) is None
     assert cache.get(2, 1, 0) == bytes([1])
     assert cache.get(2, 2, 0) == bytes([2])
+
+
+def test_delete_releases_only_unshared_tiles(tmp_path, monkeypatch):
+    import sqlite3
+    from meshcore_console.platform.saved_maps import DATABASE, save_area, delete_area, saved_areas
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    for name, east in (("west", 0.5), ("both", 1)):
+        save_area(
+            tmp_path / (name + ".area"),
+            (0, 0, east, 0.5),
+            1,
+            (0, 0),
+            VectorSource,
+            lambda: False,
+            lambda _: None,
+        )
+    delete_area(tmp_path / "both.area")
+    (west,) = saved_areas(tmp_path)
+    assert west.get_tile(1, 0, 0)
+    assert west.get_tile(1, 1, 0) is None
+    with sqlite3.connect(tmp_path / DATABASE) as db:
+        assert db.execute("SELECT count(*) FROM tiles").fetchone() == (2,)
+    delete_area(west.path)
+    assert not saved_areas(tmp_path)
+    with sqlite3.connect(tmp_path / DATABASE) as db:
+        assert db.execute("SELECT count(*) FROM tiles").fetchone() == (0,)

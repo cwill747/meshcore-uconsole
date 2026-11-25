@@ -113,7 +113,11 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
     status = Gtk.Label(xalign=0, wrap=True)
     box.append(status)
     button = Gtk.Button(label="Refresh" if refresh_path else "Download")
-    box.append(button)
+    actions = Gtk.Box(spacing=8)
+    cancel_button = Gtk.Button(label="Cancel")
+    actions.append(cancel_button)
+    actions.append(button)
+    box.append(actions)
     cancel = Gio.Cancellable()
 
     def count(*_):
@@ -130,9 +134,20 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
 
     zoom.connect("value-changed", count)
     count()
-    window.connect("close-request", lambda *_: cancel.cancel() or False)
+    running = False
+
+    def close_requested(*_):
+        if running:
+            cancel.cancel()
+            cancel_button.set_sensitive(False)
+            status.set_text("Cancelling…")
+        return running
+
+    window.connect("close-request", close_requested)
+    cancel_button.connect("clicked", lambda *_: window.close())
 
     def start(*_):
+        nonlocal running
         if not view._online_tiles:
             status.set_text("Enable Allow Map Downloads in Settings.")
             return
@@ -147,20 +162,25 @@ def download_dialog(view, bounds, center, level, refresh_path=None):
         total = count()
         for field in (name, zoom, button):
             field.set_sensitive(False)
+        running = True
         completed = 0
 
         def tick():
             if cancel.is_cancelled():
-                return False
+                return True
             status.set_text(f"Saving {completed:,} of {total:,} tiles")
             return True
 
         timer = GLib.timeout_add(250, tick)
 
         def finish(error):
-            if cancel.is_cancelled():
-                return False
+            nonlocal running
+            running = False
             GLib.source_remove(timer)
+            if error and cancel.is_cancelled():
+                window.close()
+                view._show_toast("Download cancelled")
+                return False
             if error:
                 status.set_text(error)
                 for field in (name, zoom, button):
