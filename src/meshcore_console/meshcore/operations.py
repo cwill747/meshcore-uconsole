@@ -24,6 +24,20 @@ def _resolve_contact(node: MeshNodeProtocol, peer_name: str) -> object:
     raise RuntimeError(f"Contact '{peer_name}' not found")
 
 
+def _resolve_contact_by_key(node: MeshNodeProtocol, peer_name: str, public_key: str) -> object:
+    """The contact holding ``public_key``, never another by its name.
+
+    A key-bound DM thread must reach that node: its name may since have
+    passed to another node (renamed, or evicted and the name claimed).  If
+    the key is no longer a contact, fail rather than send to the name."""
+    contacts = node.contacts
+    if contacts is not None:
+        contact = contacts.get_by_key(public_key)
+        if contact is not None:
+            return contact
+    raise RuntimeError(f"Contact '{peer_name}' is no longer known (its key is not in the contacts)")
+
+
 def _route_type(contact: object) -> str:
     """Flood while the route is unknown (out_path_len -1), like firmware's
     sendMessage(); direct (incl. zero-hop) once a route is known.
@@ -46,9 +60,18 @@ DM_ATTEMPTS = 3
 
 
 async def send_text(
-    *, node: MeshNodeProtocol, peer_name: str, message: str, attempts: int = DM_ATTEMPTS
+    *,
+    node: MeshNodeProtocol,
+    peer_name: str,
+    message: str,
+    attempts: int = DM_ATTEMPTS,
+    public_key: str | None = None,
 ) -> dict:
     """Send a direct text message and wait for its ACK, retrying like the MeshCore apps.
+
+    With ``public_key`` the recipient is the contact with that key, resolved
+    here, where the packet is built (``peer_name`` only labels errors).
+    Without it, the contact named ``peer_name`` (name-only threads, the CLI).
 
     Each retry carries the next attempt number with the same timestamp (the
     receiver drops duplicates; the expected ACK changes with the attempt).  If
@@ -57,7 +80,10 @@ async def send_text(
     """
     from openhop_core.protocol.packet_builder import PacketBuilder
 
-    original = _resolve_contact(node, peer_name)
+    if public_key:
+        original = _resolve_contact_by_key(node, peer_name, public_key)
+    else:
+        original = _resolve_contact(node, peer_name)
     timestamp = int(time.time())
     ack_crc = 0
     for attempt in range(attempts):

@@ -59,8 +59,12 @@ class MeshcoreService(Protocol):
         """True for a group channel joined with its own (non-derivable) key."""
         ...
 
-    def ensure_dm_channel(self, peer_name: str) -> Channel:
-        """The DM thread with ``peer_name`` (channel id ``dm:<name>``), created if needed."""
+    def ensure_dm_channel(self, peer_name: str, public_key: str | None = None) -> Channel:
+        """The DM thread with a peer, created if needed.
+
+        Pass the peer's ``public_key`` when it is known: the thread is then
+        that node's (``dm:<key>``) whoever holds ``peer_name`` by now.
+        Without it the name is looked up (``dm:<name>`` if it has no key)."""
         ...
 
     def send_advert(

@@ -24,6 +24,20 @@ def is_dm_channel_id(channel_id: str) -> bool:
     return channel_id.startswith(DM_PREFIX)
 
 
+PUBLIC_KEY_HEX_LEN = 64  # a MeshCore node key: 32 bytes
+
+
+def dm_thread_key(channel_id: str) -> str | None:
+    """The peer's public key a DM thread is bound to (``dm:<key>``), or None
+    for a thread keyed by name (a peer whose key was not known)."""
+    if not is_dm_channel_id(channel_id):
+        return None
+    rest = channel_id[len(DM_PREFIX) :].lower()
+    if len(rest) == PUBLIC_KEY_HEX_LEN and all(c in "0123456789abcdef" for c in rest):
+        return rest
+    return None
+
+
 @dataclass(slots=True)
 class DeviceStatus:
     node_id: str
