@@ -28,7 +28,7 @@ def _client(tmp_path, monkeypatch):
     client._connected = True
     sent: list[tuple[str, str]] = []
 
-    async def send_text(*, peer_name, message):
+    async def send_text(*, peer_name, message, public_key=None):
         sent.append(("dm", peer_name))
         return {"success": True}
 
@@ -352,3 +352,29 @@ def test_migration_keys_dm_threads_and_merges_split_ones(tmp_path) -> None:
     messages = dict(conn.execute("SELECT message_id, channel_id FROM messages"))
     assert messages == {"dm:alice": "dm:" + key, "dm:bob": "dm:" + key, "dm:carol": "dm:carol"}
     conn.close()
+
+
+def test_starting_a_dm_by_key_survives_name_reuse(tmp_path, monkeypatch) -> None:
+    """Send Message resolved the peer by its key; by the time the thread is
+    opened its old name may be another node's.  With the key the thread is
+    still the chosen node's, created by the service and sent to under the
+    node's current name."""
+    client, sent = _client(tmp_path, monkeypatch)
+    key_a, key_b = "aa" * 32, "bb" * 32
+    client._process_event_for_peers(_advert("Alice", key_a, 1))
+    client._process_event_for_peers(_advert("Robert", key_a, 2))  # A renamed
+    client._process_event_for_peers(_advert("Alice", key_b, 3))  # B took the name
+    names = {p.public_key: p.display_name for p in client.list_peers()}
+    assert names == {key_a: "Robert", key_b: "Alice"}
+
+    # The UI still holds A as "Alice" (the row was built before the rename)
+    thread = client.ensure_dm_channel("Alice", public_key=key_a)
+    assert thread.channel_id == "dm:" + key_a and thread.kind == "dm"
+    assert thread.channel_id in [c.channel_id for c in client.list_channels()]
+    assert client.ensure_dm_channel("Robert", public_key=key_a) is thread  # one thread
+
+    client.send_message(thread.channel_id, "for A")
+    assert sent == [("dm", "Robert")]  # A, under its current name
+
+    # By name alone, "Alice" is now B: what passing the key prevents
+    assert client.ensure_dm_channel("Alice").channel_id == "dm:" + key_b

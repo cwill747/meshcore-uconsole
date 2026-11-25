@@ -22,6 +22,7 @@ from meshcore_console.core.models import (
     Peer,
     RepeaterLoginState,
     dm_channel_id,
+    dm_thread_key,
     is_dm_channel_id,
 )
 from meshcore_console.core.radio import rssi_to_signal_percent
@@ -413,9 +414,16 @@ class MeshcoreClient(MeshcoreService):
             public_key = peer.public_key if peer is not None else None
         return dm_channel_id(peer_name, public_key)
 
-    def ensure_dm_channel(self, peer_name: str) -> Channel:
-        """The DM thread with ``peer_name``, created if necessary."""
-        channel_id = self._dm_thread_id(peer_name)
+    def ensure_dm_channel(self, peer_name: str, public_key: str | None = None) -> Channel:
+        """The DM thread with a peer, created if necessary.
+
+        By ``public_key`` when given: the name may since have passed to
+        another node.  Otherwise by the key of the peer now called
+        ``peer_name``, or by the name for a peer without a known key."""
+        if public_key:
+            # Label the thread with the key's current name if known.
+            peer_name = self._peer_name_for_key(public_key) or peer_name
+        channel_id = self._dm_thread_id(peer_name, public_key)
         channel = self._channels.get(channel_id)
         if channel is None:
             channel = Channel(
@@ -436,7 +444,13 @@ class MeshcoreClient(MeshcoreService):
         if channel_id.startswith(DM_PREFIX):
             if display_name is not None and display_name.startswith("#"):
                 check_channel_name(display_name)  # a group name in the DM namespace
-            rest = channel_id[len(DM_PREFIX) :]  # a key, or a name
+            key = dm_thread_key(channel_id)
+            if key is not None:
+                # Bound to a key: stay that node's thread, even if the given
+                # name is somebody else's by now (or the key isn't known)
+                name = self._peer_name_for_key(key) or display_name or key
+                return self.ensure_dm_channel(name, public_key=key)
+            rest = channel_id[len(DM_PREFIX) :]  # a name
             return self.ensure_dm_channel(display_name or self._peer_name_for_key(rest) or rest)
         is_group = (
             channel_id == "public"
@@ -580,8 +594,13 @@ class MeshcoreClient(MeshcoreService):
             # Use the original-case peer name from the channel so openhop_core
             # can find the contact in the contact book (case-sensitive lookup).
             resolved_name = channel.peer_name or channel.display_name
+            # A thread bound to a key goes to that key's contact, resolved when
+            # the packet is built: never to whoever holds the name by then.
+            # Name-only threads keep sending by name.
+            key = dm_thread_key(channel_id)
+            by_key = {"public_key": key} if key else {}
             result = self._run_async(
-                self._session.send_text(peer_name=resolved_name, message=body),
+                self._session.send_text(peer_name=resolved_name, message=body, **by_key),
                 timeout=DM_SEND_TIMEOUT_S,
             )
             acked = result.get("success") if isinstance(result, dict) else None

@@ -570,10 +570,15 @@ class OpenHopCoreSession:
         their connection open for as long as the app ran."""
         self._db.close()
 
-    async def send_text(self, peer_name: str, message: str) -> object:
+    async def send_text(
+        self, peer_name: str, message: str, public_key: str | None = None
+    ) -> object:
+        """A DM to the contact with ``public_key`` if given, else named ``peer_name``."""
         if self._node is None:
             raise RuntimeError("Session is not started.")
-        return await send_text(node=self._node, peer_name=peer_name, message=message)
+        return await send_text(
+            node=self._node, peer_name=peer_name, message=message, public_key=public_key
+        )
 
     async def send_group_text(
         self, channel_name: str, message: str, region_scope: str | None = None

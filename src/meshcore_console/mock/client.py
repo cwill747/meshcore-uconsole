@@ -97,7 +97,11 @@ class MockMeshcoreClient(MeshcoreService):
     def is_private_channel(self, channel_id: str) -> bool:
         return False
 
-    def ensure_dm_channel(self, peer_name: str) -> Channel:
+    def ensure_dm_channel(self, peer_name: str, public_key: str | None = None) -> Channel:
+        """The mock keys every DM thread by name, ``public_key`` is accepted
+        and not used: its simulated DMs arrive with a sender name only, and a
+        thread keyed otherwise would never see the replies."""
+        del public_key
         channel_id = dm_channel_id(peer_name)
         if channel_id not in self._channels:
             self._channels[channel_id] = Channel(

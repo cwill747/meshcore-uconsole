@@ -45,8 +45,9 @@ class ContactBook:
     def get_by_key(self, public_key: bytes | str) -> Contact | None:
         if isinstance(public_key, bytes):
             public_key = public_key.hex()
+        key = public_key.lower()  # hex: DM thread ids hold keys lowercased
         for contact in self.contacts:
-            if contact.public_key == public_key:
+            if contact.public_key.lower() == key:
                 return contact
         return None
 
