@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 
 @dataclass(slots=True)
@@ -15,6 +15,7 @@ class MeshcoreSettings:
     autoconnect: bool = False  # Automatically connect to radio on app startup
     # Permit explicit Protomaps area downloads and refreshes.
     online_map_tiles: bool = True
+    protomaps_api_key: str = field(default="", repr=False)
     gps_device: str = ""  # GPS serial port path; empty = auto-detect (#82)
     suppress_service_dialog: bool = False  # Don't prompt to stop conflicting services
     log_level: str = "INFO"  # stderr log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)

@@ -277,3 +277,57 @@ def render_tile(data):
     out = io.BytesIO()
     image.save(out, format="PNG")
     return out.getvalue()
+
+
+class HostedTiles:
+    """Fetch visible v4 MVT tiles on demand, retaining rendered images in memory."""
+
+    def __init__(self, key, on_error):
+        from threading import Event
+
+        self._key = key
+        self._stopped = Event()
+        self._lock = Lock()
+        self._on_error = on_error
+        self._cached = lru_cache(maxsize=64)(self._fetch)
+
+    def stop(self):
+        self._stopped.set()
+
+    def get_tile(self, zoom, x, y):
+        with self._lock:
+            if self._stopped.is_set():
+                return None
+            try:
+                return self._cached(zoom, x, y)
+            except Exception as exc:
+                if not self._stopped.is_set():
+                    self.stop()
+                    status = getattr(exc, "code", None)
+                    message = (
+                        f"Protomaps returned HTTP {status}."
+                        if status
+                        else "Could not load an online Protomaps tile."
+                    )
+                    self._on_error(self, message)
+                return None
+
+    def _fetch(self, zoom, x, y):
+        from urllib.parse import urlencode
+        from urllib.error import HTTPError
+
+        query = urlencode({"key": self._key})
+        request = Request(
+            f"https://api.protomaps.com/tiles/v4/{zoom}/{x}/{y}.mvt?{query}",
+            headers={"User-Agent": "meshcore-uconsole/1", "Accept-Encoding": "gzip"},
+        )
+        try:
+            with urlopen(request, timeout=8) as response:
+                data = response.read()
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+        if data.startswith(b"\x1f\x8b"):
+            data = gzip.decompress(data)
+        return render_tile(data)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -52,7 +53,7 @@ def marker_state(peers: list[Peer]) -> tuple:
 
 
 if SHUMATE_AVAILABLE:
-    from meshcore_console.platform.protomaps import ProtomapsReader
+    from meshcore_console.platform.protomaps import HostedTiles, ProtomapsReader
     from meshcore_console.ui_gtk.tile_source import TileSource
     from meshcore_console.ui_gtk.area_download import download_dialog, select_area
 
@@ -136,6 +137,8 @@ class MapView(Gtk.Box):
         self._archive = self._load_archives()
         self._online_tiles = self._service.get_settings().online_map_tiles
         self._tiles = TileSource(self._archive)
+        self._hosted = None
+        self._api_key = self._configured_key()
         self._selected_area = None
         self._install_renderer()
 
@@ -236,6 +239,16 @@ class MapView(Gtk.Box):
         zoom_out.update_property([Gtk.AccessibleProperty.LABEL], ["Zoom out"])
         zoom_out.connect("clicked", self._on_zoom_out)
         zoom_box.append(zoom_out)
+
+        self._map_hint = Gtk.Label(halign=Gtk.Align.CENTER, valign=Gtk.Align.START)
+        self._map_hint.set_margin_top(12)
+        self._map_hint.add_css_class("card")
+        overlay.add_overlay(self._map_hint)
+        self._online_btn = Gtk.ToggleButton(label="Online map")
+        self._online_btn.set_sensitive(self._online_tiles)
+        self._online_btn.connect("toggled", self._toggle_online)
+        zoom_box.append(self._online_btn)
+        self._update_hint()
 
         self._area_btn = Gtk.Button(label="Download area")
         self._area_btn.set_sensitive(self._online_tiles)
@@ -420,13 +433,58 @@ class MapView(Gtk.Box):
         self._saved_btn.set_popover(popover)
         self._saved_btn.set_sensitive(items.get_first_child() is not None)
 
-    def _visit_area(self, reader, center, zoom):
-        # Overlapping archives can contain different imagery for the same tile.
-        readers = (reader, *(r for r in self._archive.readers if r is not reader))
-        self._selected_area = reader
-        self._refresh_btn.set_sensitive(self._online_tiles and bool(reader.meta.get("selection")))
+    def _update_hint(self):
+        self._map_hint.set_label(
+            "No saved maps. Choose Online map or Download area."
+            if self._online_tiles
+            else "No saved maps. Enable Allow Map Downloads in Settings."
+        )
+        self._map_hint.set_visible(not self._archive and not self._hosted)
+
+    def _set_tile_readers(self):
+        readers = list(self._archive.readers) if self._archive else []
+        if self._selected_area in readers:
+            readers.remove(self._selected_area)
+            readers.insert(0, self._selected_area)
+        if self._hosted:
+            readers.append(self._hosted)
         self._tiles.reader = ArchiveCollection(readers)
         self._install_renderer()
+        self._update_hint()
+
+    def _online_error(self, source, message):
+        if self._hosted is source:
+            self._online_btn.set_active(False)
+            self._show_toast(message + " Online map switched off.")
+        return False
+
+    def _configured_key(self):
+        return (
+            self._service.get_settings().protomaps_api_key
+            or os.getenv("MESHCORE_PROTOMAPS_API_KEY", "").strip()
+        )
+
+    def _toggle_online(self, button):
+        if not button.get_active():
+            if self._hosted:
+                self._hosted.stop()
+            self._hosted = None
+        elif self._configured_key():
+            self._api_key = self._configured_key()
+            self._hosted = HostedTiles(
+                self._api_key, lambda src, msg: GLib.idle_add(self._online_error, src, msg)
+            )
+        else:
+            button.set_active(False)
+            self._show_toast("Save your Protomaps API key in Settings, then choose Online map.")
+            return
+        self._set_tile_readers()
+
+    def _visit_area(self, reader, center, zoom):
+        # Overlapping archives can contain different imagery for the same tile.
+        self._selected_area = reader
+        self._refresh_btn.set_sensitive(self._online_tiles and bool(reader.meta.get("selection")))
+        self._set_tile_readers()
         self._viewport.set_location(center[1], center[0])
         self._viewport.set_zoom_level(zoom)
 
@@ -446,10 +504,23 @@ class MapView(Gtk.Box):
 
     def _apply_tile_setting(self) -> None:
         online = self._service.get_settings().online_map_tiles
+        key = self._configured_key()
+        if self._api_key != key:
+            self._api_key = key
+            if self._hosted:
+                self._hosted.stop()
+                if key and online:
+                    self._toggle_online(self._online_btn)
+                else:
+                    self._online_btn.set_active(False)
         if online == self._online_tiles:
             return
         self._online_tiles = online
         self._area_btn.set_sensitive(online)
+        self._online_btn.set_sensitive(online)
+        if not online:
+            self._online_btn.set_active(False)
+        self._update_hint()
         self._refresh_btn.set_sensitive(
             online and bool(self._selected_area and self._selected_area.meta.get("selection"))
         )

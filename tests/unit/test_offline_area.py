@@ -84,3 +84,27 @@ def test_cancelled_refresh_preserves_previous_area(tmp_path):
     extract(path, bounds, 1, (0, 0), VectorSource(), lambda: False, lambda _: None, replace=True)
     assert ProtomapsReader(path).meta["selection"] == list(bounds)
     assert ProtomapsReader(path).header["max_zoom"] == 1
+
+
+def test_hosted_tiles_use_key_once_and_stop_offline(monkeypatch):
+    import io
+    from urllib.parse import parse_qs, urlsplit
+    from meshcore_console.platform import protomaps
+
+    calls = []
+
+    def serve(request, timeout):
+        target = urlsplit(request.full_url)
+        assert target.hostname == "api.protomaps.com"
+        assert target.path == "/tiles/v4/2/1/1.mvt"
+        assert parse_qs(target.query) == {"key": ["test&key"]}
+        calls.append(target.path)
+        return io.BytesIO(VectorSource().get(2, 1, 1))
+
+    monkeypatch.setattr(protomaps, "urlopen", serve)
+    hosted = protomaps.HostedTiles("test&key", lambda *_: pytest.fail("unexpected error"))
+    assert hosted.get_tile(2, 1, 1).startswith(b"\x89PNG")
+    assert hosted.get_tile(2, 1, 1).startswith(b"\x89PNG")
+    hosted.stop()
+    assert hosted.get_tile(2, 0, 0) is None
+    assert len(calls) == 1

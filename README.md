@@ -164,7 +164,13 @@ command line. Notable radio bring-up flags:
 
 Bootstrap the Pi while connected. Subsequent launches with
 `./scripts/run-gtk-pi.sh` use the installed environment.
-Opening the map, panning, and zooming use local tiles only.
+The map starts offline. With no saved areas, choose **Online map** to browse
+or **Download area** to save a region. Saved areas work without an API key.
+Online browsing uses the [Protomaps hosted API](https://protomaps.com/api)
+for tiles missing from saved areas. Enter your key in **Settings → Protomaps API key** and press **Save Settings**.
+It is stored in the private local settings database. Alternatively set
+`MESHCORE_PROTOMAPS_API_KEY` before launch. For native requests without an Origin
+header, configure the key’s allowed origin as `*`.
 
 Choose **Download area**, drag a rectangle, enter a name, and select a maximum
 zoom (0–15). Confirm to download the selected region from a Protomaps daily
@@ -173,5 +179,5 @@ Saved areas use local vector data, styling, and labels after restart.
 
 Open **Saved areas** to return to a region. Named `.pmtiles` files live in `${XDG_DATA_HOME:-~/.local/share}/meshcore-console/tiles/`.
 **Refresh** downloads a fresh Protomaps extract for the selected saved area. **Settings → Allow Map
-Downloads** controls both network actions. Map data © OpenStreetMap contributors.
+Downloads** controls online browsing, downloads, and refreshes. Map data © OpenStreetMap contributors.
 See the [Protomaps basemap documentation](https://docs.protomaps.com/basemaps/downloads).

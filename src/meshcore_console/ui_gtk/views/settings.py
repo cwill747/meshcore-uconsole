@@ -196,6 +196,13 @@ class SettingsView(Gtk.Box):
         )
         grid.attach(tiles_switch, 1, 9, 1, 1)
 
+        grid.attach(self._grid_label("Protomaps API key"), 0, 10, 1, 1)
+        key = self._grid_entry("protomaps_api_key", 22)
+        key.set_visibility(False)
+        key.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        key.set_placeholder_text("For online browsing")
+        grid.attach(key, 1, 10, 2, 1)
+
         panel.append(grid)
         return panel
 
@@ -629,6 +636,7 @@ class SettingsView(Gtk.Box):
         self._set_switch("share_position", settings.share_position)
         self._set_switch("allow_telemetry", settings.allow_telemetry)
         self._set_switch("online_map_tiles", settings.online_map_tiles)
+        self._set_entry("protomaps_api_key", settings.protomaps_api_key)
         self._set_switch("telemetry_favorites_only", settings.telemetry_favorites_only)
         self._set_switch("autoconnect", settings.autoconnect)
         self._set_entry("gps_device", settings.gps_device)
@@ -684,6 +692,7 @@ class SettingsView(Gtk.Box):
         out.longitude = self._parse_coordinate("longitude", 180.0, allow_partial, current.longitude)
         out.share_position = self._switches["share_position"].get_active()
         out.allow_telemetry = self._switches["allow_telemetry"].get_active()
+        out.protomaps_api_key = self._entries["protomaps_api_key"].get_text().strip()
         out.online_map_tiles = self._switches["online_map_tiles"].get_active()
         out.telemetry_favorites_only = self._switches["telemetry_favorites_only"].get_active()
         out.autoconnect = self._switches["autoconnect"].get_active()
