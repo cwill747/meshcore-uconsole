@@ -201,18 +201,20 @@ class MapView(Gtk.Box):
         self._refresh_markers()
 
     def _install_renderer(self):
-        self._map.set_map_source(
-            Shumate.RasterRenderer.new_full(
-                "meshcore-tiles",
-                "Map tiles",
-                "Protomaps · © OpenStreetMap contributors",
-                "https://www.openstreetmap.org/copyright",
-                0,
-                int(MAX_ZOOM),
-                256,
-                Shumate.MapProjection.MERCATOR,
-                self._tiles,
-            )
+        self._map.set_map_source(self._make_renderer(self._tiles))
+
+    @staticmethod
+    def _make_renderer(tiles):
+        return Shumate.RasterRenderer.new_full(
+            "meshcore-tiles",
+            "Map tiles",
+            "Protomaps · © OpenStreetMap contributors",
+            "https://www.openstreetmap.org/copyright",
+            0,
+            int(MAX_ZOOM),
+            256,
+            Shumate.MapProjection.MERCATOR,
+            tiles,
         )
 
     def _refresh_tiles(self, _button):

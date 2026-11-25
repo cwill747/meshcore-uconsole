@@ -6,6 +6,8 @@ import sqlite3
 from gi.repository import Adw, Gtk, Pango, Shumate
 
 from meshcore_console.core.map_view import MAX_ZOOM
+from meshcore_console.platform.offline_area import ArchiveCollection
+from meshcore_console.ui_gtk.tile_source import TileSource
 from meshcore_console.platform.saved_maps import delete_area
 from meshcore_console.ui_gtk.compat import build_alert_dialog, present_dialog
 
@@ -48,6 +50,11 @@ class SavedAreasView(Gtk.Box):
         for prop in ("latitude", "longitude", "zoom-level", "rotation"):
             self.viewport.connect("notify::" + prop, lambda *_: self.canvas.queue_draw())
 
+        click = Gtk.GestureClick(button=1)
+        click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        click.connect("released", self._click_region)
+        self.map.get_map().add_controller(click)
+
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         body.append(side)
         scroll = Gtk.ScrolledWindow(vexpand=True, min_content_width=150)
@@ -87,7 +94,12 @@ class SavedAreasView(Gtk.Box):
             row.reader = reader
             label = Gtk.Label(label=reader.meta["name"], xalign=0, max_width_chars=20)
             label.set_ellipsize(Pango.EllipsizeMode.END)
-            row.set_child(label)
+            details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            details.append(label)
+            level = Gtk.Label(label=f"Native zoom {reader.max_zoom}", xalign=0)
+            level.add_css_class("dim-label")
+            details.append(level)
+            row.set_child(details)
             self.items.append(row)
         self.canvas.queue_draw()
 
@@ -133,19 +145,45 @@ class SavedAreasView(Gtk.Box):
             cr.set_line_width(3 if reader is self.selected else 2)
             cr.stroke()
 
+    def _click_region(self, gesture, presses, x, y):
+        if presses != 1:
+            return
+        lat, lon = self.viewport.widget_coords_to_location(self.map.get_map(), x, y)
+        source = self.map.get_map_source()
+        px, py = source.get_x(0, lon) / 256, source.get_y(0, lat) / 256
+        matches = [
+            (reader.max_zoom, -(e - w) * (s - n), index)
+            for index, (reader, (w, n, e, s)) in enumerate(self.regions.items())
+            if n <= py <= s and (px - w) % 1 <= e - w
+        ]
+        if matches:
+            row = self.items.get_row_at_index(max(matches)[2])
+            self.items.select_row(row)
+            self.viewport.set_location(lat, lon)
+            self.viewport.set_zoom_level(row.reader.max_zoom)
+            gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+
     def _select(self, _list, row):
         self.selected = row.reader if row else None
         self.open_btn.set_sensitive(bool(row))
         self.delete_btn.set_sensitive(bool(row))
         if row:
-            self._fit([self.regions[self.selected]])
+            reader = row.reader
+            readers = [reader, *(other for other in self.regions if other is not reader)]
+            self.map.set_map_source(
+                self.owner._make_renderer(TileSource(ArchiveCollection(readers)))
+            )
+            self.viewport.set_location(
+                reader.header["center_lat_e7"] / 1e7, reader.header["center_lon_e7"] / 1e7
+            )
+            self.viewport.set_zoom_level(reader.max_zoom)
         self.canvas.queue_draw()
 
     def _open(self, *_):
         reader = self.selected
-        lon, lat, zoom = map(float, reader.meta["center"].split(","))
+        center = self.viewport.get_longitude(), self.viewport.get_latitude()
         self.owner._close_saved_areas(self)
-        self.owner._visit_area(reader, (lon, lat), zoom)
+        self.owner._visit_area(reader, center, reader.max_zoom)
 
     def _confirm_delete(self, *_):
         reader = self.selected
