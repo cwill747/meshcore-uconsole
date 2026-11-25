@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import logging
+import math
 import sys
 from typing import TYPE_CHECKING
 
 import gi
 
 gi.require_version("Gtk", "4.0")
-gi.require_version("Shumate", "1.0")
 
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Gio, GLib, Gtk, Pango
 
 if TYPE_CHECKING:
     pass
@@ -19,10 +19,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 try:
+    gi.require_version("Shumate", "1.0")
     from gi.repository import Shumate
 
     SHUMATE_AVAILABLE = True
-except ImportError:
+except (ValueError, ImportError):
     SHUMATE_AVAILABLE = False
     print("[MapView] libshumate not available", file=sys.stderr)
 
@@ -39,11 +40,6 @@ from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
 from meshcore_console.ui_gtk.compat import new_toast
 
 
-# Tile URL templates - Shumate uses {z}, {x}, {y} placeholders
-CARTO_DARK_URL = "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
-OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-
-
 def marker_state(peers: list[Peer]) -> tuple:
     """What the peer markers show: name, position, repeater flag."""
     return tuple(
@@ -53,6 +49,10 @@ def marker_state(peers: list[Peer]) -> tuple:
             if p.latitude is not None and p.longitude is not None
         )
     )
+
+
+if SHUMATE_AVAILABLE:
+    from meshcore_console.ui_gtk.tile_source import TileSource
 
 
 class MapView(Gtk.Box):
@@ -66,7 +66,6 @@ class MapView(Gtk.Box):
         self._selected_peer: Peer | None = None
         self._peer_markers: dict[str, object] = {}  # peer_id -> marker
         self._device_marker: object | None = None
-        self._mbtiles: MBTilesReader | None = None
         self._marker_state: tuple = ()
         self._marker_looks: dict[str, tuple] = {}
         self._shown_gps_errors: set[str] = set()  # Track shown errors to avoid repeats
@@ -132,15 +131,11 @@ class MapView(Gtk.Box):
         map_widget = self._map.get_map()
         self._viewport = map_widget.get_viewport()
 
-        # Set up tile source (OpenStreetMap), unless tile downloads are off
-        self._tile_source = self._create_tile_source()
-        self._tiles_note = Gtk.Label(label="Map tiles are off (Settings > Download Map Tiles)")
-        self._tiles_note.add_css_class("panel-muted")
-        self._tiles_note.set_halign(Gtk.Align.CENTER)
-        self._tiles_note.set_valign(Gtk.Align.START)
-        self._tiles_note.set_margin_top(12)
-        self._online_tiles: bool | None = None
-        self._apply_tile_setting()
+        self._archive, self._archive_credit = self._load_mbtiles()
+        self._online_tiles = self._service.get_settings().online_map_tiles
+        self._tiles = TileSource(self._archive, self._online_tiles)
+        self._refresh_cancel = None
+        self._install_renderer()
 
         # Open where the user left the map; on a first start at this device,
         # else around the known peers (it used to open on the middle of the US)
@@ -172,7 +167,6 @@ class MapView(Gtk.Box):
 
         # Add map as the base child of overlay
         overlay.set_child(self._map)
-        overlay.add_overlay(self._tiles_note)
 
         # Add control overlays
         self._add_map_controls(overlay)
@@ -193,34 +187,73 @@ class MapView(Gtk.Box):
         self._details_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self._details_panel.append(self._details_content)
 
-        # Load MBTiles if available for offline support
-        self._load_mbtiles()
-
         # Initial marker load
         self._refresh_markers()
 
-    def _create_tile_source(self) -> Shumate.MapSource:
-        """Create a tile source for the map."""
-        # Use built-in OSM source which is known to work
-        registry = Shumate.MapSourceRegistry.new_with_defaults()
-        osm = registry.get_by_id("osm-mapnik")
-        if osm is not None:
-            print(f"[MapView] Using built-in OSM source: {osm.get_name()}", file=sys.stderr)
-            return osm
-
-        # Fallback: create OSM source manually
-        print(f"[MapView] Creating manual OSM source with URL: {OSM_URL}", file=sys.stderr)
-        return Shumate.RasterRenderer.new_full_from_url(
-            "osm-tiles",
-            "OpenStreetMap",
-            "© OpenStreetMap contributors",
-            "https://www.openstreetmap.org/copyright",
-            0,  # min zoom
-            19,  # max zoom
-            256,  # tile size
-            Shumate.MapProjection.MERCATOR,
-            OSM_URL,
+    def _install_renderer(self):
+        credit = "© OpenStreetMap contributors"
+        if self._archive_credit:
+            credit += " · " + self._archive_credit
+        self._map.set_map_source(
+            Shumate.RasterRenderer.new_full(
+                "meshcore-tiles",
+                "Map tiles",
+                credit,
+                "https://www.openstreetmap.org/copyright",
+                0,
+                22 if self._archive else 19,
+                256,
+                Shumate.MapProjection.MERCATOR,
+                self._tiles,
+            )
         )
+
+    def _refresh_tiles(self, _button):
+        if not self._online_tiles or self._refresh_cancel:
+            return
+        widget = self._map.get_map()
+        source = self._map.get_map_source()
+        level = self._viewport.get_zoom_level()
+        zoom = math.floor(level)
+        if zoom > 19:
+            self._show_toast("Zoom out to refresh OpenStreetMap tiles")
+            return
+        scale = 2 ** (level - zoom)
+        cx = source.get_x(zoom, self._viewport.get_longitude())
+        cy = source.get_y(zoom, self._viewport.get_latitude())
+        dx, dy = widget.get_width() / (2 * scale), widget.get_height() / (2 * scale)
+        n = 1 << zoom
+        coords = {
+            (x % n, y)
+            for x in range(math.floor((cx - dx) / 256), math.ceil((cx + dx) / 256))
+            for y in range(max(0, math.floor((cy - dy) / 256)), min(n, math.ceil((cy + dy) / 256)))
+        }
+        if not coords:
+            return
+        pending = len(coords)
+        failures = 0
+        cancel = self._refresh_cancel = Gio.Cancellable()
+        self._refresh_btn.set_sensitive(False)
+
+        def finished(_tile, error):
+            nonlocal pending, failures
+            if cancel.is_cancelled():
+                return
+            pending -= 1
+            failures += int(error is not None)
+            if pending == 0:
+                self._refresh_cancel = None
+                self._refresh_btn.set_sensitive(True)
+                if failures < len(coords):
+                    self._install_renderer()
+                self._show_toast(
+                    "Map refreshed"
+                    if not failures
+                    else f"{failures} tiles could not refresh. Cached tiles kept."
+                )
+
+        for x, y in coords:
+            self._tiles.refresh(x, y, zoom, cancel, finished)
 
     def _add_map_controls(self, overlay: Gtk.Overlay) -> None:
         """Add zoom and location controls as overlay."""
@@ -242,6 +275,16 @@ class MapView(Gtk.Box):
         zoom_out.update_property([Gtk.AccessibleProperty.LABEL], ["Zoom out"])
         zoom_out.connect("clicked", self._on_zoom_out)
         zoom_box.append(zoom_out)
+
+        self._refresh_btn = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
+        self._refresh_btn.add_css_class("map-control-button")
+        self._refresh_btn.set_tooltip_text("Refresh visible map tiles")
+        self._refresh_btn.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Refresh visible map tiles"]
+        )
+        self._refresh_btn.set_sensitive(self._online_tiles)
+        self._refresh_btn.connect("clicked", self._refresh_tiles)
+        zoom_box.append(self._refresh_btn)
 
         overlay.add_overlay(zoom_box)
 
@@ -371,24 +414,31 @@ class MapView(Gtk.Box):
         self._service.cycle_mock_gps()
         return True  # Continue timeout
 
-    def _load_mbtiles(self) -> None:
-        """Load MBTiles file for offline tiles if available."""
-        files = find_mbtiles_files()
-        if files:
-            self._mbtiles = MBTilesReader(files[0])
-            if self._mbtiles.open():
-                metadata = self._mbtiles.get_metadata()
-                name = metadata.get("name", files[0].name)
-                print(f"[MapView] Loaded offline tiles: {name}", file=sys.stderr)
+    def _load_mbtiles(self):
+        for path in find_mbtiles_files():
+            reader = MBTilesReader(path)
+            if not reader.open():
+                continue
+            metadata = reader.get_metadata()
+            if metadata.get("format", "png").lower() not in {"png", "jpg", "jpeg", "webp"}:
+                reader.close()
+                continue
+            return reader, metadata.get("attribution", "")
+        return None, ""
 
     def _apply_tile_setting(self) -> None:
-        """Attach the online tile source only while tile downloads are on."""
         online = self._service.get_settings().online_map_tiles
         if online == self._online_tiles:
             return
         self._online_tiles = online
-        self._map.set_map_source(self._tile_source if online else None)
-        self._tiles_note.set_visible(not online)
+        self._tiles.online = online
+        if not online:
+            self._tiles.session.abort()
+        if self._refresh_cancel:
+            self._refresh_cancel.cancel()
+            self._refresh_cancel = None
+        self._refresh_btn.set_sensitive(online)
+        self._install_renderer()
 
     def _on_events_available(self, _store: object) -> None:
         """Handle events-available signal — refresh peer markers."""
