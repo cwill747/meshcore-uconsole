@@ -11,12 +11,13 @@ from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
 
-from meshcore_console.core.map_view import decode_view, encode_view
+from meshcore_console.core.map_view import decode_view, encode_view, valid_coordinates
 from meshcore_console.core.enums import EventType, PayloadType
 from meshcore_console.core.models import (
     DM_PREFIX,
     Channel,
     DeviceStatus,
+    GpsState,
     Message,
     Peer,
     RepeaterLoginState,
@@ -1297,25 +1298,13 @@ class MeshcoreClient(MeshcoreService):
             {"type": EventType.SETTINGS_UPDATED, "data": {"node_name": updated.node_name}}
         )
 
-    @staticmethod
-    def _valid_coords(lat: float, lon: float) -> bool:
-        import math
-
-        return (
-            math.isfinite(lat)
-            and math.isfinite(lon)
-            and -90.0 <= lat <= 90.0
-            and -180.0 <= lon <= 180.0
-            and (lat != 0.0 or lon != 0.0)
-        )
-
     def _resolve_position(self) -> tuple[float, float] | None:
         """Live GPS first, then settings fixed position as fallback."""
         loc = self._gps_provider.get_location()
-        if loc and self._valid_coords(loc[0], loc[1]):
+        if loc and valid_coordinates(loc[0], loc[1]):
             return loc
         lat, lon = self._settings.latitude, self._settings.longitude
-        if self._valid_coords(lat, lon):
+        if valid_coordinates(lat, lon):
             return (lat, lon)
         return None
 
@@ -1355,6 +1344,24 @@ class MeshcoreClient(MeshcoreService):
     def has_gps_fix(self) -> bool:
         """Return True if GPS has acquired a satellite fix."""
         return self._gps_provider.has_fix()
+
+    def get_gps_state(self) -> GpsState:
+        """From the provider's state and where the position comes from.
+
+        Neither the location (it may be the fixed position from Settings) nor
+        the error text (the serial provider reports waiting for a fix as one)
+        says on its own whether a receiver is there."""
+        available = self._gps_provider.is_available()
+        loc = self._gps_provider.get_location()
+        live = loc is not None and valid_coordinates(loc[0], loc[1])
+        configured = valid_coordinates(self._settings.latitude, self._settings.longitude)
+        return GpsState(
+            available=available,
+            # never a fix from a receiver that is gone
+            fix=available and live and self._gps_provider.has_fix(),
+            manual=not live and configured,
+            satellites_in_view=self._gps_provider.get_satellites_in_view() if available else None,
+        )
 
     def set_favorite(self, peer_id: str, favorite: bool) -> None:
         """Toggle the favorite flag on a peer."""

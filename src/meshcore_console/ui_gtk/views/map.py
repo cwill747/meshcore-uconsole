@@ -27,7 +27,7 @@ except (ValueError, ImportError):
     SHUMATE_AVAILABLE = False
     print("[MapView] libshumate not available", file=sys.stderr)
 
-from meshcore_console.core.map_view import DEVICE_ZOOM, MAX_ZOOM, initial_view
+from meshcore_console.core.map_view import DEVICE_ZOOM, MAX_ZOOM, gps_status_label, initial_view
 from meshcore_console.core.models import Peer
 from meshcore_console.core.radio import format_rssi, format_snr
 from meshcore_console.core.services import MeshcoreService
@@ -36,7 +36,7 @@ from meshcore_console.ui_gtk.layout import Layout
 from meshcore_console.ui_gtk.state import UiEventStore
 from meshcore_console.core.time import to_local
 from meshcore_console.platform.offline_area import ArchiveCollection, tiles_directory
-from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState
+from meshcore_console.ui_gtk.widgets import DetailRow, EmptyState, StatusPill
 from meshcore_console.ui_gtk.compat import new_toast
 
 
@@ -309,8 +309,8 @@ class MapView(Gtk.Box):
 
         self._center_btn = Gtk.Button.new_from_icon_name("find-location-symbolic")
         self._center_btn.add_css_class("map-control-button")
-        self._center_btn.set_tooltip_text("Center on device")
-        self._center_btn.update_property([Gtk.AccessibleProperty.LABEL], ["Center on device"])
+        self._center_btn.set_tooltip_text("My Location: center on this device and follow it")
+        self._center_btn.update_property([Gtk.AccessibleProperty.LABEL], ["My Location"])
         self._center_btn.connect("clicked", self._on_center_device)
         center_box.append(self._center_btn)
 
@@ -321,6 +321,13 @@ class MapView(Gtk.Box):
             move_btn.set_tooltip_text("Simulate GPS movement")
             move_btn.connect("clicked", self._on_simulate_movement)
             center_box.append(move_btn)
+
+        # GPS status beside My Location: text only, not a Tab stop
+        self._gps_status = StatusPill("", state="offline")
+        self._gps_status.add_css_class("map-gps-status")
+        self._gps_status.set_valign(Gtk.Align.CENTER)
+        center_box.append(self._gps_status)
+        self._update_gps_status()
 
         overlay.add_overlay(center_box)
 
@@ -562,8 +569,17 @@ class MapView(Gtk.Box):
         """Poll GPS for new data (serial port). GLib timeout callback."""
         self._service.poll_gps()
         self._check_gps_status()
+        self._update_gps_status()
         self._update_device_marker()
         return True
+
+    def _update_gps_status(self) -> None:
+        """The status beside My Location: fix, no fix, unavailable, fixed location."""
+        text, pill = gps_status_label(self._service.get_gps_state())
+        if self._gps_status.get_text() != text:
+            logger.debug("UI: map GPS status %r", text)
+            self._gps_status.set_text(text)
+            self._gps_status.set_state(pill)
 
     def _check_gps_status(self) -> None:
         """Check GPS status and show toast for errors."""
