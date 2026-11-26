@@ -69,6 +69,7 @@ class MapView(Gtk.Box):
         self._event_store = event_store
         self._layout = layout
         self._selected_peer: Peer | None = None
+        self._area_picker_focus: Gtk.Widget | None = None
         self._peer_markers: dict[str, object] = {}  # peer_id -> marker
         self._device_marker: object | None = None
         self._marker_state: tuple = ()
@@ -879,7 +880,9 @@ class MapView(Gtk.Box):
         return False
 
     def get_default_focus(self) -> Gtk.Widget:
-        """Return the widget that should receive focus when this view is shown."""
+        """Focus the open area picker or the map canvas when shown."""
+        if self._area_picker_focus is not None and self._area_picker_focus.get_mapped():
+            return self._area_picker_focus
         if hasattr(self, "_map_widget"):
             return self._map_widget
         return self
