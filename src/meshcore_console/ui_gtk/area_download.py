@@ -3,7 +3,7 @@
 import math
 import threading
 
-from gi.repository import Gio, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 from meshcore_console.core.map_view import MAX_ZOOM
 from meshcore_console.platform.offline_area import tiles_directory
@@ -24,19 +24,18 @@ def select_area(view, overlay):
     canvas = Gtk.DrawingArea(hexpand=True, vexpand=True)
     overlay.add_overlay(canvas)
     bar = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER, valign=Gtk.Align.START)
-    bar.add_css_class("card")
-    bar.append(Gtk.Label(label="Drag a rectangle to download"))
-    cancel = Gtk.Button(label="Cancel")
-    bar.append(cancel)
-    overlay.add_overlay(bar)
+    bar.set_margin_top(12)
+    bar.add_css_class("map-area-picker")
+    bar.append(Gtk.Label(label="Drag a rectangle or choose an area"))
     rect = []
 
     def remove(*_):
+        view._area_picker_focus = None
         overlay.remove_overlay(bar)
         overlay.remove_overlay(canvas)
         view._area_btn.set_sensitive(view._online_tiles)
-
-    cancel.connect("clicked", remove)
+        if view._area_btn.is_sensitive():
+            view._area_btn.grab_focus()
 
     def draw(_area, cr, _w, _h):
         if rect:
@@ -58,9 +57,7 @@ def select_area(view, overlay):
         rect[2:] = [dx, dy]
         canvas.queue_draw()
 
-    def end(_gesture, dx, dy):
-        if abs(dx) < 4 or abs(dy) < 4:
-            return
+    def confirm_selection(x1, y1, x2, y2):
         vp = view._viewport
         source = view._map.get_map_source()
         level = vp.get_zoom_level()
@@ -69,8 +66,8 @@ def select_area(view, overlay):
         cy = source.get_y(0, vp.get_latitude()) / 256
         c, s = math.cos(vp.get_rotation()), math.sin(vp.get_rotation())
         points = []
-        for x in (rect[0], rect[0] + dx):
-            for y in (rect[1], rect[1] + dy):
+        for x in (x1, x2):
+            for y in (y1, y2):
                 u = (x - canvas.get_width() / 2) / world
                 v = (y - canvas.get_height() / 2) / world
                 points.append((cx + c * u + s * v, cy - s * u + c * v))
@@ -82,6 +79,42 @@ def select_area(view, overlay):
         )
         remove()
         download_dialog(view, bounds, center, round(level))
+
+    def end(_gesture, dx, dy):
+        if abs(dx) >= 4 and abs(dy) >= 4:
+            confirm_selection(rect[0], rect[1], rect[0] + dx, rect[1] + dy)
+
+    def choose_extent(_button, inset):
+        width, height = canvas.get_width(), canvas.get_height()
+        if width and height:
+            confirm_selection(
+                width * inset, height * inset, width * (1 - inset), height * (1 - inset)
+            )
+
+    center = Gtk.Button(label="Center third")
+    center.set_tooltip_text("Select the middle cell of a 3 × 3 grid over the map")
+    center.connect("clicked", choose_extent, 1 / 3)
+    bar.append(center)
+    whole = Gtk.Button(label="Whole view")
+    whole.set_tooltip_text("Select the entire visible map")
+    whole.connect("clicked", choose_extent, 0)
+    bar.append(whole)
+    cancel = Gtk.Button(label="Cancel")
+    cancel.connect("clicked", remove)
+    bar.append(cancel)
+
+    def cancel_with_escape(_controller, keyval, _keycode, _state):
+        if keyval != Gdk.KEY_Escape:
+            return False
+        remove()
+        return True
+
+    keys = Gtk.EventControllerKey.new()
+    keys.connect("key-pressed", cancel_with_escape)
+    bar.add_controller(keys)
+    view._area_picker_focus = center
+    center.connect("map", lambda button: button.grab_focus())
+    overlay.add_overlay(bar)
 
     drag.connect("drag-begin", begin)
     drag.connect("drag-update", update)

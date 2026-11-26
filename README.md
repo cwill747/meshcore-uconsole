@@ -178,10 +178,13 @@ It is stored in the private local settings database. Alternatively set
 `MESHCORE_PROTOMAPS_API_KEY` before launch. For native requests without an Origin
 header, configure the key’s allowed origin as `*`.
 
-Choose **Download area**, drag a rectangle, enter a name, and select a maximum
-zoom (0–19). Levels 16–19 magnify the downloaded level-15 tiles. Confirm to download the selected region from a Protomaps daily
-basemap. The archive includes lower zoom levels. Use **Cancel** to stop a download or refresh. A cancelled refresh keeps the previous area.
-Saved areas use local vector data, styling, and labels after restart.
+Choose **Download area**, then select **Center third** for the middle cell of a
+3 × 3 grid, select **Whole view** for the visible map, or drag a rectangle.
+Enter a name and select a maximum zoom (0–19). Levels 16–19 magnify the
+level-15 tiles. Confirm to download the selected region from a Protomaps daily
+basemap. The archive includes lower zoom levels. Use **Cancel** to stop a
+download or refresh. A cancelled refresh keeps the previous area. Saved areas
+use local vector data, styling, and labels after restart.
 
 Open **Saved areas** to see coverage rectangles on the map. Click a rectangle or select an area name to see its highest saved native zoom. Where rectangles overlap, clicking shows the most detailed area. Use **Open on map** to keep that location on the main map. Deleting an area keeps tiles used by other areas. New areas share downloaded tiles in `saved-maps.sqlite3`. Online browsing caches the most recent 1,024 fetched tiles on disk. Saving an area reuses available tiles from browsing and other saved areas, even after a restart, and fetches only missing tiles. Refresh updates shared tiles for all areas that use them. Standalone `.pmtiles` archives also work. Map files live in `${XDG_DATA_HOME:-~/.local/share}/meshcore-console/tiles/`.
 In **Saved areas**, select a region and choose **Refresh area** to download a fresh Protomaps extract. Downloads prepare PNGs around the region center. Set **Settings → Maps → Cache (MiB)** to limit disk usage for rendered PNGs. The default is 8,096 MiB. The cache grows as needed and evicts the oldest entries first. Set it to 0 to disable the disk cache. **Settings → Maps → Downloads** controls online browsing, downloads, and refreshes. Map data © OpenStreetMap contributors.
