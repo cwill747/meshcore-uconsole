@@ -164,6 +164,8 @@ command line. Notable radio bring-up flags:
 
 Bootstrap the Pi while connected. Subsequent launches with
 `./scripts/run-gtk-pi.sh` use the installed environment.
+On the Map, use `=` or `+` to zoom in and `-` to zoom out.
+
 The map starts offline. With no saved areas, choose **Online map** to browse
 or **Download area** to save a region. Saved areas work without an API key.
 Online browsing uses the [Protomaps hosted API](https://protomaps.com/api)
