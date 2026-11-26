@@ -6,6 +6,7 @@ provider reports "waiting for a fix" as an error string."""
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 import types
@@ -340,7 +341,7 @@ def test_gpsd_stream_end_drops_the_fix(monkeypatch) -> None:
 
         def dict_stream(self, filter):
             if self.number == 1:
-                assert filter == ["TPV", "SKY"]
+                assert filter == ["TPV", "SKY", "DEVICE"]
                 availability.append(gps.is_available())
                 yield {"class": "SKY", "nSat": 5}
                 availability.append(gps.is_available())
@@ -376,3 +377,43 @@ def test_gpsd_stream_end_drops_the_fix(monkeypatch) -> None:
     assert sky_counts == [5, 5, 0]
     assert gps.get_satellites_in_view() is None
     assert not gps.is_available()
+
+
+@pytest.mark.parametrize("deactivated_path", ["/dev/ttyGPS", "/dev/ttyOTHER", None])
+def test_gpsd_clears_fix_when_its_receiver_deactivates(monkeypatch, deactivated_path) -> None:
+    from gpsdclient import GPSDClient
+
+    gps = GpsdProvider()
+    receiver = "/dev/ttyGPS"
+    fix = {"class": "TPV", "device": receiver, "mode": 3, "lat": BERLIN[0], "lon": BERLIN[1]}
+    deactivated = {"class": "DEVICE", "activated": 0}
+    if deactivated_path is not None:
+        deactivated["path"] = deactivated_path
+    snapshots = []
+
+    def snapshot() -> None:
+        snapshots.append(
+            (gps.is_available(), gps.has_fix(), gps.get_location(), gps.get_satellites_in_view())
+        )
+
+    def gpsd_lines(_client):
+        yield '{"class":"VERSION","release":"3.25"}'
+        yield json.dumps({"class": "SKY", "device": receiver, "nSat": 5}, separators=(",", ":"))
+        yield json.dumps(fix, separators=(",", ":"))
+        yield json.dumps({"class": "DEVICE", "path": receiver}, separators=(",", ":"))
+        snapshot()  # informational DEVICE reports leave the fix intact
+        yield json.dumps(deactivated, separators=(",", ":"))
+        snapshot()  # the watcher remains open after the deactivation
+        yield json.dumps(fix, separators=(",", ":"))
+        snapshot()
+        gps.stop()
+
+    monkeypatch.setattr(GPSDClient, "gpsd_lines", gpsd_lines)
+    gps._running = True
+    gps._run()
+
+    active = (True, True, BERLIN, 5)
+    if deactivated_path in (receiver, None):
+        assert snapshots == [active, (False, False, None, None), (True, True, BERLIN, None)]
+    else:
+        assert snapshots == [active, active, active]

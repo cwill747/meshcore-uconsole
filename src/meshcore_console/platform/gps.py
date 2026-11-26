@@ -506,6 +506,7 @@ class GpsdProvider:
         # A TCP connection alone does not tell us if gpsd has a receiver.
         self._reachable = False
         self._sky_report: tuple[int, float] | None = None
+        self._fix_device: str | None = None
 
     def start(self) -> None:
         if self._running:
@@ -517,11 +518,15 @@ class GpsdProvider:
 
     def stop(self) -> None:
         self._running = False
+        self._clear_receiver_state()
+        logger.debug("GpsdProvider: stopped")
+
+    def _clear_receiver_state(self) -> None:
         self._has_fix = False
         self._latitude = self._longitude = None
+        self._fix_device = None
         self._sky_report = None
         self._reachable = False
-        logger.debug("GpsdProvider: stopped")
 
     def get_location(self) -> tuple[float, float] | None:
         # Only a current fix: after the fix (or gpsd) was lost the last
@@ -559,7 +564,7 @@ class GpsdProvider:
         if count is not None:
             self._sky_report = (count, monotonic())
 
-    def _update_location(self, lat: float, lon: float) -> None:
+    def _update_location(self, lat: float, lon: float, *, device: str | None = None) -> None:
         if lat == 0.0 and lon == 0.0:
             return
         if not self._has_fix:
@@ -567,6 +572,7 @@ class GpsdProvider:
             logger.info("GpsdProvider: fix acquired")  # never log the position itself
         self._latitude = lat
         self._longitude = lon
+        self._fix_device = device
         if self._callback:
             self._callback(lat, lon)
 
@@ -580,13 +586,22 @@ class GpsdProvider:
             try:
                 logger.debug("GpsdProvider: connecting to %s:%d", self._host, self._port)
                 with GPSDClient(host=self._host, port=self._port) as client:
-                    for result in client.dict_stream(filter=["TPV", "SKY"]):
+                    for result in client.dict_stream(filter=["TPV", "SKY", "DEVICE"]):
                         if not self._running:
                             return
+                        report_type = result.get("class")
+                        if report_type == "DEVICE":
+                            # A receiver can deactivate while the WATCH stream stays open.
+                            path = result.get("path")
+                            if result.get("activated") == 0 and (
+                                self._fix_device is None or path in (None, self._fix_device)
+                            ):
+                                self._clear_receiver_state()
+                            continue
                         # gpsdclient connects lazily when the stream starts.
                         backoff = 1.0
                         self._reachable = True
-                        if result.get("class") == "SKY":
+                        if report_type == "SKY":
                             self._record_sky_status(result)
                             continue
                         mode = result.get("mode", 0)
@@ -598,7 +613,9 @@ class GpsdProvider:
                         lat = result.get("lat")
                         lon = result.get("lon")
                         if lat is not None and lon is not None:
-                            self._update_location(float(lat), float(lon))
+                            self._update_location(
+                                float(lat), float(lon), device=result.get("device")
+                            )
                 # The stream ended without an error: gpsd closed the connection
                 # (restart, shutdown).  Its fix ended with it.
                 if not self._running:
@@ -608,9 +625,7 @@ class GpsdProvider:
                 if not self._running:
                     return
                 reason = f"gpsd connection error: {e}"
-            self._has_fix = False  # no gpsd stream, no current position
-            self._sky_report = None
-            self._reachable = False
+            self._clear_receiver_state()
             self._last_error = reason
             logger.warning("GpsdProvider: %s (retry in %.0fs)", reason, backoff)
             # Back off before reconnecting (after a close too: a gpsd that
