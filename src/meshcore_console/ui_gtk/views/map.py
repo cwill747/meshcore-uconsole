@@ -11,7 +11,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 if TYPE_CHECKING:
     pass
@@ -139,6 +139,11 @@ class MapView(Gtk.Box):
         # Get the map widget and viewport
         map_widget = self._map.get_map()
         self._viewport = map_widget.get_viewport()
+        # The canvas is the map's keyboard target (SimpleMap is only its frame)
+        self._map_widget = map_widget
+        map_widget.set_focusable(True)
+        map_widget.set_focus_on_click(True)
+        map_widget.update_property([Gtk.AccessibleProperty.LABEL], ["Map"])
 
         self._archive = self._load_archives()
         settings = self._service.get_settings()
@@ -184,6 +189,12 @@ class MapView(Gtk.Box):
         # Add control overlays
         self._add_map_controls(overlay)
 
+        # Handle zoom before Shumate can activate its own zoom binding.
+        zoom_keys = Gtk.EventControllerKey.new()
+        zoom_keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        zoom_keys.connect("key-pressed", self._on_zoom_key)
+        main.add_controller(zoom_keys)
+
         # Details panel (initially hidden)
         self._details_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self._details_panel.add_css_class("panel-card")
@@ -220,6 +231,25 @@ class MapView(Gtk.Box):
             tiles,
         )
 
+    def _on_zoom_key(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        state: Gdk.ModifierType,
+    ) -> bool:
+        if state & (
+            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK
+        ):
+            return False
+        if keyval in (Gdk.KEY_equal, Gdk.KEY_plus, Gdk.KEY_KP_Add):
+            self._zoom(1)
+        elif keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+            self._zoom(-1)
+        else:
+            return False
+        return True
+
     def _add_map_controls(self, overlay: Gtk.Overlay) -> None:
         """Add zoom and location controls as overlay."""
         # Zoom controls in bottom-right
@@ -229,17 +259,18 @@ class MapView(Gtk.Box):
         zoom_box.set_margin_end(12)
         zoom_box.set_margin_bottom(12)
 
-        zoom_in = Gtk.Button.new_from_icon_name("zoom-in-symbolic")
-        zoom_in.add_css_class("map-control-button")
-        zoom_in.update_property([Gtk.AccessibleProperty.LABEL], ["Zoom in"])
-        zoom_in.connect("clicked", self._on_zoom_in)
-        zoom_box.append(zoom_in)
-
-        zoom_out = Gtk.Button.new_from_icon_name("zoom-out-symbolic")
-        zoom_out.add_css_class("map-control-button")
-        zoom_out.update_property([Gtk.AccessibleProperty.LABEL], ["Zoom out"])
-        zoom_out.connect("clicked", self._on_zoom_out)
-        zoom_box.append(zoom_out)
+        for icon, label, shortcut, step in (
+            ("zoom-in-symbolic", "Zoom in", "= or +", 1),
+            ("zoom-out-symbolic", "Zoom out", "−", -1),
+        ):
+            button = Gtk.Button.new_from_icon_name(icon)
+            button.add_css_class("map-control-button")
+            button.set_halign(Gtk.Align.END)
+            button.set_focusable(False)
+            button.set_tooltip_text(f"{label} ({shortcut})")
+            button.update_property([Gtk.AccessibleProperty.LABEL], [label])
+            button.connect("clicked", self._on_zoom_button_clicked, step)
+            zoom_box.append(button)
 
         self._map_hint = Gtk.Label(halign=Gtk.Align.CENTER, valign=Gtk.Align.START)
         self._map_hint.set_margin_top(12)
@@ -304,22 +335,14 @@ class MapView(Gtk.Box):
             mock_label.set_margin_top(12)
             overlay.add_overlay(mock_label)
 
-    def _on_zoom_in(self, _button: Gtk.Button) -> None:
-        """Zoom in on the map."""
-        logger.debug("UI: map zoom in")
-        self._await_fix = False
-        self._programmatic_move = True
-        current = self._viewport.get_zoom_level()
-        self._viewport.set_zoom_level(min(current + 1, MAX_ZOOM))
-        self._programmatic_move = False
+    def _on_zoom_button_clicked(self, _button: Gtk.Button, step: int) -> None:
+        self._zoom(step)
 
-    def _on_zoom_out(self, _button: Gtk.Button) -> None:
-        """Zoom out on the map."""
-        logger.debug("UI: map zoom out")
+    def _zoom(self, step: int) -> None:
         self._await_fix = False
-        self._programmatic_move = True
         current = self._viewport.get_zoom_level()
-        self._viewport.set_zoom_level(max(current - 1, 0))
+        self._programmatic_move = True
+        self._viewport.set_zoom_level(max(0, min(current + step, MAX_ZOOM)))
         self._programmatic_move = False
 
     def _on_center_device(self, _button: Gtk.Button) -> None:
@@ -841,8 +864,8 @@ class MapView(Gtk.Box):
 
     def get_default_focus(self) -> Gtk.Widget:
         """Return the widget that should receive focus when this view is shown."""
-        if hasattr(self, "_map"):
-            return self._map
+        if hasattr(self, "_map_widget"):
+            return self._map_widget
         return self
 
     def _on_close_details(self, _button: Gtk.Button) -> None:
