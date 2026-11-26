@@ -23,10 +23,17 @@ from meshcore_console.platform.saved_maps import save_area
 def select_area(view, overlay):
     canvas = Gtk.DrawingArea(hexpand=True, vexpand=True)
     overlay.add_overlay(canvas)
-    bar = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER, valign=Gtk.Align.START)
+    bar = Gtk.Box(
+        orientation=Gtk.Orientation.VERTICAL,
+        spacing=4,
+        halign=Gtk.Align.CENTER,
+        valign=Gtk.Align.START,
+    )
     bar.set_margin_top(12)
     bar.add_css_class("map-area-picker")
-    bar.append(Gtk.Label(label="Drag a rectangle or choose an area"))
+    bar.append(Gtk.Label(label="Drag a rectangle or choose an area", wrap=True))
+    actions = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
+    bar.append(actions)
     rect = []
 
     def remove(*_):
@@ -94,14 +101,14 @@ def select_area(view, overlay):
     center = Gtk.Button(label="Center third")
     center.set_tooltip_text("Select the middle cell of a 3 × 3 grid over the map")
     center.connect("clicked", choose_extent, 1 / 3)
-    bar.append(center)
+    actions.append(center)
     whole = Gtk.Button(label="Whole view")
     whole.set_tooltip_text("Select the entire visible map")
     whole.connect("clicked", choose_extent, 0)
-    bar.append(whole)
+    actions.append(whole)
     cancel = Gtk.Button(label="Cancel")
     cancel.connect("clicked", remove)
-    bar.append(cancel)
+    actions.append(cancel)
 
     def cancel_with_escape(_controller, keyval, _keycode, _state):
         if keyval != Gdk.KEY_Escape:
