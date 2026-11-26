@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+from meshcore_console.core.models import GpsState
+
 View = tuple[float, float, float]  # latitude, longitude, zoom level
 
 DEVICE_ZOOM = 12.0  # streets around this device
@@ -59,3 +61,34 @@ def initial_view(
     if peers:
         return fit_view(peers), "peers"
     return WORLD, "world"
+
+
+def valid_coordinates(lat: float, lon: float) -> bool:
+    """A real position: finite, in range, and not 0,0 (the "unset" value)."""
+    return (
+        math.isfinite(lat)
+        and math.isfinite(lon)
+        and -90.0 <= lat <= 90.0
+        and -180.0 <= lon <= 180.0
+        and (lat != 0.0 or lon != 0.0)
+    )
+
+
+def gps_status_label(state: GpsState) -> tuple[str, str]:
+    """The map's GPS status text and its status-pill state (ok/warn/offline).
+
+    The receiver's state stays visible when the map shows the configured
+    fixed location instead of a live position."""
+    if state.fix:
+        return "GPS fix", "ok"
+    if not state.available:
+        gps, pill = "GPS unavailable", "offline"
+    else:
+        gps, pill = "No GPS fix", "warn"
+        if state.satellites_in_view is not None:
+            count = state.satellites_in_view
+            unit = "satellite" if count == 1 else "satellites"
+            gps += f" · {count} {unit} in view"
+    if state.manual:
+        return f"Fixed location · {gps}", pill
+    return gps, pill

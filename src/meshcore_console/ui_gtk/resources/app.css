@@ -561,6 +561,24 @@ button.map-control-button:checked:hover {
   background: alpha(@mc_accent, 0.35);
 }
 
+/* GPS status beside My Location: the status pill colours, made opaque so
+   the text stays readable over map tiles */
+.status-pill.map-gps-status {
+  border: 1px solid @mc_border;
+}
+
+.status-pill.map-gps-status.ok {
+  background: mix(@mc_surface, @mc_accent, 0.25);
+}
+
+.status-pill.map-gps-status.warn {
+  background: mix(@mc_surface, @mc_warn, 0.25);
+}
+
+.status-pill.map-gps-status.offline {
+  background: mix(@mc_surface, @mc_danger, 0.3);
+}
+
 .map-details-panel {
   margin: 8px;
   border-left: 1px solid @mc_border;

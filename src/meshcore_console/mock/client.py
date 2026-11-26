@@ -13,11 +13,13 @@ from meshcore_console.core.models import (
     DM_PREFIX,
     Channel,
     DeviceStatus,
+    GpsState,
     Message,
     Peer,
     RepeaterLoginState,
     dm_channel_id,
 )
+from meshcore_console.core.map_view import valid_coordinates
 from meshcore_console.core.services import MeshcoreService
 from meshcore_console.meshcore.channel_db import check_channel_name
 from meshcore_console.meshcore.config import runtime_config_from_settings
@@ -283,7 +285,18 @@ class MockMeshcoreClient(MeshcoreService):
         self._map_view = (lat, lon, zoom)
 
     def get_device_location(self) -> tuple[float, float] | None:
-        return self._gps_provider.get_location()
+        """Live (mock) GPS first, then the fixed position from Settings, as
+        the real client does."""
+        loc = self._gps_provider.get_location()
+        if loc is not None:
+            return loc
+        return self._fixed_position()
+
+    def _fixed_position(self) -> tuple[float, float] | None:
+        lat, lon = self._settings.latitude, self._settings.longitude
+        if valid_coordinates(lat, lon):
+            return (lat, lon)
+        return None
 
     def is_mock_mode(self) -> bool:
         return True
@@ -302,8 +315,19 @@ class MockMeshcoreClient(MeshcoreService):
         return None
 
     def has_gps_fix(self) -> bool:
-        """Return True if GPS has acquired a fix (always True for mock)."""
-        return True
+        """Return True if the mock GPS has a fix (it does while running,
+        unless a test took it away)."""
+        return self._gps_provider.has_fix()
+
+    def get_gps_state(self) -> GpsState:
+        available = self._gps_provider.is_available()
+        live = self._gps_provider.get_location() is not None
+        return GpsState(
+            available=available,
+            fix=available and live and self._gps_provider.has_fix(),
+            manual=not live and self._fixed_position() is not None,
+            satellites_in_view=self._gps_provider.get_satellites_in_view(),
+        )
 
     def set_favorite(self, peer_id: str, favorite: bool) -> None:
         """Toggle the favorite flag on a peer."""

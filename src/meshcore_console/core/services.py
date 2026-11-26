@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Protocol
 
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
+from meshcore_console.core.models import (
+    Channel,
+    DeviceStatus,
+    GpsState,
+    Message,
+    Peer,
+    RepeaterLoginState,
+)
 from meshcore_console.core.types import MeshEventDict, SendResultDict
 
 if TYPE_CHECKING:
@@ -116,6 +123,11 @@ class MeshcoreService(Protocol):
 
     def has_gps_fix(self) -> bool:
         """Return True if GPS has acquired a satellite fix."""
+        ...
+
+    def get_gps_state(self) -> GpsState:
+        """Receiver availability, current fix, and whether the device position
+        is the configured fixed location (for the map's GPS status)."""
         ...
 
     def set_favorite(self, peer_id: str, favorite: bool) -> None:
