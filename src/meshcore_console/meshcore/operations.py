@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import struct
 import time
+from typing import Callable
 
 from meshcore_console.core.types import (
     EmitCallback,
@@ -22,6 +24,20 @@ def _resolve_contact(node: MeshNodeProtocol, peer_name: str) -> object:
         if contact is not None:
             return contact
     raise RuntimeError(f"Contact '{peer_name}' not found")
+
+
+def _resolve_contact_by_key(node: MeshNodeProtocol, peer_name: str, public_key: str) -> object:
+    """The contact holding ``public_key``, never another by its name.
+
+    A key-bound DM thread must reach that node: its name may since have
+    passed to another node (renamed, or evicted and the name claimed).  If
+    the key is no longer a contact, fail rather than send to the name."""
+    contacts = node.contacts
+    if contacts is not None:
+        contact = contacts.get_by_key(public_key)
+        if contact is not None:
+            return contact
+    raise RuntimeError(f"Contact '{peer_name}' is no longer known (its key is not in the contacts)")
 
 
 def _route_type(contact: object) -> str:
@@ -46,9 +62,18 @@ DM_ATTEMPTS = 3
 
 
 async def send_text(
-    *, node: MeshNodeProtocol, peer_name: str, message: str, attempts: int = DM_ATTEMPTS
+    *,
+    node: MeshNodeProtocol,
+    peer_name: str,
+    message: str,
+    attempts: int = DM_ATTEMPTS,
+    public_key: str | None = None,
 ) -> dict:
     """Send a direct text message and wait for its ACK, retrying like the MeshCore apps.
+
+    With ``public_key`` the recipient is the contact with that key, resolved
+    here, where the packet is built (``peer_name`` only labels errors).
+    Without it, the contact named ``peer_name`` (name-only threads, the CLI).
 
     Each retry carries the next attempt number with the same timestamp (the
     receiver drops duplicates; the expected ACK changes with the attempt).  If
@@ -57,7 +82,10 @@ async def send_text(
     """
     from openhop_core.protocol.packet_builder import PacketBuilder
 
-    original = _resolve_contact(node, peer_name)
+    if public_key:
+        original = _resolve_contact_by_key(node, peer_name, public_key)
+    else:
+        original = _resolve_contact(node, peer_name)
     timestamp = int(time.time())
     ack_crc = 0
     for attempt in range(attempts):
@@ -224,6 +252,49 @@ async def request_owner_info(
     return reply
 
 
+async def request_repeater_data(
+    *,
+    node: MeshNodeProtocol,
+    peer_name: str,
+    req_type: int,
+    data: bytes,
+    timestamp: int,
+    waiters: dict[bytes, Callable[[bytes], None]],
+    timeout: float = 10.0,
+) -> bytes | None:
+    """A binary REQ to a logged-in repeater (status, neighbours, access list,
+    owner info); returns the reply bytes after the reflected tag, or None.
+
+    The reply comes back through openhop_core's binary response callback,
+    which the session routes to ``waiters`` by tag: unlike the parsed reply a
+    waiter gets, it carries the reply bytes unaltered (openhop_core's type
+    guess would read a long neighbours reply as status and cut it to 56 bytes).
+    """
+    from openhop_core.protocol.packet_builder import PacketBuilder
+
+    contact = _resolve_contact(node, peer_name)
+    pkt, tag = PacketBuilder.create_protocol_request(
+        contact, node.identity, protocol_code=req_type, data=data, timestamp=timestamp
+    )
+    key = struct.pack("<I", tag & 0xFFFFFFFF)
+    reply: dict[str, bytes] = {}
+    done = asyncio.Event()
+
+    def _on_reply(payload: bytes) -> None:
+        reply["data"] = payload
+        done.set()
+
+    waiters[key] = _on_reply
+    try:
+        await node.dispatcher.send_packet(pkt, wait_for_ack=False)
+        await asyncio.wait_for(done.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return None
+    finally:
+        waiters.pop(key, None)
+    return reply["data"]
+
+
 async def send_login(
     *,
     node: MeshNodeProtocol,
@@ -290,6 +361,7 @@ async def send_repeater_command(
     peer_name: str,
     command: str,
     timeout: float = 15.0,
+    timestamp: int | None = None,
 ) -> dict:
     """Send a CLI command to a repeater and wait for the response."""
     from openhop_core.protocol.packet_builder import PacketBuilder
@@ -318,6 +390,7 @@ async def send_repeater_command(
             message=command,
             message_type=_route_type(contact),
             txt_type=TXT_TYPE_CLI_DATA,
+            timestamp=timestamp,
         )
         await node.dispatcher.send_packet(pkt, wait_for_ack=False)
         await asyncio.wait_for(response_event.wait(), timeout=timeout)

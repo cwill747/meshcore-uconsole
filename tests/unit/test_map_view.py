@@ -66,3 +66,44 @@ def test_client_keeps_the_view_beside_the_settings(tmp_path, monkeypatch) -> Non
     store.save(store.load())
     assert store.load() == MeshcoreSettings()
     assert client.get_map_view() == (51.3397, 12.3731, 11.0)
+
+
+def test_map_zoom_keys_match_button_steps() -> None:
+    from types import SimpleNamespace
+
+    import pytest
+
+    pytest.importorskip("gi")
+    from meshcore_console.ui_gtk.views.map import Gdk, MapView
+
+    steps: list[int] = []
+    view = SimpleNamespace(_zoom=steps.append)
+    for key, modifiers in (
+        (Gdk.KEY_equal, Gdk.ModifierType(0)),
+        (Gdk.KEY_plus, Gdk.ModifierType.SHIFT_MASK),
+        (Gdk.KEY_KP_Add, Gdk.ModifierType(0)),
+        (Gdk.KEY_minus, Gdk.ModifierType(0)),
+        (Gdk.KEY_KP_Subtract, Gdk.ModifierType(0)),
+    ):
+        assert MapView._on_zoom_key(view, None, key, 0, modifiers)
+    assert steps == [1, 1, 1, -1, -1]
+    assert not MapView._on_zoom_key(view, None, Gdk.KEY_plus, 0, Gdk.ModifierType.CONTROL_MASK)
+    assert not MapView._on_zoom_key(view, None, Gdk.KEY_equal, 0, Gdk.ModifierType.CONTROL_MASK)
+    assert not MapView._on_zoom_key(view, None, Gdk.KEY_Right, 0, Gdk.ModifierType(0))
+    assert steps == [1, 1, 1, -1, -1]
+
+
+def test_map_default_focus_prefers_the_open_area_picker() -> None:
+    from types import SimpleNamespace
+
+    import pytest
+
+    pytest.importorskip("gi")
+    from meshcore_console.ui_gtk.views.map import MapView
+
+    canvas = object()
+    picker = SimpleNamespace(get_mapped=lambda: True)
+    view = SimpleNamespace(_area_picker_focus=picker, _map_widget=canvas)
+    assert MapView.get_default_focus(view) is picker
+    view._area_picker_focus = None
+    assert MapView.get_default_focus(view) is canvas

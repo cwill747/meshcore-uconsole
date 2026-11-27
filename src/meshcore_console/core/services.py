@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Protocol
 
-from meshcore_console.core.models import Channel, DeviceStatus, Message, Peer, RepeaterLoginState
+from meshcore_console.core.models import (
+    Channel,
+    DeviceStatus,
+    GpsState,
+    Message,
+    Peer,
+    RepeaterLoginState,
+)
 from meshcore_console.core.types import MeshEventDict, SendResultDict
 
 if TYPE_CHECKING:
@@ -59,8 +66,12 @@ class MeshcoreService(Protocol):
         """True for a group channel joined with its own (non-derivable) key."""
         ...
 
-    def ensure_dm_channel(self, peer_name: str) -> Channel:
-        """The DM thread with ``peer_name`` (channel id ``dm:<name>``), created if needed."""
+    def ensure_dm_channel(self, peer_name: str, public_key: str | None = None) -> Channel:
+        """The DM thread with a peer, created if needed.
+
+        Pass the peer's ``public_key`` when it is known: the thread is then
+        that node's (``dm:<key>``) whoever holds ``peer_name`` by now.
+        Without it the name is looked up (``dm:<name>`` if it has no key)."""
         ...
 
     def send_advert(
@@ -118,6 +129,11 @@ class MeshcoreService(Protocol):
         """Return True if GPS has acquired a satellite fix."""
         ...
 
+    def get_gps_state(self) -> GpsState:
+        """Receiver availability, current fix, and whether the device position
+        is the configured fixed location (for the map's GPS status)."""
+        ...
+
     def set_favorite(self, peer_id: str, favorite: bool) -> None:
         """Toggle the favorite flag on a peer."""
         ...
@@ -141,6 +157,22 @@ class MeshcoreService(Protocol):
     def logout_from_repeater(self, peer_name: str) -> None: ...
 
     def send_repeater_command(self, peer_name: str, command: str) -> dict: ...
+
+    def get_repeater_status(self, peer_name: str) -> dict | None:
+        """Repeater counters (battery, uptime, airtime, noise floor, packets); None on no reply."""
+        ...
+
+    def get_repeater_owner_info(self, peer_name: str) -> dict | None:
+        """{"version", "name", "owner_info"} from the repeater; None on no reply."""
+        ...
+
+    def get_repeater_neighbours(self, peer_name: str) -> list[dict] | None:
+        """[{"pubkey" (6-byte prefix), "name" or None, "secs_ago", "snr"}], newest first."""
+        ...
+
+    def get_repeater_access_list(self, peer_name: str) -> list[dict] | None:
+        """[{"key" (6-byte prefix), "role", "name" or None}]; admin login only."""
+        ...
 
     def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None: ...
 

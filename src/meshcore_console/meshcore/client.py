@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import concurrent.futures
 import logging
+import secrets
 import threading
 from collections import deque
 from itertools import chain, count
@@ -11,16 +12,18 @@ from datetime import UTC, datetime
 from typing import Callable
 from uuid import uuid4
 
-from meshcore_console.core.map_view import decode_view, encode_view
+from meshcore_console.core.map_view import decode_view, encode_view, valid_coordinates
 from meshcore_console.core.enums import EventType, PayloadType
 from meshcore_console.core.models import (
     DM_PREFIX,
     Channel,
     DeviceStatus,
+    GpsState,
     Message,
     Peer,
     RepeaterLoginState,
     dm_channel_id,
+    dm_thread_key,
     is_dm_channel_id,
 )
 from meshcore_console.core.radio import rssi_to_signal_percent
@@ -100,6 +103,12 @@ CONNECT_TIMEOUT_S = 30.0
 DM_SEND_TIMEOUT_S = 45.0
 MAX_PEERS = 500
 MAP_VIEW_KEY = "ui.map_view"  # settings-table row: the map's last view
+# Repeater neighbour lists: firmware fills at most 130 bytes of entries per
+# reply (key prefix + 4-byte age + 1-byte SNR each).
+NEIGHBOUR_KEY_PREFIX = 6
+NEIGHBOURS_PER_PAGE = 130 // (NEIGHBOUR_KEY_PREFIX + 5)
+NEIGHBOUR_PAGES_MAX = 10
+ACL_ROLES = {0: "guest", 1: "read-only", 2: "read-write", 3: "admin"}  # PERM_ACL_*
 
 
 def dm_message_id(data: dict) -> str | None:
@@ -412,9 +421,16 @@ class MeshcoreClient(MeshcoreService):
             public_key = peer.public_key if peer is not None else None
         return dm_channel_id(peer_name, public_key)
 
-    def ensure_dm_channel(self, peer_name: str) -> Channel:
-        """The DM thread with ``peer_name``, created if necessary."""
-        channel_id = self._dm_thread_id(peer_name)
+    def ensure_dm_channel(self, peer_name: str, public_key: str | None = None) -> Channel:
+        """The DM thread with a peer, created if necessary.
+
+        By ``public_key`` when given: the name may since have passed to
+        another node.  Otherwise by the key of the peer now called
+        ``peer_name``, or by the name for a peer without a known key."""
+        if public_key:
+            # Label the thread with the key's current name if known.
+            peer_name = self._peer_name_for_key(public_key) or peer_name
+        channel_id = self._dm_thread_id(peer_name, public_key)
         channel = self._channels.get(channel_id)
         if channel is None:
             channel = Channel(
@@ -435,7 +451,13 @@ class MeshcoreClient(MeshcoreService):
         if channel_id.startswith(DM_PREFIX):
             if display_name is not None and display_name.startswith("#"):
                 check_channel_name(display_name)  # a group name in the DM namespace
-            rest = channel_id[len(DM_PREFIX) :]  # a key, or a name
+            key = dm_thread_key(channel_id)
+            if key is not None:
+                # Bound to a key: stay that node's thread, even if the given
+                # name is somebody else's by now (or the key isn't known)
+                name = self._peer_name_for_key(key) or display_name or key
+                return self.ensure_dm_channel(name, public_key=key)
+            rest = channel_id[len(DM_PREFIX) :]  # a name
             return self.ensure_dm_channel(display_name or self._peer_name_for_key(rest) or rest)
         is_group = (
             channel_id == "public"
@@ -579,8 +601,13 @@ class MeshcoreClient(MeshcoreService):
             # Use the original-case peer name from the channel so openhop_core
             # can find the contact in the contact book (case-sensitive lookup).
             resolved_name = channel.peer_name or channel.display_name
+            # A thread bound to a key goes to that key's contact, resolved when
+            # the packet is built: never to whoever holds the name by then.
+            # Name-only threads keep sending by name.
+            key = dm_thread_key(channel_id)
+            by_key = {"public_key": key} if key else {}
             result = self._run_async(
-                self._session.send_text(peer_name=resolved_name, message=body),
+                self._session.send_text(peer_name=resolved_name, message=body, **by_key),
                 timeout=DM_SEND_TIMEOUT_S,
             )
             acked = result.get("success") if isinstance(result, dict) else None
@@ -1297,25 +1324,13 @@ class MeshcoreClient(MeshcoreService):
             {"type": EventType.SETTINGS_UPDATED, "data": {"node_name": updated.node_name}}
         )
 
-    @staticmethod
-    def _valid_coords(lat: float, lon: float) -> bool:
-        import math
-
-        return (
-            math.isfinite(lat)
-            and math.isfinite(lon)
-            and -90.0 <= lat <= 90.0
-            and -180.0 <= lon <= 180.0
-            and (lat != 0.0 or lon != 0.0)
-        )
-
     def _resolve_position(self) -> tuple[float, float] | None:
         """Live GPS first, then settings fixed position as fallback."""
         loc = self._gps_provider.get_location()
-        if loc and self._valid_coords(loc[0], loc[1]):
+        if loc and valid_coordinates(loc[0], loc[1]):
             return loc
         lat, lon = self._settings.latitude, self._settings.longitude
-        if self._valid_coords(lat, lon):
+        if valid_coordinates(lat, lon):
             return (lat, lon)
         return None
 
@@ -1355,6 +1370,24 @@ class MeshcoreClient(MeshcoreService):
     def has_gps_fix(self) -> bool:
         """Return True if GPS has acquired a satellite fix."""
         return self._gps_provider.has_fix()
+
+    def get_gps_state(self) -> GpsState:
+        """From the provider's state and where the position comes from.
+
+        Neither the location (it may be the fixed position from Settings) nor
+        the error text (the serial provider reports waiting for a fix as one)
+        says on its own whether a receiver is there."""
+        available = self._gps_provider.is_available()
+        loc = self._gps_provider.get_location()
+        live = loc is not None and valid_coordinates(loc[0], loc[1])
+        configured = valid_coordinates(self._settings.latitude, self._settings.longitude)
+        return GpsState(
+            available=available,
+            # never a fix from a receiver that is gone
+            fix=available and live and self._gps_provider.has_fix(),
+            manual=not live and configured,
+            satellites_in_view=self._gps_provider.get_satellites_in_view() if available else None,
+        )
 
     def set_favorite(self, peer_id: str, favorite: bool) -> None:
         """Toggle the favorite flag on a peer."""
@@ -1451,6 +1484,87 @@ class MeshcoreClient(MeshcoreService):
             }
         )
         return result
+
+    # --- remote repeater management (binary requests; needs a login) -------
+
+    def _repeater_request(self, peer_name: str, req_type: int, data: bytes = b"") -> bytes | None:
+        if not self._connected:
+            self.connect()
+        return self._run_async(
+            self._session.repeater_request(peer_name, req_type, data), timeout=15.0
+        )
+
+    def get_repeater_status(self, peer_name: str) -> dict | None:
+        """The repeater's counters: battery, uptime, airtime, noise floor, packets."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.STATUS)
+        if data is None:
+            return None
+        key_prefix = self._repeater_key(peer_name)[:12] or "000000000000"
+        return parse_binary_response(BinaryReqType.STATUS, data, pubkey_prefix=key_prefix)
+
+    def get_repeater_owner_info(self, peer_name: str) -> dict | None:
+        """Firmware version, node name and owner info."""
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.OWNER_INFO)
+        if data is None:
+            return None
+        # the reply ends in the zero padding of its last AES block
+        text = data.rstrip(b"\x00").decode("utf-8", "replace")
+        version, name, owner = (text.split("\n", 2) + ["", ""])[:3]
+        return {"version": version.strip(), "name": name.strip(), "owner_info": owner.strip()}
+
+    def get_repeater_neighbours(self, peer_name: str) -> list[dict] | None:
+        """Every neighbour the repeater has heard, newest first, fetched page by
+        page (one reply holds at most 11 entries with 6-byte key prefixes)."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        neighbours: list[dict] = []
+        offset = 0
+        for _ in range(NEIGHBOUR_PAGES_MAX):
+            request = bytes([0, NEIGHBOURS_PER_PAGE]) + offset.to_bytes(2, "little")
+            request += bytes([0, NEIGHBOUR_KEY_PREFIX]) + secrets.token_bytes(4)
+            data = self._repeater_request(peer_name, BinaryReqType.NEIGHBOURS, request)
+            if data is None:
+                return neighbours or None
+            page = parse_binary_response(
+                BinaryReqType.NEIGHBOURS,
+                data,
+                context={"pubkey_prefix_length": NEIGHBOUR_KEY_PREFIX},
+            )
+            for entry in page.get("neighbours", []):
+                entry["name"] = self._known_name_for_prefix(entry["pubkey"])
+                neighbours.append(entry)
+            offset += page.get("results_count", 0)
+            if not page.get("results_count") or offset >= page.get("neighbours_count", 0):
+                break
+        return neighbours
+
+    def get_repeater_access_list(self, peer_name: str) -> list[dict] | None:
+        """Who may log in, by 6-byte key prefix and role (admin login only)."""
+        from openhop_core.companion.binary_parsing import parse_binary_response
+        from openhop_core.companion.constants import BinaryReqType
+
+        data = self._repeater_request(peer_name, BinaryReqType.ACL, b"\x00\x00")
+        if data is None:
+            return None
+        entries = parse_binary_response(BinaryReqType.ACL, data).get("acl", [])
+        return [
+            {
+                "key": e["key"],
+                "role": ACL_ROLES.get(e["perm"] & 3, "guest"),
+                "name": self._known_name_for_prefix(e["key"]),
+            }
+            for e in entries
+        ]
+
+    def _known_name_for_prefix(self, prefix_hex: str) -> str | None:
+        name = self._name_for_key_prefix(prefix_hex)
+        return None if name == prefix_hex.lower() else name
 
     def get_repeater_login_state(self, peer_name: str) -> RepeaterLoginState | None:
         return self._repeater_sessions.get(peer_name)

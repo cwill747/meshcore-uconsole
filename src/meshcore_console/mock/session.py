@@ -64,7 +64,9 @@ class MockOpenHopCoreSession:
         )
         self._emit_notify()
 
-    async def send_text(self, peer_name: str, message: str) -> MeshEventDict:
+    async def send_text(
+        self, peer_name: str, message: str, public_key: str | None = None
+    ) -> MeshEventDict:
         self._event_queue.put_nowait(
             {
                 "type": "mock_message_tx",
