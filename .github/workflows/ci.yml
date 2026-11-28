@@ -158,9 +158,9 @@ jobs:
 
           \`\`\`bash
           # Bookworm (Debian 12)
-          sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1~bookworm_arm64.deb
+          sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1.bookworm_arm64.deb
           # Trixie (Debian 13)
-          sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1~trixie_arm64.deb
+          sudo apt install ./meshcore-uconsole_${VERSION_NUM}-1.trixie_arm64.deb
           \`\`\`
 
           EOF
@@ -206,23 +206,63 @@ jobs:
           mkdir -p site/pool/bookworm site/pool/trixie
           for deb in staging/*.deb; do
             [ -f "$deb" ] || continue
-            name=$(basename "$deb")
-            if echo "$name" | grep -q '~bookworm'; then
-              cp "$deb" site/pool/bookworm/
-            else
-              cp "$deb" site/pool/trixie/
-            fi
+            # GitHub can replace the tilde in an asset name. The Debian
+            # Version inside the package retains the suite suffix.
+            version=$(dpkg-deb -f "$deb" Version)
+            case "$version" in
+              *~bookworm) distro=bookworm ;;
+              *~trixie) distro=trixie ;;
+              *~*) echo "::error::Unsupported Debian version suffix: $version"; exit 1 ;;
+              *) distro=trixie ;; # Legacy assets without a suite suffix.
+            esac
+            cp "$deb" "site/pool/$distro/"
           done
-          echo "Bookworm pool:" && ls -la site/pool/bookworm/ || true
-          echo "Trixie pool:" && ls -la site/pool/trixie/ || true
 
       - name: Generate APT metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # A manual run rebuilds Pages from the latest published release,
+          # not from the version in the branch it runs on.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+          else
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+            version="${tag#v}"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Cannot determine the expected release version: $version"
+            exit 1
+          fi
+
           cd site
           for distro in bookworm trixie; do
             mkdir -p "dists/${distro}/main/binary-arm64"
-            dpkg-scanpackages --arch arm64 "pool/${distro}" > "dists/${distro}/main/binary-arm64/Packages"
-            gzip -9c "dists/${distro}/main/binary-arm64/Packages" > "dists/${distro}/main/binary-arm64/Packages.gz"
+            index="dists/${distro}/main/binary-arm64/Packages"
+            dpkg-scanpackages --arch arm64 "pool/${distro}" > "$index"
+            # Check the selected entry, not just that a .deb exists in the pool.
+            if ! awk -v version="$version" -v distro="$distro" '
+              BEGIN { RS=""; FS="\n" }
+              {
+                package = arch = package_version = filename = ""
+                for (i = 1; i <= NF; i++) {
+                  if ($i ~ /^Package: /) package = substr($i, 10)
+                  if ($i ~ /^Architecture: /) arch = substr($i, 15)
+                  if ($i ~ /^Version: /) package_version = substr($i, 10)
+                  if ($i ~ /^Filename: /) filename = substr($i, 11)
+                }
+                suffix = "~" distro
+                if (package == "meshcore-uconsole" && arch == "arm64" &&
+                    index(package_version, version "-") == 1 &&
+                    substr(package_version, length(package_version) - length(suffix) + 1) == suffix &&
+                    index(filename, "pool/" distro "/") == 1) found = 1
+              }
+              END { exit !found }
+            ' "$index"; then
+              echo "::error::$distro APT index does not select meshcore-uconsole $version for arm64"
+              exit 1
+            fi
+            gzip -9c "$index" > "$index.gz"
             (
               cd "dists/${distro}"
               apt-ftparchive \
