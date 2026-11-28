@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v1.14.0 (2026-11-27)
+
+### Feat
+
+- **admin**: manage repeaters remotely from tabs for status, neighbours, settings, and access lists (#106)
+- **map**: download named Protomaps areas for offline use and choose from readable area presets (#109, #110)
+- **map**: prefer cached tiles and refresh the visible area; show GPS status and satellites (#108, #110)
+
+### Fix
+
+- **messages**: route direct messages to the original peer by public key, even after a contact rename (#111)
+- **map**: revalidate stale cached tiles, retain them on network errors, and fit the area picker beside peer details (#108, #110)
+- **gps**: clear the fix when its gpsd receiver deactivates (#110)
+- **map**: make zoom controls easier to use (#110)
+- **storage**: publish identity keys atomically and serialize database migrations
+
 ## v1.13.0 (2026-11-13)
 
 ### Feat
